@@ -100,16 +100,21 @@ def schedule_dates(start: date, rounds: int, interval_days: int = 7) -> list[dat
     return [start + timedelta(days=interval_days * index) for index in range(rounds)]
 
 
-def overall_from_market_value(value_eur: int, age: int | None, reputation: int) -> int:
-    """Gameplay rating estimate; this is not a sourced rating or scouting grade."""
+def overall_from_market_value(
+    value_eur: int, age: int | None, reputation: int, seed: int = 0
+) -> int:
+    """Gameplay rating estimate; never presented as an official EA/Transfermarkt rating."""
     age = age or 24
+    rng = random.Random(seed)
     if value_eur > 0:
         value_component = 44 + 13 * math.log10(max(value_eur, 10_000) / 10_000)
         age_component = 5 if 21 <= age <= 28 else 0 if age < 21 else -max(0, age - 29) * 0.65
-        score = value_component + age_component
+        score = value_component + age_component + rng.randint(-2, 2)
     else:
         score = 44 + reputation * 0.34
         score += 3 if 20 <= age <= 27 else -max(0, age - 30) * 0.6
+        # Without a sourced value, players still need a realistic quality spread.
+        score += rng.randint(-8, 8)
     return int(round(clamp(score, 35, 92)))
 
 
