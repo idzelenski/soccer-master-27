@@ -33,7 +33,10 @@ class CreateSaveIn(BaseModel):
 
 
 class TacticIn(BaseModel):
-    formation: str = Field(default="4-3-3", pattern=r"^(4-3-3|4-2-3-1|4-4-2|3-5-2|3-4-3|5-3-2)$")
+    formation: str = Field(
+        default="4-3-3",
+        pattern=r"^(4-3-3|4-2-3-1|4-4-2|3-5-2|3-4-3|5-3-2|4-1-4-1|4-2-2-2|4-1-2-1-2|4-3-2-1|5-4-1|3-4-1-2|4-5-1|4-2-4)$",
+    )
     mentality: str = Field(default="balanced", pattern=r"^(defensive|balanced|positive|attacking)$")
     style: dict = Field(default_factory=dict)
     starting_xi: list[str] = Field(default_factory=list, max_length=11)
