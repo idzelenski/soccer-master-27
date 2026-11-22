@@ -1123,7 +1123,7 @@ def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
 
 
-@app.get("/api/health")
+@app.get("/api/health", response_model=None)
 def health() -> dict | JSONResponse:
     if not settings.database_url:
         return JSONResponse(
