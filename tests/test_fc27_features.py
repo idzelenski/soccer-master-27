@@ -268,3 +268,64 @@ def test_best_lineup_uses_global_role_assignment_for_wingers():
     by_role = dict(zip(roles, starters))
     assert by_role["LW"] == "true-lw"
     assert by_role["RW"] == "elite-rw"
+
+
+def test_calendar_context_menu_really_simulates_to_target_date():
+    from pathlib import Path
+
+    backend = Path("app/main.py").read_text(encoding="utf-8")
+    endpoint = backend.split('@app.post("/api/game/advance-to-date")', 1)[1].split(
+        '@app.get("/api/standings")', 1
+    )[0]
+    assert "status='scheduled'" in endpoint
+    assert "match_date::date>%s AND match_date::date<=%s" in endpoint
+    assert 'simulate_matchday(conn, save, row["match_date"])' in endpoint
+    assert "game_date=%s,simulation_cursor=%s" in endpoint
+
+
+def test_calendar_and_tour_notifications_only_show_managers_match():
+    from pathlib import Path
+
+    source = Path("app/static/app.js").read_text(encoding="utf-8")
+    assert "result.manager_result || (result.results || [])[0]" in source
+    assert "result.manager_result || (result.results || []).slice(-1)[0]" in source
+    assert "result.results.slice(0,3)" not in source
+
+
+def test_tone_and_morale_render_exactly_one_svg_each():
+    from pathlib import Path
+
+    source = Path("app/static/app.js").read_text(encoding="utf-8")
+    tone = source.split("function renderToneCrystals(value) {", 1)[1].split(
+        "function renderMoodFaces(value)", 1
+    )[0]
+    mood = source.split("function renderMoodFaces(value) {", 1)[1].split(
+        "const POSITION_TRAINING_OPTIONS", 1
+    )[0]
+    assert tone.count("<svg") == 1
+    assert mood.count("<svg") == 1
+    assert "const color = colors[level]" in tone
+    assert "const color = colors[level]" in mood
+
+
+def test_tabs_use_session_cache_and_player_lists_swap_without_move_buttons():
+    from pathlib import Path
+
+    source = Path("app/static/app.js").read_text(encoding="utf-8")
+    assert "tabCache: {}" in source
+    assert "state.tabCache[tab]" in source
+    assert "function locateTacticPlayer" in source
+    assert "function swapRosterPlayers" in source
+    assert 'data-release-player' not in source
+    assert 'data-promote-player' not in source
+
+
+def test_ai_lineup_refresh_excludes_the_managed_club():
+    from pathlib import Path
+
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    helper = source.split("def refresh_ai_lineups()", 1)[1].split(
+        "def create_schedule", 1
+    )[0]
+    assert "c.id<>%s" in helper
+    assert "best_lineup(players, formation)" in helper
