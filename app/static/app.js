@@ -212,7 +212,7 @@ function renderSquad(players) {
       ? money(player.market_value)
       : 'Нет оценки';
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
-      <td><span class="rating">${player.overall}</span></td>
+      <td><span class="rating">${player.dynamic_overall ?? player.overall}</span></td>
       <td><span class="player-name">${esc(player.nationality_flag || '🏳️')} ${esc(player.name)}</span>
         ${player.original_data?.generated ? '<div class="player-source-generated">Игровой игрок SM27</div>' : ''}</td>
       <td><span class="position-tag">${esc(player.position)}</span></td>
@@ -255,7 +255,7 @@ function showPlayerDetails(playerId) {
       <div class="player-modal-head">
         <div class="player-modal-flag">${esc(player.nationality_flag || '🏳️')}</div>
         <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>${esc(player.name)}</h2><p>${esc(player.nationality || 'Национальность не указана')} · ${player.age} лет · ${esc(player.position)}</p></div>
-        <div class="player-modal-ratings"><b>${player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
+        <div class="player-modal-ratings"><b>${player.dynamic_overall ?? player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
       </div>
       <div class="player-modal-grid">
         <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Нет данных'}</b></div>
@@ -376,7 +376,7 @@ function ensureTacticState(players, tactics) {
   state.tacticSlots = starters.slice(0,11).map(p => String(p.id));
   const savedBench = (tactics.bench || []).map(id => String(id)).filter(id => existing.has(id) && !state.tacticSlots.includes(id));
   state.tacticBench = savedBench.slice(0,9);
-  const fillBench = rest.filter(p => !state.tacticBench.includes(String(p.id))).sort((a,b)=>b.overall-a.overall);
+  const fillBench = rest.filter(p => !state.tacticBench.includes(String(p.id))).sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall));
   while(state.tacticBench.length<7 && fillBench.length) state.tacticBench.push(String(fillBench.shift().id));
   state.tacticSettings = {
     build_up: "balanced", chance_creation: "balanced", pressing: "on_mistake",
@@ -404,14 +404,14 @@ function renderTactics(players, tactics) {
   const pitchPlayers = slots.map((slot,index) => {
     const player = byId.get(state.tacticSlots[index]);
     const selected = state.selectedTacticSlot === index;
-    const rating = player ? player.overall + positionPenalty(player,slot.role) : null;
+    const rating = player ? (player.dynamic_overall ?? player.overall) + positionPenalty(player,slot.role) : null;
     return `<button class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
       <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? esc(player.name.split(" ").slice(-1)[0]) : "Выбрать"}</em>
     </button>`;
   }).join("");
   const benchIds = new Set(state.tacticBench);
   const bench = state.tacticBench.map(id => {
-    const p=byId.get(id); return p ? `<button class="tactic-player-row bench-player" data-player-id="${esc(id)}"><b>${p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button>` : "";
+    const p=byId.get(id); return p ? `<button class="tactic-player-row bench-player" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button>` : "";
   }).join("");
   const reserves = players.filter(p => !state.tacticSlots.includes(String(p.id)) && !benchIds.has(String(p.id)))
     .sort((a,b)=>b.overall-a.overall)
