@@ -56,3 +56,18 @@ def test_stronger_team_wins_more_often_over_a_large_sample():
         result = simulate_score(100, 37, 86, 52, seed=seed)
         outcomes.append(result["home_score"] > result["away_score"])
     assert sum(outcomes) / len(outcomes) >= 0.78
+
+
+def test_equal_reputation_league_still_rewards_a_stronger_starting_xi():
+    equal = expected_goals(65, 65, 65, 65)
+    stronger = expected_goals(65, 65, 80, 65)
+    assert stronger[0] > equal[0]
+    assert stronger[1] < equal[1]
+
+
+def test_strong_xi_is_favoured_even_when_catalog_reputation_is_flat():
+    outcomes = []
+    for seed in range(400):
+        result = simulate_score(65, 65, 80, 65, seed=seed)
+        outcomes.append(result["home_score"] > result["away_score"])
+    assert sum(outcomes) / len(outcomes) >= 0.58
