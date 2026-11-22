@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import math
@@ -33,11 +34,50 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOGGER = logging.getLogger("sm27")
 
 
+def _run_fc27_rating_import() -> None:
+    try:
+        from scripts.import_fc27_ratings import main as import_ratings
+        import_ratings(settings.database_url)
+        with connection() as conn:
+            conn.execute(
+                """UPDATE fc27_import_state SET status='succeeded',finished_at=now(),error_message=NULL
+                   WHERE import_key='ratings'"""
+            )
+        LOGGER.info("One-time FC 27 rating import completed")
+    except Exception as error:
+        LOGGER.exception("FC 27 rating import failed; the app will keep using labelled SM27 estimates")
+        try:
+            with connection() as conn:
+                conn.execute(
+                    """UPDATE fc27_import_state SET status='failed',finished_at=now(),error_message=%s
+                       WHERE import_key='ratings'""",
+                    (str(error)[:500],),
+                )
+        except Exception:
+            LOGGER.exception("Could not record FC 27 import failure state")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     if settings.database_url:
+        start_fc27_import = False
         with connection() as conn:
             migrate(conn)
+            state = conn.execute(
+                """SELECT status,(attempted_at < now()-interval '30 minutes') AS retryable
+                   FROM fc27_import_state WHERE import_key='ratings'"""
+            ).fetchone()
+            if not state or (state["status"] != "succeeded" and state["retryable"]):
+                conn.execute(
+                    """INSERT INTO fc27_import_state (import_key,status,attempted_at,finished_at,error_message)
+                       VALUES ('ratings','running',now(),NULL,NULL)
+                       ON CONFLICT (import_key) DO UPDATE SET status='running',
+                           attempted_at=now(),finished_at=NULL,error_message=NULL"""
+                )
+                start_fc27_import = True
+        if start_fc27_import:
+            LOGGER.info("FC 27 rating catalog is empty; starting one-time import in the app process")
+            asyncio.create_task(asyncio.to_thread(_run_fc27_rating_import))
     yield
     close_pool()
 
