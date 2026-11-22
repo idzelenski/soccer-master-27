@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
-const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3' };
+const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {} };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
@@ -14,22 +14,6 @@ function flagImage(code) {
   return src
     ? '<img class="national-flag" src="' + src + '" alt="Флаг ' + esc(String(code).toUpperCase()) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">'
     : '';
-}
-function stateIcons(kind, value) {
-  const score = Math.max(0, Math.min(100, Number(value ?? (kind === 'sharpness' ? 85 : 70))));
-  const active = Math.max(0, Math.min(5, Math.ceil(score / 20)));
-  const palette = kind === 'sharpness'
-    ? ['#91a4b7','#57a9d8','#42c7c8','#54cf91','#a58bff']
-    : ['#e45d65','#ed9250','#e8c75b','#8fcf70','#45c98a'];
-  const icons = palette.map((color,index) => {
-    const opacity = index < active ? 1 : .2;
-    if (kind === 'sharpness') {
-      return `<svg viewBox="0 0 18 22" aria-hidden="true" style="opacity:${opacity}"><path d="M9 1 16 8 9 21 2 8Z" fill="${color}" stroke="${color}" stroke-width="1.2"/><path d="M9 1 9 21M2 8h14" stroke="#fff" stroke-opacity=".45" stroke-width=".8" fill="none"/></svg>`;
-    }
-    const mouth = ['M5 13q4-3 8 0','M5 13q4-1 8 0','M5 12q4 1 8 0','M5 11q4 3 8 0','M5 10q4 5 8 0'][index];
-    return `<svg viewBox="0 0 20 20" aria-hidden="true" style="opacity:${opacity}"><circle cx="10" cy="10" r="8.5" fill="${color}"/><circle cx="7" cy="7.5" r="1" fill="#18231d"/><circle cx="13" cy="7.5" r="1" fill="#18231d"/><path d="${mouth}" stroke="#18231d" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>`;
-  }).join('');
-  return `<span class="state-icons ${kind}" title="${kind === 'sharpness' ? 'Тонус' : 'Настрой'}: ${score}/100">${icons}</span>`;
 }
 const TRAINING_POSITIONS = {
   GK:[], RB:['LB','RWB'], LB:['RB','LWB'], CB:['CDM'], RWB:['RB','RM'], LWB:['LB','LM'],
@@ -67,6 +51,7 @@ async function api(url, options = {}) {
       : (data.detail || `Не удалось выполнить запрос (${response.status}).`);
     throw new Error(message);
   }
+  if ((options.method || 'GET').toUpperCase() !== 'GET') state.tabCache = {};
   return data;
 }
 function flagIcon(code, label = 'Флаг страны') {
@@ -77,20 +62,18 @@ function flagIcon(code, label = 'Флаг страны') {
 }
 function renderToneCrystals(value) {
   const score = Math.max(0, Math.min(100, Number(value ?? 85)));
-  const active = Math.max(0, Math.min(5, Math.ceil(score / 20)));
+  const level = Math.max(0, Math.min(4, Math.ceil(score / 20) - 1));
   const colors = ['#ff6c79','#ffad55','#efd15c','#83d477','#58c9d8'];
-  return `<span class="tone-crystals" role="img" aria-label="Тонус ${score} из 100">${colors.map((color,index) => {
-    const opacity = index < active ? 1 : .28;
-    return `
-    <svg viewBox="0 0 16 19" aria-hidden="true" style="opacity:${opacity}">
-      <path d="M8 1 14 5 12 14 8 18 4 14 2 5Z" fill="${color}" stroke="${color}" stroke-width="1"/>
-      <path d="M8 1 8 18M2 5 14 5M4 14 12 14" fill="none" stroke="#102117" stroke-width=".8" opacity=".65"/>
-    </svg>`;
-  }).join('')}</span>`;
+  const color = colors[level];
+  return '<span class="tone-crystals" role="img" aria-label="Тонус ' + score + ' из 100">' +
+    '<svg viewBox="0 0 16 19" aria-hidden="true">' +
+    '<path d="M8 1 14 5 12 14 8 18 4 14 2 5Z" fill="' + color + '" stroke="' + color + '" stroke-width="1"/>' +
+    '<path d="M8 1 8 18M2 5 14 5M4 14 12 14" fill="none" stroke="#102117" stroke-width=".8" opacity=".65"/>' +
+    '</svg></span>';
 }
 function renderMoodFaces(value) {
   const score = Math.max(0, Math.min(100, Number(value ?? 70)));
-  const active = Math.max(0, Math.min(4, Math.ceil(score / 20) - 1));
+  const level = Math.max(0, Math.min(4, Math.ceil(score / 20) - 1));
   const colors = ['#f06b72','#f29a52','#e8c95a','#8dce72','#55c8a1'];
   const mouths = [
     'M5.5 10.8 Q8 8.4 10.5 10.8',
@@ -99,14 +82,12 @@ function renderMoodFaces(value) {
     'M5.5 9.8 Q8 12.3 10.5 9.8',
     'M5 9.2 Q8 13.5 11 9.2'
   ];
-  const faces = colors.map((color,index) => {
-    const opacity = index === active ? 1 : .32;
-    return '<svg viewBox="0 0 16 16" aria-hidden="true" style="opacity:' + opacity + '">' +
-      '<circle cx="8" cy="8" r="7" fill="' + color + '" stroke="' + color + '" stroke-width=".8"/>' +
-      '<path d="M5.4 6.2v.2M10.6 6.2v.2' + mouths[index] + '" fill="none" stroke="#17231d" stroke-width="1.25" stroke-linecap="round"/>' +
-      '</svg>';
-  }).join('');
-  return '<span class="mood-faces" role="img" aria-label="Настрой ' + score + ' из 100">' + faces + '</span>';
+  const color = colors[level];
+  return '<span class="mood-faces" role="img" aria-label="Настрой ' + score + ' из 100">' +
+    '<svg viewBox="0 0 16 16" aria-hidden="true">' +
+    '<circle cx="8" cy="8" r="7" fill="' + color + '" stroke="' + color + '" stroke-width=".8"/>' +
+    '<path d="M5.4 6.2v.2M10.6 6.2v.2' + mouths[level] + '" fill="none" stroke="#17231d" stroke-width="1.25" stroke-linecap="round"/>' +
+    '</svg></span>';
 }
 const POSITION_TRAINING_OPTIONS = {
   GK: [], RB: ['LB','RWB'], LB: ['RB','LWB'], CB: ['CDM'],
@@ -479,14 +460,44 @@ function positionPenalty(player, target) {
   return (distances[primary] || {})[target] ?? -7;
 }
 function optimiseLineup(players, formation) {
-  const remaining = [...players];
-  const starters = [];
-  for (const slot of formationSlots(formation)) {
-    if (!remaining.length) break;
-    remaining.sort((a,b) => (b.overall + positionPenalty(b,slot.role)) - (a.overall + positionPenalty(a,slot.role)));
-    starters.push(remaining.shift());
+  const roles = formationSlots(formation).map(slot => slot.role);
+  const fullMask = (1 << roles.length) - 1;
+  const blank = Array(roles.length).fill(null);
+  let dp = new Map([[0, {score: 0, path: blank}]]);
+  const ordered = [...players].sort((a,b) => String(a.id).localeCompare(String(b.id)));
+
+  for (const player of ordered) {
+    const next = new Map(dp);
+    for (const [mask, entry] of dp.entries()) {
+      for (let index = 0; index < roles.length; index++) {
+        const bit = 1 << index;
+        if (mask & bit) continue;
+        const candidateMask = mask | bit;
+        const candidatePath = [...entry.path];
+        candidatePath[index] = player;
+        const candidateScore = entry.score
+          + Number(player.dynamic_overall ?? player.overall ?? 0)
+          + positionPenalty(player, roles[index]);
+        const previous = next.get(candidateMask);
+        const candidateKey = candidatePath.map(item => String(item?.id ?? '')).join('|');
+        const previousKey = previous ? previous.path.map(item => String(item?.id ?? '')).join('|') : '';
+        if (!previous || candidateScore > previous.score
+          || (candidateScore === previous.score && candidateKey < previousKey)) {
+          next.set(candidateMask, {score: candidateScore, path: candidatePath});
+        }
+      }
+    }
+    dp = next;
   }
-  return {starters,remaining};
+  const best = dp.get(fullMask);
+  const starters = best ? best.path.filter(Boolean) : [];
+  if (starters.length !== roles.length) {
+    const fallback = [...players].sort((a,b) => Number(b.dynamic_overall ?? b.overall) - Number(a.dynamic_overall ?? a.overall));
+    return {starters: fallback.slice(0, roles.length), remaining: fallback.slice(roles.length)};
+  }
+  const selected = new Set(starters.map(player => String(player.id)));
+  const remaining = players.filter(player => !selected.has(String(player.id)));
+  return {starters, remaining};
 }
 function ensureTacticState(players, tactics) {
   const formation = tactics.formation || "4-3-3";
@@ -554,11 +565,19 @@ function renderTactics(players, tactics) {
   const reserveIds = currentReserveIds();
   const bench = state.tacticBench.map(id => {
     const p=byId.get(id);
-    return p ? `<div class="tactic-roster-item"><button class="tactic-player-row bench-player ${state.selectedTacticPlayer===String(id)?"selected":""}" draggable="true" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button><button class="roster-action" data-release-player="${esc(id)}" title="Переместить в резерв">В резерв</button></div>` : "";
+    return p ? '<div class="tactic-roster-item"><button class="tactic-player-row bench-player ' +
+      (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
+      '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + esc(p.name) +
+      '<small>' + esc(p.position) + ' · запас</small></span></button></div>' : '';
   }).join("");
   const reserves = reserveIds.map(id=>{
     const p=byId.get(id);
-    return p ? `<div class="tactic-roster-item"><button class="tactic-player-row reserve-player ${state.selectedTacticPlayer===String(id)?"selected":""}" draggable="true" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · резерв</small></span></button><button class="roster-action" data-promote-player="${esc(id)}" title="Добавить в запас">В запас</button></div>` : "";
+    return p ? '<div class="tactic-roster-item"><button class="tactic-player-row reserve-player ' +
+      (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
+      '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + esc(p.name) +
+      '<small>' + esc(p.position) + ' · резерв</small></span></button></div>' : '';
   }).join("");
   const settings = state.tacticSettings;
   const select = (id,label,value,options) => `<label class="tactic-setting"><span>${label}</span><select id="${id}" class="select-input">${options.map(([v,l])=>`<option value="${v}" ${value===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
@@ -578,11 +597,11 @@ function renderTactics(players, tactics) {
     </div>
     <div class="tactic-layout tactic-layout-full">
       <section class="panel tactic-board-panel">
-        <div class="panel-head"><h3>Тактическое поле</h3><span>Для обмена в запасе/резерве выбери двух игроков в списках ниже — поле выбирать не нужно</span></div>
+        <div class="panel-head"><h3>Тактическое поле</h3><span>Нажми на двух игроков в любой группе, чтобы поменять их местами</span></div>
         <div class="pitch pitch-football" id="tactic-pitch"><div class="pitch-line"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-circle"></div>${pitchPlayers}</div>
         <div class="catalog-note"><span>ⓘ</span><span>ОВР на поле учитывает позиционный штраф. Родная и дополнительная позиция не снижают рейтинг. Позиция вратаря и полевого игрока — штраф 40.</span></div>
-        <div class="squad-bench-block"><div class="panel-head"><h3>Запас</h3><span>5–9 игроков · клик или перетаскивание для обмена</span></div><div class="tactic-roster-grid" id="tactic-bench">${bench || '<p class="empty-state">Скамейка пуста</p>'}</div></div>
-        <div class="squad-bench-block"><div class="panel-head"><h3>Резерв</h3><span>Кликни по двум игрокам или перетащи одного на другого</span></div><div class="tactic-roster-grid reserves-list" id="tactic-reserves">${reserves || '<p class="empty-state">В резерве пока нет игроков</p>'}</div></div>
+        <div class="squad-bench-block"><div class="panel-head"><h3>Запас</h3><span>5–9 игроков · нажми на двух игроков для обмена</span></div><div class="tactic-roster-grid" id="tactic-bench">${bench || '<p class="empty-state">Скамейка пуста</p>'}</div></div>
+        <div class="squad-bench-block"><div class="panel-head"><h3>Резерв</h3><span>Нажми на двух игроков для обмена с основой или запасом</span></div><div class="tactic-roster-grid reserves-list" id="tactic-reserves">${reserves || '<p class="empty-state">В резерве пока нет игроков</p>'}</div></div>
       </section>
       <aside class="panel tactic-controls tactic-settings-panel">
         <div class="panel-head"><h3>Тактика команды</h3><span>Установки на матч</span></div>
@@ -599,45 +618,45 @@ function renderTactics(players, tactics) {
       </aside>
     </div>`;
 }
-function swapTacticPlayers(slotIndex, playerId) {
+function locateTacticPlayer(playerId) {
   const id = String(playerId);
-  const current = state.tacticSlots[slotIndex];
-  const fromSlot = state.tacticSlots.indexOf(id);
-  if (fromSlot >= 0) {
-    state.tacticSlots[slotIndex] = id;
-    state.tacticSlots[fromSlot] = current || null;
-  } else {
-    state.tacticSlots[slotIndex] = id;
-    state.tacticBench = state.tacticBench.filter(player => player !== id);
-    state.tacticReserve = (state.tacticReserve || []).filter(player => player !== id);
-    if (current && !state.tacticBench.includes(current)) {
-      if (state.tacticBench.length < 9) state.tacticBench.push(current);
-      else state.tacticReserve.push(current);
-    }
-  }
-  state.selectedTacticSlot = null;
-  state.selectedTacticPlayer = null;
-  redrawTactics();
+  const xiIndex = state.tacticSlots.indexOf(id);
+  if (xiIndex >= 0) return {kind: 'xi', index: xiIndex};
+  const benchIndex = state.tacticBench.indexOf(id);
+  if (benchIndex >= 0) return {kind: 'bench', index: benchIndex};
+  const reserveIndex = currentReserveIds().indexOf(id);
+  if (reserveIndex >= 0) return {kind: 'reserve', index: reserveIndex};
+  return null;
 }
 function swapRosterPlayers(firstId, secondId) {
   const a = String(firstId), b = String(secondId);
   if (!a || !b || a === b) return;
-  const benchA = state.tacticBench.indexOf(a);
-  const benchB = state.tacticBench.indexOf(b);
-  const reserve = currentReserveIds();
-  const reserveA = reserve.indexOf(a);
-  const reserveB = reserve.indexOf(b);
-  if (benchA >= 0 && benchB >= 0) {
-    [state.tacticBench[benchA], state.tacticBench[benchB]] = [state.tacticBench[benchB], state.tacticBench[benchA]];
-  } else if (reserveA >= 0 && reserveB >= 0) {
-    [state.tacticReserve[reserveA], state.tacticReserve[reserveB]] = [state.tacticReserve[reserveB], state.tacticReserve[reserveA]];
-  } else if (benchA >= 0 && reserveB >= 0) {
-    state.tacticBench[benchA] = b;
-    state.tacticReserve[reserveB] = a;
-  } else if (reserveA >= 0 && benchB >= 0) {
-    state.tacticBench[benchB] = a;
-    state.tacticReserve[reserveA] = b;
+  const first = locateTacticPlayer(a);
+  const second = locateTacticPlayer(b);
+  if (!first || !second) return;
+  const collections = {xi: state.tacticSlots, bench: state.tacticBench, reserve: state.tacticReserve};
+  const firstList = collections[first.kind];
+  const secondList = collections[second.kind];
+  [firstList[first.index], secondList[second.index]] = [secondList[second.index], firstList[first.index]];
+  state.selectedTacticPlayer = null;
+  state.selectedTacticSlot = null;
+  redrawTactics();
+}
+function swapTacticPlayers(slotIndex, playerId) {
+  const targetId = String(playerId);
+  const currentId = state.tacticSlots[slotIndex];
+  if (currentId) {
+    swapRosterPlayers(currentId, targetId);
+    return;
   }
+  const target = locateTacticPlayer(targetId);
+  if (!target) return;
+  if (target.kind === 'xi') state.tacticSlots[target.index] = null;
+  else {
+    const list = target.kind === 'bench' ? state.tacticBench : state.tacticReserve;
+    list.splice(target.index, 1);
+  }
+  state.tacticSlots[slotIndex] = targetId;
   state.selectedTacticPlayer = null;
   state.selectedTacticSlot = null;
   redrawTactics();
@@ -697,22 +716,6 @@ function setupTacticsInteractions() {
     state.selectedTacticPlayer=state.selectedTacticPlayer===id ? null : id;
     redrawTactics();
   }));
-  document.querySelectorAll("[data-release-player]").forEach(button=>button.addEventListener("click",event=>{
-    event.stopPropagation();
-    if(state.tacticBench.length<=5){toast("В запасе должно остаться минимум 5 игроков",true);return;}
-    state.tacticBench=state.tacticBench.filter(id=>id!==button.dataset.releasePlayer);
-    state.tacticReserve.push(button.dataset.releasePlayer);
-    state.selectedTacticPlayer=null;
-    redrawTactics();
-  }));
-  document.querySelectorAll("[data-promote-player]").forEach(button=>button.addEventListener("click",event=>{
-    event.stopPropagation();
-    if(state.tacticBench.length>=9){toast("В запасе может быть максимум 9 игроков",true);return;}
-    state.tacticBench.push(button.dataset.promotePlayer);
-    state.tacticReserve=state.tacticReserve.filter(id=>id!==button.dataset.promotePlayer);
-    state.selectedTacticPlayer=null;
-    redrawTactics();
-  }));
   const pitch=document.getElementById("tactic-pitch");
   pitch?.querySelectorAll("[data-pitch-slot]").forEach(slot=>{
     slot.addEventListener("dragstart",event=>{
@@ -732,35 +735,6 @@ function setupTacticsInteractions() {
       if(from && to && from!==to) swapRosterPlayers(from,to);
     });
   });
-  const moveRosterDrop = (selector, destination) => {
-    const zone=document.querySelector(selector);
-    zone?.addEventListener("dragover",event=>event.preventDefault());
-    zone?.addEventListener("drop",event=>{
-      if(event.target.closest(".tactic-player-row")) return;
-      event.preventDefault();
-      const id=String(event.dataTransfer.getData("text/player-id") || "");
-      if(!id || state.tacticSlots.includes(id)) return;
-      const reserve=currentReserveIds();
-      const inBench=state.tacticBench.includes(id);
-      const inReserve=reserve.includes(id);
-      if(!inBench && !inReserve) return;
-      if(destination==="bench"){
-        if(!inBench && state.tacticBench.length>=9){toast("В запасе может быть максимум 9 игроков",true);return;}
-        state.tacticBench=state.tacticBench.filter(value=>value!==id);
-        if(!state.tacticBench.includes(id)) state.tacticBench.push(id);
-        state.tacticReserve=state.tacticReserve.filter(value=>value!==id);
-      }else{
-        if(inBench && state.tacticBench.length<=5){toast("В запасе должно остаться минимум 5 игроков",true);return;}
-        state.tacticBench=state.tacticBench.filter(value=>value!==id);
-        state.tacticReserve=state.tacticReserve.filter(value=>value!==id);
-        state.tacticReserve.push(id);
-      }
-      state.selectedTacticPlayer=null;
-      redrawTactics();
-    });
-  };
-  moveRosterDrop("#tactic-bench","bench");
-  moveRosterDrop("#tactic-reserves","reserve");
   pitch?.querySelectorAll("[data-drop-slot]").forEach(slot=>{
     slot.addEventListener("dragover",event=>event.preventDefault());
     slot.addEventListener("drop",event=>{
@@ -880,20 +854,40 @@ function setupCalendarInteractions() {
     });
     button.addEventListener("contextmenu", async event => {
       event.preventDefault();
-      const cells = Array.from(document.querySelectorAll("[data-calendar-date]"));
       const targetDate = button.dataset.calendarDate;
+      const currentDate = String(state.save?.game_date || "2026-07-01").slice(0,10);
+      if (targetDate < currentDate) {
+        toast("Нельзя перемотать карьеру назад. Выбери текущую или будущую дату.",true);
+        return;
+      }
+      const cells = Array.from(document.querySelectorAll("[data-calendar-date]"));
       const targetIndex = cells.findIndex(cell => cell.dataset.calendarDate === targetDate);
       if (targetIndex < 0) return;
-      let currentIndex = cells.findIndex(cell => cell.dataset.calendarDate === state.selectedCalendarDate);
-      if (currentIndex < 0) currentIndex = Math.max(0, cells.findIndex(cell => cell.dataset.calendarDate === state.save?.game_date));
-      if (currentIndex < 0) currentIndex = 0;
+      let currentIndex = cells.findIndex(cell => cell.dataset.calendarDate === currentDate);
+      if (currentIndex < 0) currentIndex = targetIndex;
       const direction = targetIndex >= currentIndex ? 1 : -1;
       for (let index = currentIndex; index !== targetIndex + direction; index += direction) {
         cells.forEach((cell, cellIndex) => cell.classList.toggle("selected", cellIndex === index));
         state.selectedCalendarDate = cells[index].dataset.calendarDate;
         if (index !== targetIndex) await new Promise(resolve => setTimeout(resolve, 24));
       }
-      await renderCurrent();
+      button.disabled = true;
+      try {
+        const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(targetDate), {
+          method: 'POST', body: '{}'
+        });
+        if (state.save) state.save.game_date = result.game_date;
+        const ownMatch = (result.results || [])[0];
+        if (ownMatch) {
+          toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
+        } else {
+          toast('Дата обновлена: ' + dateLabel(targetDate) + '. Твой клуб в этот день не играл.');
+        }
+        await renderCurrent();
+      } catch (err) {
+        toast(err.message,true);
+        await renderCurrent();
+      }
     });
   });
 }
@@ -904,25 +898,49 @@ function renderTable(rows) {
     <section class="panel"><div class="panel-head"><h3>${esc(state.save?.league || 'Лига')}</h3><span>СЕЗОН 2026 / 27</span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead><tbody>${rows.map((r,i)=>`<tr class="${r.name===state.save?.club_name?'me-row':''}"><td>${i+1}</td><td><div class="team-cell">${crest(r.name, r.logo_url)}${esc(r.name)}</div></td><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference||0}</td><td><b>${r.points}</b></td></tr>`).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div></section>`;
 }
 async function renderCurrent() {
+  const tab = state.tab;
+  const titles = {home:'Обзор',squad:'Состав',tactics:'Тактика',fixtures:'Календарь',table:'Таблица'};
+  const title = titles[tab] || 'SM27';
+  const cached = state.tabCache[tab];
+  if (!cached) {
+    shell(pageHead('ЦЕНТР УПРАВЛЕНИЯ', 'Загружаем ' + title.toLowerCase(), 'Получаем данные карьеры…') +
+      '<section class="panel"><div class="empty-state"><strong>Загрузка…</strong>Первый запрос может разбудить бесплатную базу данных.</div></section>', title);
+  }
   try {
-    if (state.tab === 'home') {
-      const data = await api('/api/dashboard'); state.save = data.save; shell(renderHome(data), 'Обзор');
+    if (tab === 'home') {
+      const data = cached || await api('/api/dashboard');
+      state.tabCache.home = data;
+      state.save = data.save;
+      shell(renderHome(data), 'Обзор');
       document.getElementById('advance-game')?.addEventListener('click', advanceGame);
-      document.querySelectorAll('[data-nav="table"]').forEach((button) => button.addEventListener('click',()=>{state.tab='table';renderCurrent();}));
-    } else if (state.tab === 'squad') {
-      const players = await api('/api/squad'); state.squad = players; shell(renderSquad(players), 'Состав');
+      document.querySelectorAll('[data-nav="table"]').forEach(button => button.addEventListener('click',()=>{state.tab='table';renderCurrent();}));
+    } else if (tab === 'squad') {
+      const players = cached || await api('/api/squad');
+      state.tabCache.squad = players;
+      state.squad = players;
+      shell(renderSquad(players), 'Состав');
       document.querySelectorAll('[data-player-details]').forEach(row => row.addEventListener('click', () => showPlayerDetails(row.dataset.playerDetails)));
-    } else if (state.tab === 'tactics') {
-      const [players,tactics] = await Promise.all([api('/api/squad'),api('/api/tactics')]);
-      state.squad=players; state.tactics=tactics; ensureTacticState(players,tactics);
-      shell(renderTactics(players,tactics),'Тактика'); setupTacticsInteractions();
-    } else if (state.tab === 'fixtures') {
-      const rows = await api('/api/fixtures?limit=400'); state.fixtures=rows; shell(renderFixtures(rows),'Календарь'); setupCalendarInteractions();
-    } else if (state.tab === 'table') {
-      const rows = await api('/api/standings'); shell(renderTable(rows),'Таблица');
+    } else if (tab === 'tactics') {
+      const data = cached || await Promise.all([api('/api/squad'),api('/api/tactics')]).then(([players,tactics])=>({players,tactics}));
+      state.tabCache.tactics = data;
+      state.squad = data.players;
+      state.tactics = data.tactics;
+      ensureTacticState(data.players,data.tactics);
+      shell(renderTactics(data.players,data.tactics),'Тактика');
+      setupTacticsInteractions();
+    } else if (tab === 'fixtures') {
+      const rows = cached || await api('/api/fixtures?limit=400');
+      state.tabCache.fixtures = rows;
+      state.fixtures = rows;
+      shell(renderFixtures(rows),'Календарь');
+      setupCalendarInteractions();
+    } else if (tab === 'table') {
+      const rows = cached || await api('/api/standings');
+      state.tabCache.table = rows;
+      shell(renderTable(rows),'Таблица');
     }
   } catch (err) {
-    if (err.message.includes('Сохранение не найдено')) { state.save=null; await loadClubPage(); }
+    if (err.message.includes('Сохранение не найдено')) { state.save=null; state.tabCache={}; await loadClubPage(); }
     else toast(err.message,true);
   }
 }
@@ -943,8 +961,11 @@ async function advanceGame() {
   const button = document.getElementById('advance-game'); if(button){button.disabled=true;button.textContent='Симулируем матчи…';}
   try {
     const result = await api('/api/game/advance',{method:'POST',body:'{}'});
-    const summary = result.results.slice(0,3).map(r=>`${r.home} ${r.home_score}:${r.away_score} ${r.away}`).join(' · ');
-    toast(`Тур сыгран. ${summary}`); state.tab='home'; await renderCurrent();
+    const ownMatch = result.manager_result || (result.results || [])[0];
+    if (ownMatch) toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
+    else if (result.new_season) toast('Начался новый сезон ' + result.new_season);
+    else toast('Тур сыгран. Твой клуб в этом туре не играл.');
+    state.tab='home'; await renderCurrent();
   } catch(err){toast(err.message,true);if(button){button.disabled=false;button.textContent='Сыграть тур →';}}
 }
 async function logout() {
