@@ -2,8 +2,14 @@ name: SM27 checks
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - 'summary.txt'
+      - '**/*.md'
   pull_request:
     branches: [main]
+    paths-ignore:
+      - 'summary.txt'
+      - '**/*.md'
 permissions:
   contents: read
 jobs:
