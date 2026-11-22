@@ -1,5 +1,5 @@
 SOCCER MASTER 27 (SM27) — PROJECT SUMMARY
-Последнее обновление: 2026-11-22
+Последнее обновление: 2026-11-22 17:22 UTC
 Язык общения и интерфейса: русский.
 
 1. ЦЕЛЬ ПРОЕКТА
@@ -75,14 +75,14 @@ SM27 — футбольный менеджер / симулятор карьер
 8. RENDER — ПОДТВЕРЖДЁННОЕ СОСТОЯНИЕ НА 2026-11-22
 - Пользователь подтвердил использование единственного Render workspace "My Workspace" (id tea-dc1amkd9fdbs73aabkbg). Workspace — область аккаунта для группировки сервисов/настроек, не тариф и не отдельный сервер.
 - В workspace два ресурса: основной Web Service "soccer-master-27" (id srv-dc1d7ll9fdbs73ah75sg, Free, Frankfurt, 1 instance, URL https://soccer-master-27.onrender.com) и Static Site "sm27-catalog-bootstrap" (id srv-dc1dccd6e07s73d2g80g, URL https://sm27-catalog-bootstrap.onrender.com). У Web Service autoDeploy=yes / trigger=commit; у Static Site autoDeploy=no. Static Site — bootstrap/import инструмент, не постоянный worker.
-- Последний успешный production deploy Web Service: dep-dc1d8vec6qcc73ahv9h0, live, commit 4be5d36100cdc2ee081ca5f92cf97aa23cbb8a31 (11:39 UTC). Он НЕ содержит актуальный main commit 510c7bc от 16:48 UTC. В истории сервиса после 11:40 UTC не найдено новых deploy/build events, хотя настройка autoDeploy показывает yes. Причина, почему webhook/autodeploy не запустился, не установлена. Не утверждать, что последняя версия main уже запущена.
+- Текущий успешный production deploy Web Service: dep-dc1i9bafngtc73fo52vg, status live, commit 4ef39652917585b53f8ae4a095e0d1bd6df1d10c (2026-11-22 17:22:32 UTC). Логи подтверждают Application startup complete, Uvicorn running, GET / → 200 OK. Предыдущая попытка dep-dc1i88etlv9c73c67img завершилась ошибкой запуска; причина — точка с запятой в комментарии SQL-миграции 003, исправлено коммитом 4ef3965. Пользовательские данные не сбрасывались.
 - Фактическая настройка Web Service показывает healthCheckPath пустой, тогда как render.yaml задаёт /api/health; вероятно, сервис не полностью синхронизирован с текущим Blueprint YAML. Не менять это молча.
 - Build command Web Service: pip install -r requirements.txt; start: uvicorn app.main:app --host 0.0.0.0 --port $PORT. Free instance сейчас not_suspended.
 - Обязательная DATABASE_URL хранится только в Render Environment и должна быть pooled Neon connection string (host с -pooler, SSL sslmode=require). Секреты не коммитить.
 - Постоянные background workers не нужны: игровой тур симулируется по действию менеджера; free Render может засыпать.
 - Пользователь требует укладываться в бесплатные тарифы Neon, Render и GitHub. Это жёсткое архитектурное ограничение.
 - Render build filters официально поддерживаются: allowlist paths и ignoredPaths. Для текущего сервиса Build Filters можно выставить в Dashboard Settings → Build & Deploy; пример allowlist: app/**, scripts/**, sql/**, requirements.txt, pyproject.toml, render.yaml. Тогда summary.txt, README и прочая документация не будут запускать autodeploy. Это пока НЕ настроено/не подтверждено на текущем service. Render MCP в текущем наборе не предоставляет прямого update_service tool.
-- Никаких Render настроек, deploy, restart или env vars в аудите 2026-11-22 не изменяли. Деплой актуального main требует отдельного явного согласования из-за влияния на production и миграций.
+- В ходе повторной проверки 2026-11-22 выполнен ручной deploy актуального main через Render API после того, как autoDeploy=yes не запустил новый деплой самостоятельно. Сборка и запуск успешны. Render env vars, workspace и план сервиса не менялись.
 
 9. ROADMAP / НЕ РЕАЛИЗОВАНО ПОЛНОСТЬЮ
 - Полноценный трансферный рынок и переговоры/офферы.
@@ -117,7 +117,7 @@ SM27 — футбольный менеджер / симулятор карьер
 12. ТЕКУЩАЯ ЗАДАЧА / СЛЕДУЮЩЕЕ
 - Поддерживать root-файл summary.txt как единый накопительный проектный brief и обязательную точку синхронизации контекста.
 - В аудите 2026-11-22 пользователь подтвердил использование Render workspace My Workspace. Был проведён read-only аудит; Render settings, deploys, Neon данные и окружение не менялись.
-- Для production нужно отдельно согласовать deploy актуального main commit 510c7bc: фактический Render deployment всё ещё на 4be5d36. Этот шаг может применить текущие idempotent SQL migrations 002/003 и устранить подтверждённые ошибки старой версии, но должен быть выполнен только после отдельного согласия на деплой.
+- Не считать настройку autoDeploy достаточной гарантией: при последнем изменении SQL-файла новый deploy автоматически не появился, поэтому после следующих code commits проверять историю Render и вручную запускать deploy только если автодеплой не стартовал.
 - GitHub CI уже оптимизирован для docs-only коммитов через paths-ignore; дальнейшие изменения summary.txt не должны запускать workflow.
 - Render Build Filters для текущего Web Service не настроены/не проверены. Настроить allowlist через Dashboard Settings только после проверки текущей привязки сервиса; не изменять в обход пользователя.
 - Следующий кодовый аудит Neon должен приоритизировать batch inserts для создания карьеры и расписания, сокращение N+1 запросов и устранение лишних SELECT при запросах API. Сначала добавить тесты/сравнение результата, затем вносить изменения небольшими безопасными коммитами.
@@ -134,3 +134,27 @@ SM27 — футбольный менеджер / симулятор карьер
 - Render endpoint /api/health currently executes SELECT 1 against Neon. Если настроить его как частый platform health check, он может добавлять лишние запросы и будить Neon; предпочтителен лёгкий process liveness endpoint и отдельная ручная проверка БД. В фактических service settings healthCheckPath сейчас пустой.
 - Официальная документация Render Build Filters подтверждает paths allowlist / ignoredPaths denylist. Пути относительно корня репозитория; Blueprint changes bypass build filters. Для текущего сервиса Dashboard настройки ещё не менялись.
 - Вся проверка была read-only за исключением GitHub commits: обновлён .github/workflows/ci.yml для пропуска docs-only CI, и summary.txt. Render service, Neon schema/data/roles/settings и deploy state не изменялись.
+
+
+14. ПОВТОРНЫЙ АУДИТ GITHUB / RENDER И СОСТОЯНИЕ ПОСЛЕ РЕЛИЗА (2026-11-22, 17:22 UTC)
+- GitHub default branch: main. Последний проверенный коммит приложения: 4ef39652917585b53f8ae4a095e0d1bd6df1d10c — исправлен комментарий в sql/003. Он включает все изменения PR #1, merge commit 510c7bcf4fbbad97944aab40340661762dbe208a и последующие code commits.
+- PR #1 «SM27 Phase 1: realistic squads, match simulation and tactical UI» закрыт и merged в main. Открытых PR на момент проверки: 0.
+- GitHub Actions CI для коммита 4ef3965: completed / success (run 45048962602). Ранее CI для merge commit 510c7bc также завершился success.
+- Render deploy dep-dc1i9bafngtc73fo52vg: live на commit 4ef3965. Build succeeded, приложение запустилось, миграции прошли в lifespan (иначе FastAPI startup не завершился бы), GET / вернул 200 OK.
+- Причина неудачного предыдущего deploy: app/db.py разбивает миграции через sql.split(';'); комментарий в sql/003 содержал точку с запятой, поэтому остаток комментария «existing sourced market values are preserved.» превратился в отдельную некорректную SQL-команду. Комментарий переписан без точки с запятой. Не затронуты и не очищены таблицы/карьеры.
+- Сама настройка Render autoDeploy остаётся yes, но для commit 4ef автоматический запуск не произошёл. Успешный деплой был вызван вручную после проверки отсутствия нового deploy в истории.
+- GitHub write: подключение владельца idzelenski успешно выполнило update_file. Для подключенного аккаунта Lu4shiy get_repo_collaborator_permission показал permission=read, а попытка update через его GitHub integration вернула 403. Не полагаться на этот аккаунт для записи, пока его permission/integration не будет изменён; owner connection работает.
+- Каталог Neon подтверждён повторным SQL-запросом: 756 клубов в world_club_catalog и sm27_club_pool; URL эмблем есть у 738, без URL — 18. Не считать все 756 эмблем готовыми или проверенными по доступности. В текущем интерфейсе для отсутствующей/битой эмблемы есть fallback с инициалами, а CSS использует object-fit:contain.
+- 18 клубов без logo_url: ADO Den Haag; Al-Hilal Club; Birkirkara; FC Ballkani; FC Prishtina; FC Torpedo Kutaisi; Hibernians; Horoya AC; Kasımpaşa S.K.; Middlesbrough; Qabala İK; RB Leipzig; Racing Club de Strasbourg Alsace; UC Sampdoria; Valletta; Widzew Łódź; Wiliete S.C.; Çaykur Rizespor.
+- В app.js dropdown содержит 44 названия формаций; 30 именованных layout-шаблонов, варианты с суффиксами обычно отображаются через базовую схему. 4 варианта 4-3-3 Attack/Defend/Flat/Holding пока используют стандартный 4-3-3. В backend best_lineup() явно поддерживает только 14 formation keys; для остальных backend auto-XI fallback на 4-3-3. Это не считать полностью завершённой поддержкой всех formation-specific auto lineups.
+- Клубные названия в каталоге сортируются lower(club_name), club_name; отображаемое имя нормализует только конечное F.C., сохраняя официальное AFC Bournemouth. Эмблемы вызываются для выбора клуба, мини-карточки команды, ближайшего матча, календаря, списка матчей и турнирной таблицы; SQL API отдаёт соответствующие logo_url поля.
+- Источник реальных market values: лицензированный Transfermarkt snapshot только для подтверждённых строк; отсутствующие значения, атрибуты и контракты — оценки SM27. SofaScore как источник ещё не подключён.
+- Требование обновлять summary.txt в конце каждого сообщения ассистента по проекту SM27 остаётся обязательным. Перед завершением каждого следующего ответа обновлять этот файл полным актуальным саммари и коммитить в GitHub. Не забывать обновить саммари даже если в этом сообщении нет изменения кода; не записывать секреты.
+
+15. ОСТАВШИЕСЯ ПРОВЕРКИ / РАБОТЫ
+- Довести покрытие эмблем до всех 756 клубов, используя только проверенные изображения с разрешённой лицензией; сейчас 18 URL отсутствуют. Дополнительно проверить доступность и корректность уже заполненных URL, так как один факт наличия URL не гарантирует верную эмблему.
+- Доработать backend auto-lineup для всех поддерживаемых formations, синхронизировать роли слотов frontend/backend и убрать общий fallback 4-3-3 для неописанных схем. Проверить formation-specific позиционные штрафы.
+- Пользователь предпочитает SofaScore market values; текущий источник — Transfermarkt snapshot и SM27 estimates. До получения разрешённого/лицензированного источника SofaScore не утверждать его интегрированным.
+- Продолжить полный функциональный тест карьеры: регистрация/выбор клуба, рестарт сохранения с возвратом стартовых значений, стартовый состав/замены/резервы, сохранение тактики, календарь/таблица/результаты, старт следующего сезона, устойчивость API и отсутствие 500.
+- Полный трансферный рынок, переговоры/контракты, развитие молодёжи и остальные функции полноценного менеджера остаются отдельными этапами; текущая версия — расширенный MVP, не полная копия FC 27.
+- Сохранять Free tier: Neon, Render и GitHub. Не добавлять платные зависимости/сервисы; не создавать дополнительные фоновые и cron ресурсы без необходимости.
