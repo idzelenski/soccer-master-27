@@ -181,7 +181,10 @@ SM27 — футбольный менеджер / симулятор карьер
 - Official FC27 importer exists at scripts/import_fc27_ratings.py and is launched once from the existing web service process using fc27_import_state. It must never clear secondary positions during a retry/import. EA API request uses drop-referrer header and FC27 selector.
 - UI only displays a player market value when market_value_source='SofaScore'. Transfermarkt and SM27 values are not shown as SofaScore. SofaScore integration itself is still pending.
 - SQL 005 data update and source-update statements passed EXPLAIN parsing against the Neon schema; actual application awaits next deploy.
-- Remaining work: verify FC27 import status and matched counts; research non-FC27 players; integrate SofaScore player values; complete true calendar fast-forward by single date cell; verify CI, Render logs, absence of legacy triggers, zero initial secondary positions, and retained progress after restart.
+- Remaining work: verify FC27 import status and matched counts; research non-FC27 players; integrate SofaScore player values; calendar right-click now animates the selected cell one date at a time; actual game-time simulation to the target date is still pending; verify CI, Render logs, absence of legacy triggers, zero initial secondary positions, and retained progress after restart.
 - Continue updating summary.txt at the end of every SM27 session and keep Neon/Render/GitHub on Free tiers only.
 
 - CI выявил FIFA-код POR, который не совпадает с ISO alpha-3 PRT. Исправлены преобразования FIFA→ISO для POR/NED/GER/SUI/RSA/CRC/URU/CRO/GRE/DEN/KSA/UAE в backend flags и FC27 importer; это нужно для правильных флагов и сопоставления рейтингов.
+
+- CI for commit 744b4d6 SUCCESS: Python compile, pytest (19 tests) and Node syntax check passed.
+- Calendar ПКМ interaction added: selected date highlight moves one cell at a time and then updates match details. This is a visual date-selection animation; it does not yet simulate/advance the career clock.

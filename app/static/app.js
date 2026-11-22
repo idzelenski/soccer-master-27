@@ -821,6 +821,23 @@ function setupCalendarInteractions() {
       state.selectedCalendarDate = button.dataset.calendarDate;
       renderCurrent();
     });
+    button.addEventListener("contextmenu", async event => {
+      event.preventDefault();
+      const cells = Array.from(document.querySelectorAll("[data-calendar-date]"));
+      const targetDate = button.dataset.calendarDate;
+      const targetIndex = cells.findIndex(cell => cell.dataset.calendarDate === targetDate);
+      if (targetIndex < 0) return;
+      let currentIndex = cells.findIndex(cell => cell.dataset.calendarDate === state.selectedCalendarDate);
+      if (currentIndex < 0) currentIndex = Math.max(0, cells.findIndex(cell => cell.dataset.calendarDate === state.save?.game_date));
+      if (currentIndex < 0) currentIndex = 0;
+      const direction = targetIndex >= currentIndex ? 1 : -1;
+      for (let index = currentIndex; index !== targetIndex + direction; index += direction) {
+        cells.forEach((cell, cellIndex) => cell.classList.toggle("selected", cellIndex === index));
+        state.selectedCalendarDate = cells[index].dataset.calendarDate;
+        if (index !== targetIndex) await new Promise(resolve => setTimeout(resolve, 24));
+      }
+      await renderCurrent();
+    });
   });
 }
 
