@@ -376,11 +376,11 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
 
 /* Rectangular SVG country flags */
 .player-name { display: inline-flex; align-items: center; gap: 7px; }
-.player-flag { display: inline-block; width: 22px; height: 15px; flex: 0 0 22px; border-radius: 2px; background-position: center; background-size: cover; box-shadow: 0 1px 3px rgba(0,0,0,.28); vertical-align: -2px; }
+.player-flag { display: inline-block; width: 22px; height: 16.5px; flex: 0 0 22px; border-radius: 2px; background-position: center; background-size: cover; box-shadow: 0 1px 3px rgba(0,0,0,.28); vertical-align: -2px; }
 .player-flag-missing { background: rgba(255,255,255,.04); border: 1px solid var(--line); box-shadow: none; }
-.player-modal-flag .player-flag { width: 54px; height: 38px; flex-basis: 54px; border-radius: 4px; }
+.player-modal-flag .player-flag { width: 54px; height: 40.5px; flex-basis: 54px; border-radius: 4px; }
 .player-modal-flag { width: 76px; height: 66px; padding: 8px; border-radius: 12px; }
-.player-modal-flag .player-flag-missing { width: 54px; height: 38px; }
+.player-modal-flag .player-flag-missing { width: 54px; height: 40.5px; }
 
 /* Original five-step tone crystals and morale faces */
 .tone-crystals, .mood-faces { display: inline-flex; align-items: center; gap: 2px; vertical-align: middle; white-space: nowrap; }
@@ -448,5 +448,5 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
   .calendar-day-opponent b { font-size: 7px; }
   .calendar-empty { min-height: 75px; }
   .player-modal-flag { width: 62px; }
-  .player-modal-flag .player-flag { width: 46px; height: 32px; flex-basis: 46px; }
+  .player-modal-flag .player-flag { width: 46px; height: 34.5px; flex-basis: 46px; }
 }
