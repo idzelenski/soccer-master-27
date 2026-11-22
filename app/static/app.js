@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
-const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, tacticSettings: {} };
+const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, tacticSettings: {}, tacticFormation: '4-3-3' };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
@@ -372,6 +372,7 @@ function ensureTacticState(players, tactics) {
     starters = optimized.starters;
     rest = optimized.remaining;
   }
+  state.tacticFormation = formation;
   state.tacticSlots = starters.slice(0,11).map(p => String(p.id));
   const savedBench = (tactics.bench || []).map(id => String(id)).filter(id => existing.has(id) && !state.tacticSlots.includes(id));
   state.tacticBench = savedBench.slice(0,9);
@@ -383,7 +384,12 @@ function ensureTacticState(players, tactics) {
     focus: "balanced", player_roles: {}, ...(tactics.style || {})
   };
   state.tacticSettings.player_roles ||= {};
-  state.selectedTacticSlot = null;
+  if (state.selectedTacticSlot === undefined) state.selectedTacticSlot = null;
+}
+function redrawTactics() {
+  const tactics = {formation: state.tacticFormation, mentality: 'balanced', style: state.tacticSettings, starting_xi: state.tacticSlots, bench: state.tacticBench};
+  shell(renderTactics(state.squad, tactics), 'Тактика');
+  setupTacticsInteractions();
 }
 function playerTag(player, slotIndex = null) {
   if (!player) return "";
@@ -462,22 +468,23 @@ function swapTacticPlayers(slotIndex, playerId) {
     if(current && state.tacticBench.length<9 && !state.tacticBench.includes(current)) state.tacticBench.push(current);
   }
   state.selectedTacticSlot=null;
-  renderCurrent();
+  redrawTactics();
 }
 function setupTacticsInteractions() {
   document.getElementById("formation")?.addEventListener("change",event=>{
     const result=optimiseLineup(state.squad,event.target.value);
     state.tacticSlots=result.starters.map(p=>String(p.id));
     state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
-    state.tacticSettings.formation=event.target.value;
-    renderCurrent();
+    state.tacticFormation=event.target.value;
+    redrawTactics();
   });
   document.getElementById("auto-lineup")?.addEventListener("click",()=>{
     const formation=document.getElementById("formation").value;
     const result=optimiseLineup(state.squad,formation);
     state.tacticSlots=result.starters.map(p=>String(p.id));
     state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
-    renderCurrent();
+    state.tacticFormation=formation;
+    redrawTactics();
   });
   document.querySelectorAll("[data-pitch-slot]").forEach(button=>button.addEventListener("click",()=>{
     const slot=Number(button.dataset.pitchSlot);
@@ -486,7 +493,7 @@ function setupTacticsInteractions() {
       state.tacticSlots[slot]=a; state.tacticSlots[state.selectedTacticSlot]=b;
       state.selectedTacticSlot=null; renderCurrent(); return;
     }
-    state.selectedTacticSlot=state.selectedTacticSlot===slot?null:slot; renderCurrent();
+    state.selectedTacticSlot=state.selectedTacticSlot===slot?null:slot; redrawTactics();
   }));
   document.querySelectorAll(".tactic-player-row").forEach(button=>button.addEventListener("click",()=>{
     if(state.selectedTacticSlot===null){
