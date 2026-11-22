@@ -492,7 +492,7 @@ function setupTacticsInteractions() {
     if(state.selectedTacticSlot!==null && state.selectedTacticSlot!==slot){
       const a=state.tacticSlots[state.selectedTacticSlot], b=state.tacticSlots[slot];
       state.tacticSlots[slot]=a; state.tacticSlots[state.selectedTacticSlot]=b;
-      state.selectedTacticSlot=null; renderCurrent(); return;
+      state.selectedTacticSlot=null; redrawTactics(); return;
     }
     state.selectedTacticSlot=state.selectedTacticSlot===slot?null:slot; redrawTactics();
   }));
