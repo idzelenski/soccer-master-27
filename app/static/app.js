@@ -120,7 +120,7 @@ async function refreshClubList() {
     query.set('offset','0');
     const data = await api(`/api/catalog/clubs?${query.toString()}`); state.clubs = data.items; state.clubTotal = data.total; state.clubOffset = data.items.length;
     const node = document.getElementById('club-grid'); if (!node) return;
-    node.innerHTML = state.clubs.map((club) => `<button class="club-card" data-club="${esc(club.source_id)}">${crest(club.club_name,club.logo_url)}<span><b>${esc(club.club_name)}</b><small>${esc(club.country||'—')} · ${esc(club.league_name||'Лига')}</small><em>${club.has_squad?`Состав: ${club.squad_count} игроков`:'Игровой состав будет сформирован'}</em></span></button>`).join('') || '<div class="empty-state">По запросу ничего не найдено.</div>';
+    node.innerHTML = state.clubs.map((club) => `<button class="club-card" data-club="${esc(club.source_id)}">${crest(club.club_name,club.logo_url)}<span><b>${esc(club.club_name)} <i class="club-star-rating">${club.fifa_stars ? Number(club.fifa_stars).toFixed(1) + ' ★' : ''}</i></b><small>${esc(club.country||'—')} · ${esc(club.league_name||'Лига')}</small><em>${club.has_squad?`Состав: ${club.squad_count} игроков`:'Игровой состав будет сформирован'}</em></span></button>`).join('') || '<div class="empty-state">По запросу ничего не найдено.</div>';
     node.querySelectorAll('[data-club]').forEach((button) => button.addEventListener('click', () => selectClub(button.dataset.club)));
     const oldLoadMore = document.getElementById('load-more-clubs');
     if (oldLoadMore) oldLoadMore.parentElement.remove();
@@ -140,7 +140,7 @@ async function loadMoreClubs() {
     const data = await api(`/api/catalog/clubs?${query.toString()}`);
     state.clubs.push(...data.items); state.clubOffset += data.items.length; state.clubTotal = data.total;
     const node = document.getElementById('club-grid');
-    node.insertAdjacentHTML('beforeend', data.items.map((club) => `<button class="club-card" data-club="${esc(club.source_id)}">${crest(club.club_name,club.logo_url)}<span><b>${esc(club.club_name)}</b><small>${esc(club.country||'—')} · ${esc(club.league_name||'Лига')}</small><em>${club.has_squad?`Состав: ${club.squad_count} игроков`:'Игровой состав будет сформирован'}</em></span></button>`).join(''));
+    node.insertAdjacentHTML('beforeend', data.items.map((club) => `<button class="club-card" data-club="${esc(club.source_id)}">${crest(club.club_name,club.logo_url)}<span><b>${esc(club.club_name)} <i class="club-star-rating">${club.fifa_stars ? Number(club.fifa_stars).toFixed(1) + ' ★' : ''}</i></b><small>${esc(club.country||'—')} · ${esc(club.league_name||'Лига')}</small><em>${club.has_squad?`Состав: ${club.squad_count} игроков`:'Игровой состав будет сформирован'}</em></span></button>`).join(''));
     data.items.forEach(club => node.querySelector(`[data-club="${CSS.escape(club.source_id)}"]`)?.addEventListener('click', () => selectClub(club.source_id)));
     const parent = button.parentElement; if (state.clubOffset >= state.clubTotal) parent.remove(); else { button.disabled=false; button.textContent=`Показать ещё клубы (${state.clubTotal-state.clubOffset})`; }
   } catch(err) { button.disabled=false; button.textContent='Повторить'; toast(err.message,true); }
