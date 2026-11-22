@@ -250,6 +250,30 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
 
 
 
+def position_penalty(primary: str, secondary: list[str], target: str) -> int:
+    if primary == target or target in secondary:
+        return 0
+    if primary == "GK" or target == "GK":
+        return -40
+    close = {
+        "RB": {"LB": -2, "RWB": -2, "LWB": -5, "CB": -3, "RM": -5, "CDM": -7},
+        "LB": {"RB": -2, "LWB": -2, "RWB": -5, "CB": -3, "LM": -5, "CDM": -7},
+        "CB": {"LB": -3, "RB": -3, "CDM": -3, "RWB": -5, "LWB": -5, "CM": -7},
+        "CDM": {"CM": -2, "CB": -3, "CAM": -5, "RM": -7, "LM": -7},
+        "CM": {"CDM": -2, "CAM": -2, "RM": -3, "LM": -3, "CB": -7, "ST": -10},
+        "CAM": {"CM": -2, "CF": -3, "ST": -5, "RM": -5, "LM": -5},
+        "RM": {"RW": -2, "CM": -3, "RB": -5, "ST": -7, "LM": -7},
+        "LM": {"LW": -2, "CM": -3, "LB": -5, "ST": -7, "RM": -7},
+        "RW": {"RM": -2, "ST": -3, "CF": -5, "LW": -7, "RB": -7},
+        "LW": {"LM": -2, "ST": -3, "CF": -5, "RW": -7, "LB": -7},
+        "ST": {"CF": -2, "CAM": -5, "RW": -7, "LW": -7, "CM": -10},
+        "CF": {"ST": -2, "CAM": -3, "RW": -5, "LW": -5, "CM": -7},
+        "RWB": {"RB": -2, "RM": -3, "LB": -5, "CB": -5},
+        "LWB": {"LB": -2, "LM": -3, "RB": -5, "CB": -5},
+    }
+    return close.get(primary, {}).get(target, -7)
+
+
 def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list[str], list[str], list[str]]:
     roles_by_formation = {
         "4-3-3": ["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "CAM", "LW", "ST", "RW"],
@@ -481,7 +505,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     team_records: list[dict] = []
     for pool_row in teams:
         club_id = make_club(conn, game_state_id, pool_row)
-        team_records.append({"id": club_id, "source_id": pool_row["source_id"], "name": pool_row["club_name"], "reputation": int(82 - (int(pool_row["league_level"] or 1) - 1) * 10)})
+        team_records.append({"id": club_id, "source_id": pool_row["source_id"], "name": pool_row["club_name"], "reputation": int(pool_row.get("team_strength") or round(float(pool_row.get("fifa_stars") or 2.5) * 20))})
         conn.execute(
             """INSERT INTO club_tournaments (game_state_id,tournament_id,club_id,season)
                VALUES (%s,%s,%s,'2026/27') ON CONFLICT DO NOTHING""",
