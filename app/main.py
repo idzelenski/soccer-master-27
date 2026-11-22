@@ -473,13 +473,13 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     selected = dict(selected)
     league_code = selected["league_code"]
     teams_rows = conn.execute(
-        "SELECT * FROM sm27_club_pool WHERE league_code=%s ORDER BY sort_rank, club_name LIMIT 24",
+        "SELECT * FROM sm27_club_pool WHERE league_code=%s ORDER BY sort_rank, club_name",
         (league_code,),
     ).fetchall()
     teams = [dict(row) for row in teams_rows]
     if len(teams) < 6:
         teams_rows = conn.execute(
-            "SELECT * FROM sm27_club_pool WHERE country_iso=%s AND league_level=%s ORDER BY sort_rank, club_name LIMIT 20",
+            "SELECT * FROM sm27_club_pool WHERE country_iso=%s AND league_level=%s ORDER BY sort_rank, club_name",
             (selected.get("country_iso"), selected.get("league_level")),
         ).fetchall()
         teams = [dict(row) for row in teams_rows]
@@ -627,7 +627,10 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
     save = require_save(conn, str(manager["id"]))
     rows = conn.execute(
         """SELECT id,name,nationality,nationality_flag,birth_date,age,position,secondary_positions,
-                  overall,potential,market_value,weekly_wage,contract_end,fatigue,form,morale,sharpness,
+                  overall,GREATEST(1,LEAST(99,overall + ROUND(
+                    (form-50)*0.06 + (morale-70)*0.04 + (sharpness-85)*0.04 - fatigue*0.08
+                  )::int)) AS dynamic_overall,
+                  potential,market_value,weekly_wage,contract_end,fatigue,form,morale,sharpness,
                   injury_type,injury_until,attributes,original_data,profile_source,source_url
            FROM players
            WHERE game_state_id=%s AND club_id=%s
@@ -649,7 +652,11 @@ def get_tactics(manager: dict = Depends(manager_dep), conn: Connection = Depends
     if tactic:
         return serialise(dict(tactic))
     squad = conn.execute(
-        "SELECT id,position,secondary_positions,overall FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC",
+        """SELECT id,position,secondary_positions,
+                  GREATEST(1,LEAST(99,overall + ROUND(
+                    (form-50)*0.06 + (morale-70)*0.04 + (sharpness-85)*0.04 - fatigue*0.08
+                  )::int)) AS overall
+           FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC""",
         (save["id"], save["managed_club_id"]),
     ).fetchall()
     starters, bench, roles = best_lineup([dict(row) for row in squad], "4-3-3")
@@ -727,6 +734,22 @@ def update_table(conn: Connection, fixture: dict) -> None:
         )
 
 
+
+def update_player_condition(conn: Connection, game_state_id: str, club_id: str, result: str) -> None:
+    morale_delta = 3 if result == "win" else -3 if result == "loss" else 1
+    form_delta = 4 if result == "win" else -3 if result == "loss" else 1
+    conn.execute(
+        """UPDATE players SET
+             fatigue=LEAST(100,fatigue+12),
+             sharpness=GREATEST(20,LEAST(100,sharpness+2)),
+             form=GREATEST(0,LEAST(100,form+%s)),
+             morale=GREATEST(0,LEAST(100,morale+%s)),
+             updated_at=now()
+           WHERE game_state_id=%s AND club_id=%s""",
+        (form_delta,morale_delta,game_state_id,club_id),
+    )
+
+
 def add_goal_events(conn: Connection, fixture: dict, result: dict) -> None:
     for club_id, count in ((fixture["home_club_id"], result["home_score"]), (fixture["away_club_id"], result["away_score"])):
         players = conn.execute(
@@ -753,6 +776,13 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
     if not next_date:
         raise HTTPException(status_code=409, detail="Все матчи сезона сыграны")
     match_date = next_date["match_date"]
+    # One round is normally one week apart; recover players before the next matchday.
+    conn.execute(
+        """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
+                  sharpness=LEAST(100,sharpness+4),updated_at=now()
+           WHERE game_state_id=%s""",
+        (save["id"],),
+    )
     rows = conn.execute(
         """SELECT f.*,h.name AS home_name,a.name AS away_name,h.reputation AS home_rep,a.reputation AS away_rep
            FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
@@ -763,7 +793,21 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
     for row in rows:
         fixture = dict(row)
         averages = conn.execute(
-            "SELECT club_id,coalesce(avg(overall),60)::float AS avg_overall FROM players WHERE game_state_id=%s AND club_id IN (%s,%s) GROUP BY club_id",
+            """WITH ranked AS (
+                 SELECT club_id,
+                        GREATEST(1,LEAST(99,overall + ROUND(
+                          (form-50)*0.06 + (morale-70)*0.04 + (sharpness-85)*0.04 - fatigue*0.08
+                        )::int)) AS effective_overall,
+                        row_number() OVER (
+                          PARTITION BY club_id
+                          ORDER BY overall + (form-50)*0.06 + (morale-70)*0.04
+                                   + (sharpness-85)*0.04 - fatigue*0.08 DESC
+                        ) AS position
+                 FROM players
+                 WHERE game_state_id=%s AND club_id IN (%s,%s)
+             )
+             SELECT club_id,coalesce(avg(effective_overall),60)::float AS avg_overall
+             FROM ranked WHERE position<=11 GROUP BY club_id""",
             (save["id"], fixture["home_club_id"], fixture["away_club_id"]),
         ).fetchall()
         rating = {str(item["club_id"]): item["avg_overall"] for item in averages}
@@ -783,6 +827,10 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
         )
         fixture.update(result)
         update_table(conn, fixture)
+        home_condition = "win" if result["home_score"] > result["away_score"] else "loss" if result["home_score"] < result["away_score"] else "draw"
+        away_condition = "win" if result["away_score"] > result["home_score"] else "loss" if result["away_score"] < result["home_score"] else "draw"
+        update_player_condition(conn, str(save["id"]), str(fixture["home_club_id"]), home_condition)
+        update_player_condition(conn, str(save["id"]), str(fixture["away_club_id"]), away_condition)
         add_goal_events(conn, fixture, result)
         completed.append({"home": fixture["home_name"], "away": fixture["away_name"], "home_score": result["home_score"], "away_score": result["away_score"]})
     conn.execute(
