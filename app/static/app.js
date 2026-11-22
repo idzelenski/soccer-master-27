@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
-const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0 };
+const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, tacticSettings: {} };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
@@ -18,15 +18,28 @@ const toast = (message, error = false) => {
   toastRoot.appendChild(node); setTimeout(() => node.remove(), 3600);
 };
 async function api(url, options = {}) {
-  const response = await fetch(url, { credentials: 'same-origin', headers: {'Content-Type':'application/json', ...(options.headers || {})}, ...options });
+  let response;
+  try {
+    response = await fetch(url, { credentials: 'same-origin', headers: {'Content-Type':'application/json', ...(options.headers || {})}, ...options });
+  } catch (_) {
+    throw new Error('Не удалось связаться с сервером. Проверь подключение и повтори попытку.');
+  }
   let data = {};
   try { data = await response.json(); } catch (_) { /* empty response */ }
-  if (!response.ok) throw new Error(data.detail || `Ошибка ${response.status}`);
+  if (!response.ok) {
+    const message = response.status >= 500
+      ? (data.detail || 'Сервер временно не смог выполнить действие. Данные сохранены.')
+      : (data.detail || `Не удалось выполнить запрос (${response.status}).`);
+    throw new Error(message);
+  }
   return data;
 }
 function crest(name, logo) {
-  if (logo && String(logo).startsWith('https://')) return `<div class="crest"><img src="${esc(logo)}" alt="" loading="lazy" referrerpolicy="no-referrer"></div>`;
-  return `<div class="crest">${esc(initials(name))}</div>`;
+  const fallback = esc(initials(name));
+  if (logo && String(logo).startsWith('https://')) {
+    return `<div class="crest"><span>${fallback}</span><img src="${esc(logo)}" alt="Эмблема ${esc(name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()"></div>`;
+  }
+  return `<div class="crest">${fallback}</div>`;
 }
 function pageHead(kicker, title, description, action = '') {
   return `<div class="page-head"><div><div class="eyebrow">${esc(kicker)}</div><h1>${esc(title)}</h1><p>${esc(description || '')}</p></div>${action}</div>`;
@@ -179,9 +192,77 @@ function renderHome(data) {
     <section class="panel"><div class="panel-head"><h3>Турнирная таблица</h3><button class="btn-quiet" data-nav="table">Вся таблица →</button></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>РМ</th><th>О</th></tr></thead><tbody>${standingRows || '<tr><td colspan="5">Таблица пока пустая</td></tr>'}</tbody></table></div></section></div>`;
 }
 function renderSquad(players) {
-  const rows = players.map((player) => `<tr><td><span class="rating">${player.overall}</span></td><td><span class="player-name">${esc(player.name)}</span>${player.original_data?.generated?'<div style="font-size:8px;color:var(--amber)">Игровой игрок SM27</div>':''}</td><td><span class="position-tag">${esc(player.position)}</span></td><td>${player.age}</td><td><span style="color:#9fb6a8">${player.potential}</span></td><td class="value" title="${esc(player.original_data?.market_value_as_of ? `Оценка Transfermarkt: ${player.original_data.market_value_as_of}` : 'Рыночная стоимость не подтверждена источником')}">${money(player.market_value)}${player.market_value ? `<div style="font-size:8px;color:var(--muted-2);font-weight:500">${esc(player.original_data?.market_value_as_of || '')}</div>` : ''}</td></tr>`).join('');
-  return `${pageHead('ПЕРВАЯ КОМАНДА','Состав',`${players.length} игроков · игровые рейтинги SM27 не являются официальной статистикой`)}<section class="panel"><div class="panel-head"><h3>Игроки первой команды</h3><span>OVERALL / POTENTIAL</span></div><div class="table-wrap"><table><thead><tr><th>OVR</th><th>Игрок</th><th>ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th></tr></thead><tbody>${rows || '<tr><td colspan="6">Состав не загружен</td></tr>'}</tbody></table></div><div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Игроки, помеченные «Игровой игрок SM27», созданы для прохождения игры и не являются реальными футболистами. Стоимости указаны только при наличии сопоставленной записи Transfermarkt.</span></div></section>`;
+  const rows = players.map((player) => {
+    const source = player.profile_source || 'SM27 estimate';
+    const valueLabel = player.market_value
+      ? money(player.market_value)
+      : 'Нет оценки';
+    return \`<tr class="player-row" data-player-details="\${esc(player.id)}">
+      <td><span class="rating">\${player.overall}</span></td>
+      <td><span class="player-name">\${esc(player.nationality_flag || '🏳️')} \${esc(player.name)}</span>
+        \${player.original_data?.generated ? '<div class="player-source-generated">Игровой игрок SM27</div>' : ''}</td>
+      <td><span class="position-tag">\${esc(player.position)}</span></td>
+      <td>\${(player.secondary_positions || []).map(pos => \`<span class="secondary-position">\${esc(pos)}</span>\`).join(' ') || '—'}</td>
+      <td>\${player.age}</td>
+      <td><span class="potential-rating">\${player.potential}</span></td>
+      <td class="value" title="\${esc(source)}">\${valueLabel}\${player.market_value ? \`<div class="data-source">\${esc(source)}</div>\` : '<div class="data-source">Игровая оценка отсутствует</div>'}</td>
+      <td>\${player.contract_end ? new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}) : '—'}</td>
+      <td>\${money(player.weekly_wage)}<div class="data-source">/ нед.</div></td>
+      <td><span class="mini-meter">\${player.form ?? 50}</span></td>
+      <td><span class="mini-meter">\${player.morale ?? 70}</span></td>
+    </tr>\`;
+  }).join('');
+  return \`\${pageHead('ПЕРВАЯ КОМАНДА','Состав',\`\${players.length} игроков · нажми на игрока, чтобы открыть полный профиль\`)}
+    <section class="panel">
+      <div class="panel-head"><h3>Игроки первой команды</h3><span>OVR / POTENTIAL / VALUE</span></div>
+      <div class="table-wrap squad-table-wrap"><table class="squad-table">
+        <thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ФОРМА</th><th>НАСТРОЙ</th></tr></thead>
+        <tbody>\${rows || '<tr><td colspan="11">Состав не загружен</td></tr>'}</tbody>
+      </table></div>
+      <div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Оценки OVR/POT, зарплата, контракт, форма и настрой — игровые параметры SM27. Стоимость Transfermarkt показывается только там, где найдена подтверждённая оценка; остальные суммы будут обозначаться как игровые оценки.</span></div>
+    </section>\`;
 }
+function showPlayerDetails(playerId) {
+  const player = state.squad.find(item => String(item.id) === String(playerId));
+  if (!player) return;
+  document.getElementById('player-detail-modal')?.remove();
+  const stats = player.attributes || {};
+  const keeper = player.position === 'GK';
+  const labels = keeper
+    ? [['DIV','Отражение'],['HAN','Игра руками'],['KIC','Удар'],['REF','Реакция'],['SPE','Скорость'],['POS','Позиционирование']]
+    : [['PAC','Скорость'],['SHO','Удар'],['PAS','Пас'],['DRI','Дриблинг'],['DEF','Защита'],['PHY','Физика']];
+  const bars = labels.map(([code,label]) => \`<div class="attribute-item"><div><b>\${code}</b><span>\${label}</span><strong>\${stats[code] ?? player.overall}</strong></div><i><span style="width:\${stats[code] ?? player.overall}%"></span></i></div>\`).join('');
+  const modal = document.createElement('div');
+  modal.id = 'player-detail-modal';
+  modal.className = 'player-modal-backdrop';
+  modal.innerHTML = \`
+    <section class="player-modal panel">
+      <button class="modal-close" id="close-player-modal" aria-label="Закрыть">×</button>
+      <div class="player-modal-head">
+        <div class="player-modal-flag">\${esc(player.nationality_flag || '🏳️')}</div>
+        <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>\${esc(player.name)}</h2><p>\${esc(player.nationality || 'Национальность не указана')} · \${player.age} лет · \${esc(player.position)}</p></div>
+        <div class="player-modal-ratings"><b>\${player.overall}</b><span>OVR</span><b>\${player.potential}</b><span>POT</span></div>
+      </div>
+      <div class="player-modal-grid">
+        <div class="player-metric"><small>Дополнительные позиции</small><b>\${(player.secondary_positions || []).map(esc).join(' · ') || 'Нет данных'}</b></div>
+        <div class="player-metric"><small>Рыночная стоимость</small><b>\${money(player.market_value)}</b><em>\${esc(player.profile_source || 'SM27 estimate')}</em></div>
+        <div class="player-metric"><small>Контракт до</small><b>\${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Игровая оценка, не официальный срок</em></div>
+        <div class="player-metric"><small>Зарплата в неделю</small><b>\${money(player.weekly_wage)}</b><em>Игровая оценка SM27</em></div>
+      </div>
+      <div class="player-state-grid">
+        <div><small>Тонус</small><b>\${player.sharpness ?? 85}%</b><i><span style="width:\${player.sharpness ?? 85}%"></span></i></div>
+        <div><small>Форма</small><b>\${player.form ?? 50}/100</b><i><span style="width:\${player.form ?? 50}%"></span></i></div>
+        <div><small>Настрой</small><b>\${player.morale ?? 70}/100</b><i><span style="width:\${player.morale ?? 70}%"></span></i></div>
+      </div>
+      <div class="panel-head"><h3>Характеристики \${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
+      <div class="attribute-grid">\${bars}</div>
+      <div class="catalog-note"><span>ⓘ</span><span>Если у источника нет конкретных характеристик, они сгенерированы игровым движком на основе OVR и позиции. Это не официальные атрибуты EA или Transfermarkt.</span></div>
+    </section>\`;
+  document.body.appendChild(modal);
+  document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());
+  modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
+}
+
 function renderTactics(players, tactics) {
   const formations = ['4-3-3','4-2-3-1','4-4-2','3-5-2','3-4-3','5-3-2'];
   const selected = new Set(tactics.starting_xi || []);
