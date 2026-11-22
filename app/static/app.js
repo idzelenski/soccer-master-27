@@ -545,44 +545,51 @@ function setupTacticsInteractions() {
 }
 
 function renderFixtures(rows) {
-  if(!rows.length) return `${pageHead("РАСПИСАНИЕ","Календарь","Календарь сезона 2026/27.")}<section class="panel"><div class="empty-state">Матчей пока нет</div></section>`;
-  if(!state.calendarMonth){
-    const date=new Date(state.save?.game_date || "2026-07-01T12:00:00");
-    state.calendarMonth=new Date(date.getFullYear(),date.getMonth(),1);
-  }
+  if(!rows.length)return pageHead('РАСПИСАНИЕ','Календарь','Календарь сезона 2026/27.')+'<section class="panel"><div class="empty-state">Матчей пока нет</div></section>';
+  if(!state.calendarMonth){const date=new Date(state.save?.game_date||'2026-07-01T12:00:00');state.calendarMonth=new Date(date.getFullYear(),date.getMonth(),1);}
   const month=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth(),1);
-  const monthLabel=month.toLocaleDateString("ru-RU",{month:"long",year:"numeric"});
-  const keyDate=value=>{const d=new Date(value);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
-  const byDate=new Map();
-  rows.forEach(row=>{const k=keyDate(row.match_date);if(!byDate.has(k))byDate.set(k,[]);byDate.get(k).push(row);});
-  const offset=(month.getDay()+6)%7;
-  const days=new Date(month.getFullYear(),month.getMonth()+1,0).getDate();
-  const cells=[];
-  for(let i=0;i<offset;i++) cells.push('<div class="calendar-empty"></div>');
+  const monthLabel=month.toLocaleDateString('ru-RU',{month:'long',year:'numeric'});
+  const keyDate=value=>{const d=new Date(value);return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');};
+  const byDate=new Map();rows.forEach(row=>{const key=keyDate(row.match_date);if(!byDate.has(key))byDate.set(key,[]);byDate.get(key).push(row);});
+  const resultFor=f=>{
+    if(f.status!=='completed'||f.home_score===null||f.away_score===null)return 'scheduled';
+    const own=f.is_home?Number(f.home_score):Number(f.away_score),opp=f.is_home?Number(f.away_score):Number(f.home_score);
+    return own>opp?'win':own<opp?'loss':'draw';
+  };
+  const scoreFor=f=>f.status==='completed'?String(f.home_score)+' : '+String(f.away_score):'— : —';
+  const offset=(month.getDay()+6)%7,days=new Date(month.getFullYear(),month.getMonth()+1,0).getDate(),cells=[];
+  for(let i=0;i<offset;i++)cells.push('<div class="calendar-empty"></div>');
   for(let day=1;day<=days;day++){
-    const key=`${month.getFullYear()}-${String(month.getMonth()+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    const key=month.getFullYear()+'-'+String(month.getMonth()+1).padStart(2,'0')+'-'+String(day).padStart(2,'0');
     const events=byDate.get(key)||[];
-    cells.push(`<button class="calendar-day ${state.selectedCalendarDate===key?"selected":""} ${events.length?"has-event":""}" data-calendar-date="${key}">
-      <b>${day}</b>${events.length?`<span>${events.length} МАТЧ</span>`:""}
-    </button>`);
+    const eventMarkup=events.slice(0,2).map(f=>{
+      const result=resultFor(f),stage=f.stage||('Тур '+(f.matchday||'—'));
+      const scoreClass=result==='scheduled'?'':' score-'+result;
+      const title=(f.opponent_name||'Соперник')+' · '+(f.tournament_name||'Турнир')+' · '+stage+' · '+(f.is_home?'Дома':'В гостях');
+      return '<span class="calendar-day-match" title="'+esc(title)+'"><span class="calendar-day-crest">'+crest(f.opponent_name||'Соперник',f.opponent_logo)+'</span>'+
+        (f.status==='completed'?'<b class="calendar-day-score'+scoreClass+'">'+scoreFor(f)+'</b>':'<small>'+esc(f.is_home?'Д':'В')+'</small>')+'</span>';
+    }).join('');
+    cells.push('<button class="calendar-day '+(state.selectedCalendarDate===key?'selected ':'')+(events.length?'has-event':'')+'" data-calendar-date="'+key+'"><b>'+day+'</b>'+
+      (eventMarkup?'<div class="calendar-day-events">'+eventMarkup+'</div>':'')+(events.length>2?'<span class="calendar-more">+'+(events.length-2)+'</span>':'')+'</button>');
   }
-  const selected=state.selectedCalendarDate || keyDate(state.save?.game_date || "2026-07-01T12:00:00");
+  const selected=state.selectedCalendarDate||keyDate(state.save?.game_date||'2026-07-01T12:00:00');
   const selectedRows=byDate.get(selected)||[];
-  const selectedContent=selectedRows.length?selectedRows.map(f=>`<div class="calendar-match-row">
-    <small>ТУР ${f.matchday||"—"} · ${f.status==="completed"?"СЫГРАН":"ЗАПЛАНИРОВАН"}</small>
-    <div class="calendar-teams">${crest(f.home_name,f.home_logo)}<b>${esc(f.home_name)}</b><span>${f.status==="completed"?`${f.home_score} : ${f.away_score}`:"— : —"}</span><b>${esc(f.away_name)}</b>${crest(f.away_name,f.away_logo)}</div>
-  </div>`).join(""):'<div class="empty-state">На выбранную дату матчей нет</div>';
-  const weekdays=["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map(d=>`<span>${d}</span>`).join("");
-  return `${pageHead("СЕЗОН 2026/27","Календарь","Месячный календарь матчей и событий твоей карьеры.")}
-    <div class="calendar-layout panel">
-      <section class="calendar-main">
-        <div class="calendar-month-nav"><button class="btn-quiet" id="calendar-prev">‹</button><h2>${monthLabel}</h2><button class="btn-quiet" id="calendar-next">›</button></div>
-        <div class="calendar-weekdays">${weekdays}</div><div class="calendar-grid">${cells.join("")}</div>
-        <div class="calendar-legend"><span class="event-dot"></span> Матч лиги <span class="badge-soft">Сезон 2026/27</span></div>
-      </section>
-      <aside class="calendar-selected"><div class="eyebrow">ВЫБРАННЫЙ ДЕНЬ</div><h3>${dateLabel(selected+"T12:00:00")}</h3>${selectedContent}</aside>
-    </div>`;
+  const selectedContent=selectedRows.length?selectedRows.map(f=>{
+    const result=resultFor(f),scoreClass=result==='scheduled'?'':' score-'+result;
+    const stage=f.stage?esc(f.stage):'ТУР '+esc(f.matchday||'—');
+    const location=f.is_home?'ДОМА':'В ГОСТЯХ';
+    return '<div class="calendar-match-row"><div class="calendar-match-meta"><span>'+esc(f.tournament_name||'Турнир')+'</span><b>'+stage+'</b><em>'+location+'</em></div>'+
+      '<div class="calendar-match-opponent">'+crest(f.opponent_name||'Соперник',f.opponent_logo,'large')+'<div><b>'+esc(f.opponent_name||'Соперник')+'</b><small>'+(f.is_home?'Домашний матч':'Выездной матч')+'</small></div>'+
+      '<strong class="calendar-match-score'+scoreClass+'">'+scoreFor(f)+'</strong></div></div>';
+  }).join(''):'<div class="empty-state">На выбранную дату матчей нет</div>';
+  const weekdays=['ПН','ВТ','СР','ЧТ','ПТ','СБ','ВС'].map(d=>'<span>'+d+'</span>').join('');
+  return pageHead('СЕЗОН 2026/27','Календарь','Матчи, соперники и результаты по дням сезона.')+
+    '<div class="calendar-layout panel"><section class="calendar-main"><div class="calendar-month-nav"><button class="btn-quiet" id="calendar-prev">‹</button><h2>'+monthLabel+'</h2><button class="btn-quiet" id="calendar-next">›</button></div>'+
+    '<div class="calendar-weekdays">'+weekdays+'</div><div class="calendar-grid">'+cells.join('')+'</div>'+
+    '<div class="calendar-legend"><span class="score-legend win"></span> Победа <span class="score-legend draw"></span> Ничья <span class="score-legend loss"></span> Поражение</div></section>'+
+    '<aside class="calendar-selected"><div class="eyebrow">ВЫБРАННЫЙ ДЕНЬ</div><h3>'+dateLabel(selected+'T12:00:00')+'</h3>'+selectedContent+'</aside></div>';
 }
+
 function setupCalendarInteractions() {
   document.getElementById("calendar-prev")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()-1,1);renderCurrent();});
   document.getElementById("calendar-next")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()+1,1);renderCurrent();});
