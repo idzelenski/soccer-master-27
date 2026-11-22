@@ -645,6 +645,12 @@ function swapRosterPlayers(firstId, secondId) {
 function swapTacticPlayers(slotIndex, playerId) {
   const targetId = String(playerId);
   const currentId = state.tacticSlots[slotIndex];
+  if (currentId && currentId === targetId) {
+    state.selectedTacticPlayer = null;
+    state.selectedTacticSlot = null;
+    redrawTactics();
+    return;
+  }
   if (currentId) {
     swapRosterPlayers(currentId, targetId);
     return;
@@ -877,7 +883,7 @@ function setupCalendarInteractions() {
           method: 'POST', body: '{}'
         });
         if (state.save) state.save.game_date = result.game_date;
-        const ownMatch = (result.results || [])[0];
+        const ownMatch = result.manager_result || (result.results || []).slice(-1)[0];
         if (ownMatch) {
           toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
         } else {
