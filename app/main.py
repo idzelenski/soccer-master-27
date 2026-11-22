@@ -84,6 +84,10 @@ FLAG_SPECIAL_CODES = {
     "wales": "gb-wls", "wal": "gb-wls",
     "northern ireland": "gb-nir", "nir": "gb-nir",
     "kosovo": "xk", "xk": "xk",
+    "russia": "ru", "turkey": "tr", "south korea": "kr",
+    "north korea": "kp", "iran": "ir", "ivory coast": "ci",
+    "czech republic": "cz", "bolivia": "bo", "vietnam": "vn",
+    "syria": "sy", "taiwan": "tw",
 }
 
 
