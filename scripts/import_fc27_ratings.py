@@ -290,7 +290,7 @@ def choose_match(name, nationality, club_name, position, index):
 
 def update_world_player_matches(conn: psycopg.Connection, index) -> int:
     rows = conn.execute("""
-        SELECT wp.source_id,wp.name,wp.nationality,wp.position,wc.club_name
+        SELECT wp.source_id,wp.name,wp.nationality,wp.position,wc.name AS club_name
         FROM world_player_catalog wp
         LEFT JOIN world_club_catalog wc ON wc.source_id=wp.club_source_id
     """).fetchall()
@@ -365,16 +365,18 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
             fc_id=match["ea_player_id"]
             profile_source="EA SPORTS FC 27 official ratings database · 10.09.2026"
             market_source=row["market_value_source"] or "not_available"
-            if market_source not in {"Transfermarkt","SofaScore"}:
+            if market_source == "SofaScore":
+                market_value=int(row["market_value"] or 0)
+            else:
                 market_value=0
                 market_source="not_available"
-            else:
-                market_value=int(row["market_value"] or 0)
             potential=max(overall,int(row["potential"] or overall))
         else:
             fallback+=1
             market_source=row["market_value_source"] or "not_available"
-            market_value=int(row["market_value"] or 0) if market_source in {"Transfermarkt","SofaScore"} else 0
+            market_value=int(row["market_value"] or 0) if market_source == "SofaScore" else 0
+            if market_source != "SofaScore":
+                market_source="not_available"
             if market_value>0:
                 score=60+15*math.log10(max(market_value,25_000)/1_000_000)
                 age_adjust=5 if age<=21 else 3 if age<=24 else 0 if age<=29 else -min(12,(age-29)*0.75)

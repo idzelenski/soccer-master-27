@@ -188,3 +188,6 @@ SM27 — футбольный менеджер / симулятор карьер
 
 - CI for commit 744b4d6 SUCCESS: Python compile, pytest (19 tests) and Node syntax check passed.
 - Calendar ПКМ interaction added: selected date highlight moves one cell at a time and then updates match details. This is a visual date-selection animation; it does not yet simulate/advance the career clock.
+
+- Первый запуск FC27 importer завершился ошибкой сопоставления: в world_club_catalog колонка называется name, а не club_name. Исправлено на wc.name AS club_name; повторный импорт будет запущен после redeploy.
+- Перевод стоимости на SofaScore: пока в базе нет подтверждённого SofaScore источника, player market_value обнуляется/не показывается. Transfermarkt больше не используется для расчёта OVR fallback и не отображается как рыночная стоимость; fallback OVR для игроков вне FC27 помечается как SM27 estimate.

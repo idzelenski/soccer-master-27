@@ -647,24 +647,23 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             fc27_id = player.get("fc27_player_id")
             position = normalise_player_position(player.get("fc27_position") or player["position"], source_id)
             overall = int(player["fc27_overall"]) if player.get("fc27_overall") is not None else overall_from_market_value(
-                int(player["market_value_eur"] or 0), age, int(team_records[-1]["reputation"]),
+                0, age, int(team_records[-1]["reputation"]),
                 int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
             )
             potential = int(player["fc27_potential"]) if player.get("fc27_potential") is not None else max(
                 overall,
                 potential_from_overall(overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)),
             )
-            sourced_market_value = int(player["market_value_eur"] or 0)
-            market_value = sourced_market_value
+            market_value = 0
             if fc27_id:
                 profile_source = "EA SPORTS FC 27 Ratings Database (snapshot 2026-09-10)"
             else:
                 profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
-            market_value_source = "Transfermarkt" if sourced_market_value and player["market_value_as_of"] else "not_available"
+            market_value_source = "not_available"
             raw = dict(player["raw_data"] or {})
             raw.update({
                 "market_value_source": market_value_source,
-                "market_value_as_of": player["market_value_as_of"].isoformat() if player["market_value_as_of"] else None,
+                "market_value_as_of": None,
                 "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 estimate",
                 "contract_source": "SM27 estimate",
                 "wage_source": "SM27 career wage model",

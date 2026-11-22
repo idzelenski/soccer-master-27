@@ -104,8 +104,7 @@ const POSITION_TRAINING_OPTIONS = {
 };
 function marketValueSourceLabel(player) {
   if (player.market_value_source === 'SofaScore') return 'SofaScore';
-  if (player.market_value_source === 'Transfermarkt') return 'Нет подтверждённой оценки SofaScore';
-  return 'Нет подтверждённого источника';
+  return 'Нет данных SofaScore';
 }
 function crest(name, logo, size = 'normal') {
   const fallback = esc(initials(name));

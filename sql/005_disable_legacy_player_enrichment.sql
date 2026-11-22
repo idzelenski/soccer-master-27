@@ -24,7 +24,7 @@ WITH applied AS (
 UPDATE players p
 SET secondary_positions=ARRAY[]::text[],
     nationality_flag=NULL,
-    market_value=CASE WHEN p.original_data->>'generated'='true' THEN 0 ELSE coalesce(p.market_value,0) END,
+    market_value=CASE WHEN p.original_data->>'market_value_source'='SofaScore' THEN coalesce(p.market_value,0) ELSE 0 END,
     weekly_wage=CASE
         WHEN lower(trim(p.name))='cristiano ronaldo' THEN 53000
         WHEN lower(trim(p.name)) IN ('iñigo martínez','inigo martinez') THEN 245000
@@ -66,8 +66,6 @@ SET profile_source=CASE
     END,
     market_value_source=CASE
         WHEN p.original_data->>'market_value_source'='SofaScore' THEN 'SofaScore'
-        WHEN p.original_data->>'market_value_source'='Transfermarkt' THEN 'Transfermarkt'
-        WHEN p.market_value>0 THEN 'SM27 estimate'
         ELSE 'not_available'
     END,
     original_data=coalesce(p.original_data,'{}'::jsonb) || jsonb_build_object(
@@ -75,8 +73,6 @@ SET profile_source=CASE
         'rating_is_official',p.fc27_player_id IS NOT NULL,
         'market_value_source',CASE
             WHEN p.original_data->>'market_value_source'='SofaScore' THEN 'SofaScore'
-            WHEN p.original_data->>'market_value_source'='Transfermarkt' THEN 'Transfermarkt'
-            WHEN p.market_value>0 THEN 'SM27 estimate'
             ELSE 'not_available'
         END
     ),
@@ -88,8 +84,6 @@ WHERE p.profile_source IS DISTINCT FROM CASE
     END
    OR p.market_value_source IS DISTINCT FROM CASE
         WHEN p.original_data->>'market_value_source'='SofaScore' THEN 'SofaScore'
-        WHEN p.original_data->>'market_value_source'='Transfermarkt' THEN 'Transfermarkt'
-        WHEN p.market_value>0 THEN 'SM27 estimate'
         ELSE 'not_available'
     END
    OR p.original_data->>'rating_source' IS DISTINCT FROM
