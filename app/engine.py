@@ -29,11 +29,14 @@ def expected_goals(
     away_overall: float = 60,
     home_advantage: float = 0.22,
 ) -> tuple[float, float]:
-    home_strength = (home_reputation * 0.45 + home_overall * 0.55) / 100
-    away_strength = (away_reputation * 0.45 + away_overall * 0.55) / 100
-    difference = clamp(home_strength - away_strength, -0.55, 0.55)
-    home_xg = clamp(1.38 + difference * 1.05 + home_advantage, 0.25, 3.4)
-    away_xg = clamp(1.12 - difference * 0.95, 0.2, 3.1)
+    # Club reputation is derived from the FIFA-style 0.5–5.0 star tier;
+    # average squad OVR has the larger weight, so individual quality still matters.
+    home_strength = (home_reputation * 0.35 + home_overall * 0.65) / 100
+    away_strength = (away_reputation * 0.35 + away_overall * 0.65) / 100
+    difference = clamp(home_strength - away_strength, -0.65, 0.65)
+    # Exponential conversion gives strong sides a meaningful edge without removing upsets.
+    home_xg = clamp(1.42 * math.exp(difference * 1.35) + home_advantage, 0.18, 3.4)
+    away_xg = clamp(1.18 * math.exp(-difference * 1.35), 0.15, 3.1)
     return round(home_xg, 2), round(away_xg, 2)
 
 
@@ -50,7 +53,8 @@ def simulate_score(
     )
     home_score = poisson(home_xg, rng)
     away_score = poisson(away_xg, rng)
-    possession_base = 50 + (home_overall - away_overall) * 0.22
+    combined_gap = (home_reputation - away_reputation) * 0.35 + (home_overall - away_overall) * 0.65
+    possession_base = 50 + combined_gap * 0.20
     possession_home = int(round(clamp(possession_base + rng.uniform(-6, 6), 35, 65)))
     shots_home = max(home_score, int(round(home_xg * 3.4 + rng.uniform(2, 5))))
     shots_away = max(away_score, int(round(away_xg * 3.4 + rng.uniform(2, 5))))
