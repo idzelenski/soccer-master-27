@@ -179,7 +179,7 @@ function shell(content, title = 'Обзор') {
   document.getElementById('restart-career').addEventListener('click', restartCareer);
 }
 async function restartCareer() {
-  if (!window.confirm('Начать новую карьеру? Текущее сохранение будет архивировано. Все игровые параметры новой карьеры создадутся заново.')) return;
+  if (!window.confirm('Начать новую карьеру? Все текущие сохранения и связанные игровые данные будут удалены. Новая карьера начнётся с исходных данных SM27.')) return;
   const button=document.getElementById('restart-career'); if(button) button.disabled=true;
   try {
     await api('/api/saves/restart',{method:'POST',body:'{}'});
