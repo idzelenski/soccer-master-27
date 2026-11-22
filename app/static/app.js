@@ -411,11 +411,12 @@ function renderTactics(players, tactics) {
   }).join("");
   const benchIds = new Set(state.tacticBench);
   const bench = state.tacticBench.map(id => {
-    const p=byId.get(id); return p ? `<button class="tactic-player-row bench-player" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button>` : "";
+    const p=byId.get(id);
+    return p ? `<div class="tactic-roster-item"><button class="tactic-player-row bench-player" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button><button class="roster-action" data-release-player="${esc(id)}" title="Переместить в резерв">В резерв</button></div>` : "";
   }).join("");
   const reserves = players.filter(p => !state.tacticSlots.includes(String(p.id)) && !benchIds.has(String(p.id)))
-    .sort((a,b)=>b.overall-a.overall)
-    .map(p=>`<button class="tactic-player-row reserve-player" data-player-id="${esc(p.id)}"><b>${p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · резерв</small></span></button>`).join("");
+    .sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall))
+    .map(p=>`<div class="tactic-roster-item"><button class="tactic-player-row reserve-player" data-player-id="${esc(p.id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · резерв</small></span></button><button class="roster-action" data-promote-player="${esc(p.id)}" title="Добавить в запас">В запас</button></div>`).join("");
   const settings = state.tacticSettings;
   const select = (id,label,value,options) => `<label class="tactic-setting"><span>${label}</span><select id="${id}" class="select-input">${options.map(([v,l])=>`<option value="${v}" ${value===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
   const options = {
@@ -500,6 +501,18 @@ function setupTacticsInteractions() {
       toast("Сначала выбери позицию на поле",true); return;
     }
     swapTacticPlayers(state.selectedTacticSlot,button.dataset.playerId);
+  }));
+  document.querySelectorAll("[data-release-player]").forEach(button=>button.addEventListener("click",event=>{
+    event.stopPropagation();
+    if(state.tacticBench.length<=5){toast("В запасе должно остаться минимум 5 игроков",true);return;}
+    state.tacticBench=state.tacticBench.filter(id=>id!==button.dataset.releasePlayer);
+    redrawTactics();
+  }));
+  document.querySelectorAll("[data-promote-player]").forEach(button=>button.addEventListener("click",event=>{
+    event.stopPropagation();
+    if(state.tacticBench.length>=9){toast("В запасе может быть максимум 9 игроков",true);return;}
+    state.tacticBench.push(button.dataset.promotePlayer);
+    redrawTactics();
   }));
   const pitch=document.getElementById("tactic-pitch");
   pitch?.querySelectorAll("[data-pitch-slot]").forEach(slot=>{
