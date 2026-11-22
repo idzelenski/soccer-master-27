@@ -7,6 +7,8 @@ import json
 import math
 import os
 import re
+import sys
+from pathlib import Path
 import time
 import unicodedata
 import urllib.parse
@@ -18,6 +20,9 @@ import psycopg
 from psycopg.rows import dict_row
 import pycountry
 from psycopg.types.json import Jsonb
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from app.researched_profiles import get_researched_profile
 
 ENDPOINT = "https://drop-api.ea.com/rating/ea-sports-fc"
 PAGE_SIZE = 100
@@ -417,7 +422,8 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
     update_world_player_matches(conn,index)
     rows=conn.execute("""
         SELECT p.id,p.name,p.nationality,p.age,p.position,p.market_value,p.market_value_source,
-               p.potential,p.original_data,p.fc27_player_id,c.reputation,c.name AS club_name
+               p.potential,p.original_data,p.attributes,p.profile_source,p.source_url,
+               p.fc27_player_id,c.reputation,c.name AS club_name
         FROM players p JOIN clubs c ON c.id=p.club_id
         WHERE p.original_data->>'generated' IS DISTINCT FROM 'true'
     """).fetchall()
@@ -448,36 +454,57 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
             market_value=int(row["market_value"] or 0) if market_source == "SofaScore" else 0
             if market_source != "SofaScore":
                 market_source="not_available"
-            if market_value>0:
-                score=60+15*math.log10(max(market_value,25_000)/1_000_000)
-                age_adjust=5 if age<=21 else 3 if age<=24 else 0 if age<=29 else -min(12,(age-29)*0.75)
-                overall=max(35,min(90,round(score+age_adjust)))
+            researched = get_researched_profile(row["name"])
+            if researched:
+                overall=int(researched["overall"])
+                position=researched["position"]
+                attributes=dict(researched["attributes"])
+                potential=max(overall,int(researched["potential"]))
+                profile_source=researched["profile_source"]
             else:
-                overall=max(35,min(84,round(42+reputation*0.29+(3 if age<=24 else 0))))
-            position=row["position"] if row["position"] in POSITION_CODES else (
-                "GK" if row["position"] in {"GK","G"} else "CB" if row["position"]=="DF"
-                else "ST" if row["position"]=="FW" else "CM"
-            )
-            attributes=fallback_attributes(overall,position)
+                if market_value>0:
+                    score=60+15*math.log10(max(market_value,25_000)/1_000_000)
+                    age_adjust=5 if age<=21 else 3 if age<=24 else 0 if age<=29 else -min(12,(age-29)*0.75)
+                    overall=max(35,min(90,round(score+age_adjust)))
+                else:
+                    overall=max(35,min(84,round(42+reputation*0.29+(3 if age<=24 else 0))))
+                position=row["position"] if row["position"] in POSITION_CODES else (
+                    "GK" if row["position"] in {"GK","G"} else "CB" if row["position"]=="DF"
+                    else "ST" if row["position"]=="FW" else "CM"
+                )
+                attributes=fallback_attributes(overall,position)
+                potential=max(overall,int(row["potential"] or overall))
+                profile_source="SM27 model estimate · no EA FC 27 player match"
             fc_id=None
-            profile_source="SM27 model estimate · no EA FC 27 player match"
+            if match:
             potential=max(overall,int(row["potential"] or overall))
+            source_url=row["source_url"]
+            original=dict(row["original_data"] or {})
+            original.pop("research",None)
+            rating_source="EA FC 27 official ratings API"
+        else:
+            if not researched:
+                potential=max(overall,int(row["potential"] or overall))
+            source_url=researched["source_url"] if researched else row["source_url"]
+            original=dict(row["original_data"] or {})
+            if researched:
+                original["research"]=researched["research"]
+            rating_source="FotMob 2026/27 researched estimate" if researched else "SM27 model estimate"
         wage=estimated_weekly_wage(overall,age,reputation,row["name"])
-        original=dict(row["original_data"] or {})
         original.update({
-            "rating_source":"EA FC 27 official ratings API" if match else "SM27 model estimate",
+            "rating_source":rating_source,
             "rating_snapshot":FC27_SNAPSHOT.isoformat() if match else None,
             "wage_source":"FC 27 Career Mode squad data" if any(normalise_name(row["name"]).startswith(alias) for alias in WAGE_OVERRIDES) else "SM27 wage model",
         })
         updates.append((
             fc_id,position,overall,potential,market_value,market_source,wage,
-            Jsonb(attributes),Jsonb(original),profile_source,row["id"],
+            Jsonb(attributes),Jsonb(original),profile_source,source_url,row["id"],
         ))
     with conn.cursor() as cursor:
         cursor.executemany("""
             UPDATE players SET fc27_player_id=%s,position=%s,overall=%s,potential=%s,
                 market_value=%s,market_value_source=%s,weekly_wage=%s,attributes=%s,
-                original_data=%s,profile_source=%s,updated_at=now()
+                original_data=%s,profile_source=%s,source_url=%s,updated_at=now()
             WHERE id=%s
         """,updates)
     print(f"Updated career player rows: {matched} FC 27 matches, {fallback} SM27 estimates")

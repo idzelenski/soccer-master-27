@@ -149,3 +149,17 @@ def test_fc27_matching_uses_position_groups_and_rejects_wrong_clubs():
     assert choose_match("Marquinhos", "BRA", "Paris Saint-Germain", "DF", index)["ea_player_id"] == 3
     assert choose_match("Marquinhos", "BRA", "FC Spartak Moscow", "MF", index) is None
     assert choose_match("Ederson", "BRA", "Fenerbahçe Istanbul", "GK", index)["ea_player_id"] == 6
+
+
+def test_researched_profiles_are_source_linked_and_not_labelled_as_ea():
+    from app.researched_profiles import get_researched_profile
+
+    profile = get_researched_profile("Esequiel Barco")
+    assert profile is not None
+    assert profile["overall"] == 80
+    assert profile["position"] == "CAM"
+    assert profile["profile_source"].startswith("SM27 researched estimate")
+    assert profile["research"]["source"] == "FotMob"
+    assert profile["research"]["season"] == "2026/27"
+    assert profile["source_url"].startswith("https://www.fotmob.com/players/")
+    assert get_researched_profile("An unknown academy player") is None
