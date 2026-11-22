@@ -245,46 +245,46 @@ function renderSquad(players) {
     '<div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Рейтинги и зарплаты FC 27 имеют пометку источника. Для остальных показывается оценка SM27. Рыночная стоимость подписывается Sofascore только после подтверждённой синхронизации.</span></div></section>';
 }
 function showPlayerDetails(playerId) {
-  const player = state.squad.find(item => String(item.id) === String(playerId));
-  if (!player) return;
+  const player=state.squad.find(item=>String(item.id)===String(playerId));
+  if(!player)return;
   document.getElementById('player-detail-modal')?.remove();
-  const stats = player.attributes || {};
-  const keeper = player.position === 'GK';
-  const labels = keeper
-    ? [['DIV','Отражение'],['HAN','Игра руками'],['KIC','Удар'],['REF','Реакция'],['SPE','Скорость'],['POS','Позиционирование']]
-    : [['PAC','Скорость'],['SHO','Удар'],['PAS','Пас'],['DRI','Дриблинг'],['DEF','Защита'],['PHY','Физика']];
-  const bars = labels.map(([code,label]) => `<div class="attribute-item"><div><b>${code}</b><span>${label}</span><strong>${stats[code] ?? player.overall}</strong></div><i><span style="width:${stats[code] ?? player.overall}%"></span></i></div>`).join('');
-  const modal = document.createElement('div');
-  modal.id = 'player-detail-modal';
-  modal.className = 'player-modal-backdrop';
-  modal.innerHTML = `
-    <section class="player-modal panel">
-      <button class="modal-close" id="close-player-modal" aria-label="Закрыть">×</button>
-      <div class="player-modal-head">
-        <div class="player-modal-flag">${esc(player.nationality_flag || '🏳️')}</div>
-        <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>${esc(player.name)}</h2><p>${esc(player.nationality || 'Национальность не указана')} · ${player.age} лет · ${esc(player.position)}</p></div>
-        <div class="player-modal-ratings"><b>${player.dynamic_overall ?? player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
-      </div>
-      <div class="player-modal-grid">
-        <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Нет данных'}</b></div>
-        <div class="player-metric"><small>Рыночная стоимость</small><b>${money(player.market_value)}</b><em>${esc(player.profile_source || 'SM27 estimate')}</em></div>
-        <div class="player-metric"><small>Контракт до</small><b>${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Игровая оценка, не официальный срок</em></div>
-        <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b><em>Игровая оценка SM27</em></div>
-      </div>
-      <div class="player-state-grid">
-        <div><small>Тонус</small><b>${player.sharpness ?? 85}%</b><i><span style="width:${player.sharpness ?? 85}%"></span></i></div>
-        <div><small>Форма</small><b>${player.form ?? 50}/100</b><i><span style="width:${player.form ?? 50}%"></span></i></div>
-        <div><small>Настрой</small><b>${player.morale ?? 70}/100</b><i><span style="width:${player.morale ?? 70}%"></span></i></div>
-      </div>
-      <div class="panel-head"><h3>Характеристики ${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
-      <div class="attribute-grid">${bars}</div>
-      <div class="catalog-note"><span>ⓘ</span><span>Если у источника нет конкретных характеристик, они сгенерированы игровым движком на основе OVR и позиции. Это не официальные атрибуты EA или Transfermarkt.</span></div>
-    </section>`;
+  const stats=player.attributes||{},keeper=player.position==='GK';
+  const labels=keeper?[['DIV','Отражение'],['HAN','Игра руками'],['KIC','Удар'],['REF','Реакция'],['SPE','Скорость'],['POS','Позиционирование']]:[['PAC','Скорость'],['SHO','Удар'],['PAS','Пас'],['DRI','Дриблинг'],['DEF','Защита'],['PHY','Физика']];
+  const bars=labels.map(([code,label])=>'<div class="attribute-item"><div><b>'+code+'</b><span>'+label+'</span><strong>'+(stats[code]??player.overall)+'</strong></div><i><span style="width:'+(stats[code]??player.overall)+'%"></span></i></div>').join('');
+  const detailLabels={acceleration:'Ускорение',sprint_speed:'Скорость бега',finishing:'Завершение',attacking_position:'Позиционирование атаки',shot_power:'Сила удара',long_shots:'Дальние удары',penalties:'Пенальти',volleys:'Удары с лёта',vision:'Видение',crossing:'Навесы',fk_accuracy:'Штрафные',long_passing:'Длинный пас',short_passing:'Короткий пас',curve:'Подкрутка',agility:'Ловкость',balance:'Баланс',reactions:'Реакция',composure:'Хладнокровие',ball_control:'Контроль мяча',dribbling:'Дриблинг',interceptions:'Перехваты',heading_accuracy:'Игра головой',defending_awareness:'Оборонительное чутьё',standing_tackle:'Отбор',sliding_tackle:'Подкат',jumping:'Прыжки',stamina:'Выносливость',strength:'Сила',aggression:'Агрессия'};
+  const details=Object.entries(stats).filter(([key,value])=>!labels.some(([code])=>code===key)&&Number.isFinite(Number(value))).map(([key,value])=>'<div class="attribute-detail"><span>'+esc(detailLabels[key]||key.replaceAll('_',' '))+'</span><b>'+Number(value)+'</b></div>').join('');
+  const trained=player.secondary_positions||[],training=player.position_training_target;
+  const trainable={GK:[],RB:['RWB','CB','LB','RM'],LB:['LWB','CB','RB','LM'],CB:['RB','LB','CDM'],RWB:['RB','RM','LB'],LWB:['LB','LM','RB'],CDM:['CM','CB','CAM'],CM:['CDM','CAM','RM','LM'],CAM:['CM','CF','RM','LM'],RM:['RW','RB','CM'],LM:['LW','LB','CM'],RW:['RM','LW','ST'],LW:['LM','RW','ST'],ST:['CF','CAM','LW','RW'],CF:['ST','CAM','RW','LW']};
+  const available=(trainable[player.position]||[]).filter(pos=>pos!==player.position&&!trained.includes(pos));
+  const weeks=Math.max(0,Math.min(8,Number(player.position_training_weeks||0)));
+  let trainingMarkup='';
+  if(training){trainingMarkup='<div class="training-progress"><span>'+esc(training)+' · '+weeks+'/8 игровых недель</span><i><b style="width:'+(weeks/8*100)+'%"></b></i></div>';}
+  else if(available.length&&trained.length<2){trainingMarkup='<form id="position-training-form"><select id="training-position" class="select-input">'+available.map(pos=>'<option value="'+pos+'">'+pos+'</option>').join('')+'</select><button class="btn-secondary" type="submit">Начать обучение · 8 недель</button></form>';}
+  else trainingMarkup='<small class="training-complete">Все доступные позиции изучены</small>';
+  const toneLevel=Math.max(1,Math.min(5,Math.ceil(Number(player.sharpness??85)/20)));
+  const moodLevel=Math.max(1,Math.min(5,Math.ceil(Number(player.morale??70)/20)));
+  const modal=document.createElement('div');modal.id='player-detail-modal';modal.className='player-modal-backdrop';
+  modal.innerHTML='<section class="player-modal panel">'+
+    '<button class="modal-close" id="close-player-modal" aria-label="Закрыть">×</button>'+
+    '<div class="player-modal-head"><div class="player-modal-flag">'+flagImage(player.nationality_flag,player.nationality)+'</div><div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>'+esc(player.name)+'</h2><p>'+esc(player.nationality||'Национальность не указана')+' · '+player.age+' лет · '+esc(player.position)+'</p></div><div class="player-modal-ratings"><b>'+(player.dynamic_overall??player.overall)+'</b><span>OVR</span><b>'+player.potential+'</b><span>POT</span></div></div>'+
+    '<div class="player-modal-grid"><div class="player-metric"><small>Дополнительные позиции</small><b>'+(trained.map(esc).join(' · ')||'Не изучены')+'</b><em>Открываются через обучение</em></div>'+
+    '<div class="player-metric"><small>Рыночная стоимость</small><b>'+money(player.market_value)+'</b><em>'+esc(player.market_value_source||'SM27 estimate')+'</em></div>'+
+    '<div class="player-metric"><small>Контракт до</small><b>'+(player.contract_end?dateLabel(player.contract_end):'—')+'</b><em>'+esc(player.rating_source||'SM27 estimate')+'</em></div>'+
+    '<div class="player-metric"><small>Зарплата в неделю</small><b>'+money(player.weekly_wage)+'</b><em>'+esc(player.wage_source||'SM27 estimate')+'</em></div></div>'+
+    '<div class="player-state-grid player-state-grid-visual"><div><small>Тонус · '+toneLevel+'/5</small>'+conditionGems(player.sharpness)+'</div><div><small>Настрой · '+moodLevel+'/5</small>'+moodFace(player.morale)+'</div></div>'+
+    '<div class="position-training panel-inset"><div><b>Обучение новой позиции</b><small>'+(training?'Игрок сейчас изучает новую позицию':'Вторые позиции необходимо изучать')+'</small></div>'+trainingMarkup+'</div>'+
+    '<div class="panel-head"><h3>Характеристики '+(keeper?'вратаря':'полевого игрока')+'</h3><span>ШКАЛА 1–99</span></div><div class="attribute-grid">'+bars+'</div>'+
+    (details?'<details class="attribute-details"><summary>Подробные характеристики</summary><div class="attribute-details-grid">'+details+'</div></details>':'')+
+    '<div class="catalog-note"><span>ⓘ</span><span>Показатели FC 27 указываются с источником. Для остальных игроков значения SM27 остаются оценочными, пока не подтверждены спортивной статистикой.</span></div></section>';
   document.body.appendChild(modal);
-  document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());
-  modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
+  document.getElementById('close-player-modal').addEventListener('click',()=>modal.remove());
+  modal.addEventListener('click',event=>{if(event.target===modal)modal.remove();});
+  document.getElementById('position-training-form')?.addEventListener('submit',async event=>{
+    event.preventDefault();const position=document.getElementById('training-position')?.value;
+    try{await api('/api/squad/'+encodeURIComponent(player.id)+'/train-position',{method:'POST',body:JSON.stringify({position})});state.squad=await api('/api/squad');toast('Начато обучение позиции '+position+'. Она откроется после 8 игровых недель.');showPlayerDetails(player.id);}
+    catch(error){toast(error.message,true);}
+  });
 }
-
 
 const FORMATIONS = [
   "3-1-4-2","3-4-1-2","3-4-2-1","3-4-3","3-4-3 Flat","3-5-2",
