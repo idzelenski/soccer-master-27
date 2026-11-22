@@ -721,7 +721,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                     overall, potential, market_value, weekly_wage, contract_end,
                     Jsonb(attributes), Jsonb(raw),
                     "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
-                    researched["source_url"] if researched else player["source_url"], player["market_value_as_of"],
+                    researched["source_url"] if researched else player["source_url"], market_value_as_of,
                     flag_for_nationality(player["nationality"]), profile_source, fc27_id, market_value_source,
                 ),
             )
