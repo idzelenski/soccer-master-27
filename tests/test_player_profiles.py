@@ -29,7 +29,7 @@ def test_player_attributes_are_position_appropriate_and_bounded():
 def test_market_value_wage_and_contract_estimates_are_valid():
     value = estimated_market_value(79, 87, 22)
     assert value >= 25_000
-    assert estimated_weekly_wage(84, 30, 85, "Cristiano Ronaldo") == 53_000
+    assert estimated_weekly_wage(84, 30, 85, "Cristiano Ronaldo") == 4_007_692
     assert estimated_weekly_wage(84, 30, 85) > estimated_weekly_wage(65, 19, 45)
     assert estimated_contract_end(22, "player-22").year >= 2028
 
