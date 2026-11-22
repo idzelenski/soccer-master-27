@@ -956,7 +956,6 @@ def data_status(conn: Connection = Depends(db_dep)) -> dict:
                   (SELECT max(source_snapshot) FROM sm27_club_pool) AS snapshot"""
     ).fetchone()
     return serialise({"status": "ready" if counts["clubs"] >= 100 else "needs_import", **dict(counts)})
-, '', name, flags=re.IGNORECASE).strip()
 
 
 def make_club(conn: Connection, game_state_id: str, pool_row: dict) -> str:
