@@ -497,8 +497,8 @@ function ensureTacticState(players, tactics) {
   };
   state.tacticSettings.player_roles ||= {};
   if (state.selectedTacticSlot === undefined) state.selectedTacticSlot = null;
-  state.selectedTacticPlayer = null;
-  state.tacticReserve = [];
+  if (state.selectedTacticPlayer === undefined) state.selectedTacticPlayer = null;
+  if (!Array.isArray(state.tacticReserve)) state.tacticReserve = [];
 }
 function redrawTactics() {
   const tactics = {formation: state.tacticFormation, mentality: 'balanced', style: state.tacticSettings, starting_xi: state.tacticSlots, bench: state.tacticBench};
