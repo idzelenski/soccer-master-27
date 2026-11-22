@@ -104,7 +104,7 @@ const POSITION_TRAINING_OPTIONS = {
 };
 function marketValueSourceLabel(player) {
   if (player.market_value_source === 'SofaScore') return 'SofaScore';
-  if (player.market_value_source === 'Transfermarkt') return 'Transfermarkt';
+  if (player.market_value_source === 'Transfermarkt') return 'Нет подтверждённой оценки SofaScore';
   return 'Нет подтверждённого источника';
 }
 function crest(name, logo, size = 'normal') {
@@ -280,7 +280,7 @@ function renderSquad(players) {
   const rows = players.map((player) => {
     const source = marketValueSourceLabel(player);
     const hasVerifiedValue = Number(player.market_value || 0) > 0
-      && ['SofaScore','Transfermarkt'].includes(player.market_value_source);
+      && player.market_value_source === 'SofaScore';
     const valueLabel = hasVerifiedValue ? money(player.market_value) : '—';
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
       <td><span class="rating">${player.dynamic_overall ?? player.overall}</span></td>
@@ -327,7 +327,7 @@ function showPlayerDetails(playerId) {
       : '<small class="training-help">Для этой позиции нет доступных соседних ролей.</small>';
   const marketSource = marketValueSourceLabel(player);
   const hasVerifiedValue = Number(player.market_value || 0) > 0
-    && ['SofaScore','Transfermarkt'].includes(player.market_value_source);
+    && player.market_value_source === 'SofaScore';
   const modal = document.createElement('div');
   modal.id = 'player-detail-modal';
   modal.className = 'player-modal-backdrop';

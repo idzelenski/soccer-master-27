@@ -36,30 +36,3 @@ ALTER TABLE players ADD COLUMN IF NOT EXISTS market_value_source TEXT NOT NULL D
 ALTER TABLE world_player_catalog ADD COLUMN IF NOT EXISTS fc27_player_id BIGINT;
 CREATE INDEX IF NOT EXISTS idx_players_fc27_id ON players(fc27_player_id);
 CREATE INDEX IF NOT EXISTS idx_world_player_fc27_id ON world_player_catalog(fc27_player_id);
-UPDATE players SET secondary_positions=ARRAY[]::text[] WHERE cardinality(secondary_positions)>0;
-UPDATE players
-SET market_value_source=CASE
-    WHEN coalesce(profile_source,'') ILIKE 'Transfermarkt%' THEN 'Transfermarkt'
-    WHEN coalesce(market_value,0)>0 AND coalesce(original_data->>'generated','false')<>'true' THEN 'SM27 estimate'
-    ELSE 'not_available'
-END
-WHERE market_value_source IS DISTINCT FROM CASE
-    WHEN coalesce(profile_source,'') ILIKE 'Transfermarkt%' THEN 'Transfermarkt'
-    WHEN coalesce(market_value,0)>0 AND coalesce(original_data->>'generated','false')<>'true' THEN 'SM27 estimate'
-    ELSE 'not_available'
-END;
-UPDATE players p
-SET market_value=0,
-    market_value_source='not_available',
-    profile_source='SM27 generated academy player — fictional, no external market value',
-    weekly_wage=GREATEST(150,LEAST(15000,(p.overall*18+GREATEST(0,p.potential-p.overall)*30)::bigint)),
-    secondary_positions=ARRAY[]::text[],
-    position_training_target=NULL,
-    position_training_progress=0
-WHERE p.original_data->>'generated'='true'
-  AND (coalesce(p.market_value,0)<>0
-       OR coalesce(p.market_value_source,'')<>'not_available'
-       OR p.profile_source IS DISTINCT FROM 'SM27 generated academy player — fictional, no external market value'
-       OR cardinality(coalesce(p.secondary_positions,ARRAY[]::text[]))>0
-       OR p.position_training_target IS NOT NULL
-       OR coalesce(p.position_training_progress,0)<>0);

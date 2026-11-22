@@ -171,3 +171,15 @@ SM27 — футбольный менеджер / симулятор карьер
 - 18361dcf: в index.html подключён пакет flag-icons 7.6.0 для прямоугольных SVG-флагов. UI использует CSS/SVG флаги, не системные emoji.
 
 - Исправление после CI 2026-11-22: pycountry не распознаёт краткое имя "Russia", поэтому для России добавлен явный ISO-код ru. Тест nationality flags проверяет common names, ISO-3 и региональный код England. CI выявил этот кейс; после исправления повторно проверить весь workflow.
+
+
+17. DATABASE TRIGGER FIX AND OFFICIAL FC27 IMPORT (2026-11-22)
+- Production deployment f177204 is LIVE. GitHub CI for 22a7067 passed; commit f177204 and newer commits require their own CI/deploy verification.
+- Root cause of extra positions: PostgreSQL trigger trg_sm27_enrich_player_profile silently repopulated secondary_positions, stored emoji flags and overwrote profile_source on player updates. The trigger is not in current SQL migrations but persisted in the database from an older version.
+- Migration 005 removes the trigger and function, creates sm27_migration_flags and fc27_import_state, and performs a one-time cleanup of secondary positions, old flags and weekly wages. The marker prevents cleanup from running again and erasing trained positions.
+- SQL 004 data updates must be removed because the app reapplies SQL files on startup; those updates reset completed training every restart. SQL 003 no longer fabricates market values when no source value exists.
+- Official FC27 importer exists at scripts/import_fc27_ratings.py and is launched once from the existing web service process using fc27_import_state. It must never clear secondary positions during a retry/import. EA API request uses drop-referrer header and FC27 selector.
+- UI only displays a player market value when market_value_source='SofaScore'. Transfermarkt and SM27 values are not shown as SofaScore. SofaScore integration itself is still pending.
+- SQL 005 data update and source-update statements passed EXPLAIN parsing against the Neon schema; actual application awaits next deploy.
+- Remaining work: verify FC27 import status and matched counts; research non-FC27 players; integrate SofaScore player values; complete true calendar fast-forward by single date cell; verify CI, Render logs, absence of legacy triggers, zero initial secondary positions, and retained progress after restart.
+- Continue updating summary.txt at the end of every SM27 session and keep Neon/Render/GitHub on Free tiers only.

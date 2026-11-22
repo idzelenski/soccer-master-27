@@ -207,7 +207,6 @@ def ensure_schema(conn: psycopg.Connection) -> None:
     conn.execute("CREATE INDEX IF NOT EXISTS idx_fc27_player_nationality ON fc27_player_catalog(nationality_code,name_key)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_players_fc27_id ON players(fc27_player_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_world_player_fc27_id ON world_player_catalog(fc27_player_id)")
-    conn.execute("UPDATE players SET secondary_positions=ARRAY[]::text[]")
 
 
 def import_catalog(conn: psycopg.Connection, records: list[dict[str, Any]]) -> None:
@@ -397,8 +396,7 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
         cursor.executemany("""
             UPDATE players SET fc27_player_id=%s,position=%s,overall=%s,potential=%s,
                 market_value=%s,market_value_source=%s,weekly_wage=%s,attributes=%s,
-                original_data=%s,profile_source=%s,secondary_positions=ARRAY[]::text[],
-                updated_at=now()
+                original_data=%s,profile_source=%s,updated_at=now()
             WHERE id=%s
         """,updates)
     print(f"Updated career player rows: {matched} FC 27 matches, {fallback} SM27 estimates")
