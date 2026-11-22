@@ -345,17 +345,19 @@ def choose_match(name, nationality, club_name, position, index):
             if source_group != candidate_group:
                 continue
             score += 3
-        score += club_match_score(club_name, candidate["club_name"])
+        club_score = club_match_score(club_name, candidate["club_name"])
+        if len(candidates) > 1 and club_score == 0:
+            continue
+        score += club_score
         if (position or "").upper() == candidate["position"]:
             score += 1
-        ranked.append((score, candidate))
+        ranked.append((score, club_score, candidate))
     if not ranked:
         return None
-    ranked.sort(key=lambda item: (item[0], item[1]["overall"]), reverse=True)
-    if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
-        if ranked[0][1]["overall"] - ranked[1][1]["overall"] < 3:
-            return None
-    return ranked[0][1]
+    ranked.sort(key=lambda item: (item[0], item[1], item[2]["overall"]), reverse=True)
+    if len(ranked) > 1 and ranked[0][:2] == ranked[1][:2]:
+        return None
+    return ranked[0][2]
 
 
 def update_world_player_matches(conn: psycopg.Connection, index) -> int:
@@ -364,6 +366,7 @@ def update_world_player_matches(conn: psycopg.Connection, index) -> int:
         FROM world_player_catalog wp
         LEFT JOIN world_club_catalog wc ON wc.source_id=wp.club_source_id
     """).fetchall()
+    conn.execute("UPDATE world_player_catalog SET fc27_player_id=NULL")
     updates = []
     for row in rows:
         match = choose_match(row["name"],row["nationality"],row["club_name"],row["position"],index)
@@ -418,13 +421,10 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
         FROM players p JOIN clubs c ON c.id=p.club_id
         WHERE p.original_data->>'generated' IS DISTINCT FROM 'true'
     """).fetchall()
-    record_by_id={row["ea_player_id"]:row for row in records}
     updates=[]
     matched=fallback=0
     for row in rows:
-        match=record_by_id.get(row["fc27_player_id"]) if row["fc27_player_id"] else None
-        if not match:
-            match=choose_match(row["name"],row["nationality"],row["club_name"],row["position"],index)
+        match=choose_match(row["name"],row["nationality"],row["club_name"],row["position"],index)
         age=int(row["age"] or 24)
         reputation=int(row["reputation"] or 50)
         seed=int(hashlib.sha1(str(row["id"]).encode()).hexdigest()[:8],16)
