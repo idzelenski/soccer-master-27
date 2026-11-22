@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import random
 import re
 import uuid
@@ -10,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from psycopg import Connection, errors
 from psycopg.types.json import Jsonb
@@ -28,6 +29,7 @@ from app.engine import overall_from_market_value, potential_from_overall, round_
 from app.schemas import CreateSaveIn, LoginIn, RegisterIn, TacticIn
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+LOGGER = logging.getLogger("sm27")
 
 
 @asynccontextmanager
@@ -65,6 +67,107 @@ def serialise(row: Any) -> Any:
 
 
 
+
+POSITION_CODES = {"GK", "RB", "CB", "LB", "RWB", "LWB", "CDM", "CM", "CAM", "RM", "LM", "RW", "LW", "ST", "CF"}
+POSITION_OPTIONS = {
+    "DF": ("CB", "RB", "LB", "RWB", "LWB"),
+    "MF": ("CM", "CDM", "CAM", "RM", "LM"),
+    "FW": ("ST", "CF", "RW", "LW"),
+    "GK": ("GK",),
+}
+SECONDARY_POSITIONS = {
+    "GK": (), "RB": ("LB", "RWB"), "LB": ("RB", "LWB"),
+    "CB": ("CDM",), "RWB": ("RB", "RM"), "LWB": ("LB", "LM"),
+    "CDM": ("CM", "CB"), "CM": ("CDM", "CAM"),
+    "CAM": ("CM", "CF"), "RM": ("RW", "CM"),
+    "LM": ("LW", "CM"), "RW": ("RM", "ST"),
+    "LW": ("LM", "ST"), "ST": ("CF", "LW"), "CF": ("ST", "CAM"),
+}
+NATIONALITY_FLAGS = {
+    "argentina": "🇦🇷", "australia": "🇦🇺", "austria": "🇦🇹", "belgium": "🇧🇪",
+    "brazil": "🇧🇷", "cameroon": "🇨🇲", "canada": "🇨🇦", "chile": "🇨🇱",
+    "china": "🇨🇳", "colombia": "🇨🇴", "croatia": "🇭🇷", "czech republic": "🇨🇿",
+    "denmark": "🇩🇰", "ecuador": "🇪🇨", "egypt": "🇪🇬", "england": "🏴",
+    "finland": "🇫🇮", "france": "🇫🇷", "georgia": "🇬🇪", "germany": "🇩🇪",
+    "ghana": "🇬🇭", "greece": "🇬🇷", "ireland": "🇮🇪", "italy": "🇮🇹",
+    "ivory coast": "🇨🇮", "japan": "🇯🇵", "mexico": "🇲🇽", "morocco": "🇲🇦",
+    "netherlands": "🇳🇱", "new zealand": "🇳🇿", "nigeria": "🇳🇬", "north macedonia": "🇲🇰",
+    "norway": "🇳🇴", "poland": "🇵🇱", "portugal": "🇵🇹", "romania": "🇷🇴",
+    "russia": "🇷🇺", "scotland": "🏴", "serbia": "🇷🇸", "slovakia": "🇸🇰",
+    "slovenia": "🇸🇮", "south korea": "🇰🇷", "spain": "🇪🇸", "sweden": "🇸🇪",
+    "switzerland": "🇨🇭", "turkey": "🇹🇷", "ukraine": "🇺🇦", "united states": "🇺🇸",
+    "uruguay": "🇺🇾", "venezuela": "🇻🇪", "wales": "🏴", "algeria": "🇩🇿",
+    "angola": "🇦🇴", "bosnia and herzegovina": "🇧🇦", "burkina faso": "🇧🇫",
+    "cape verde": "🇨🇻", "congo": "🇨🇬", "democratic republic of the congo": "🇨🇩",
+    "guinea": "🇬🇳", "iran": "🇮🇷", "israel": "🇮🇱", "jamaica": "🇯🇲",
+    "kosovo": "🇽🇰", "mali": "🇲🇱", "montenegro": "🇲🇪", "senegal": "🇸🇳",
+    "south africa": "🇿🇦", "togo": "🇹🇬", "tunisia": "🇹🇳", "uzbekistan": "🇺🇿",
+}
+
+
+def flag_for_nationality(value: str | None) -> str:
+    key = (value or "").strip().casefold()
+    if key in NATIONALITY_FLAGS:
+        return NATIONALITY_FLAGS[key]
+    try:
+        import pycountry
+        country = pycountry.countries.lookup(value or "")
+        return "".join(chr(127397 + ord(char)) for char in country.alpha_2.upper())
+    except (ImportError, LookupError, AttributeError):
+        return "🏳️"
+
+
+def normalise_player_position(position: str | None, source_id: str = "") -> str:
+    value = (position or "").strip().upper()
+    if value in POSITION_CODES:
+        return value
+    group = value if value in POSITION_OPTIONS else (
+        "GK" if value in {"GOALKEEPER", "G"} else
+        "DF" if value in {"DEFENDER", "DEFENCE", "D"} else
+        "FW" if value in {"FORWARD", "ATTACKER", "STRIKER", "F"} else
+        "MF"
+    )
+    options = POSITION_OPTIONS[group]
+    seed = int(hashlib.sha1((source_id or value or "SM27").encode()).hexdigest()[:8], 16)
+    return options[seed % len(options)]
+
+
+def player_attributes(overall: int, position: str, source_id: str) -> dict[str, int]:
+    seed = int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
+    rng = random.Random(seed)
+    if position == "GK":
+        offsets = {"DIV": 1, "HAN": 0, "KIC": -3, "REF": 4, "SPE": -2, "POS": 2}
+    else:
+        group = "DF" if position in {"CB", "RB", "LB", "RWB", "LWB"} else "FW" if position in {"ST", "CF", "RW", "LW"} else "MF"
+        offsets = {
+            "PAC": 3 if group == "FW" else -1 if group == "DF" else 1,
+            "SHO": 6 if group == "FW" else -7 if group == "DF" else -1,
+            "PAS": 4 if group == "MF" else 0 if group == "DF" else -3,
+            "DRI": 5 if group == "FW" else 2 if group == "MF" else -4,
+            "DEF": 7 if group == "DF" else 0 if group == "MF" else -12,
+            "PHY": 4 if group == "DF" else 1 if group == "FW" else -1,
+        }
+    return {key: int(max(20, min(99, overall + offset + rng.randint(-5, 5)))) for key, offset in offsets.items()}
+
+
+def estimated_market_value(overall: int, potential: int, age: int) -> int:
+    age_factor = 1.22 if age <= 21 else 1.08 if age <= 24 else 1.0 if age <= 29 else max(0.25, 1 - (age - 29) * 0.07)
+    potential_factor = 1 + max(0, potential - overall) * 0.012
+    value = ((max(0, overall - 35) ** 2) * 12_000) * age_factor * potential_factor
+    return int(round(max(25_000, value) / 10_000) * 10_000)
+
+
+def estimated_weekly_wage(market_value: int) -> int:
+    return int(max(250, min(1_500_000, round(max(market_value, 25_000) * 0.00154 / 100) * 100)))
+
+
+def estimated_contract_end(age: int, source_id: str) -> date:
+    seed = int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
+    max_years = 2 if age >= 34 else 3 if age >= 30 else 5
+    years = 1 + seed % max_years
+    return date(2027 + years, 6, 30)
+
+
 def require_save(conn: Connection, manager_id: str) -> dict:
     row = conn.execute(
         """SELECT gs.id, gs.game_date, gs.season, gs.save_name, gs.managed_club_id,
@@ -83,7 +186,8 @@ def require_save(conn: Connection, manager_id: str) -> dict:
 
 
 def make_club(conn: Connection, game_state_id: str, pool_row: dict) -> str:
-    reputation = int(max(24, min(98, 82 - (int(pool_row["league_level"] or 1) - 1) * 10)))
+    stars = float(pool_row.get("fifa_stars") or 2.5)
+    reputation = max(10, min(100, int(pool_row.get("team_strength") or round(stars * 20))))
     capacity = pool_row.get("stadium_capacity") or 20000
     budget = int(max(350_000, min(220_000_000, (reputation**2) * 22_000)))
     row = conn.execute(
@@ -103,7 +207,7 @@ def make_club(conn: Connection, game_state_id: str, pool_row: dict) -> str:
             pool_row.get("league_name") or "Лига",
             pool_row.get("league_name") or "Лига",
             pool_row.get("continent") or "UEFA",
-            round(reputation / 20, 1),
+            stars,
             budget,
             pool_row.get("stadium"),
             capacity,
@@ -122,7 +226,7 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
         (game_state_id, club_id),
     ).fetchone()["n"]
     # Complete incomplete source squads with clearly marked fictional placeholders.
-    positions = ["GK", "GK", "DF", "DF", "DF", "DF", "DF", "DF", "MF", "MF", "MF", "MF", "MF", "MF", "FW", "FW", "FW", "FW"]
+    positions = ["GK", "GK", "RB", "CB", "CB", "LB", "CB", "RB", "CDM", "CM", "CM", "CAM", "CM", "CM", "RW", "LW", "ST", "CF"]
     if existing >= len(positions):
         return
     for index, position in enumerate(positions[existing:], start=existing + 1):
@@ -162,6 +266,16 @@ def create_schedule(conn: Connection, game_state_id: str, tournament_id: str, te
                    DO NOTHING""",
                 (game_state_id, tournament_id, match_date, round_index + 1, home_id, away_id),
             )
+
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    LOGGER.exception("Unhandled SM27 request error on %s %s", request.method, request.url.path)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Сервис временно не смог выполнить действие. Данные карьеры сохранены; повтори попытку."},
+    )
 
 
 @app.get("/")
@@ -241,9 +355,9 @@ def catalog_summary(conn: Connection = Depends(db_dep)) -> dict:
 @app.get("/api/catalog/leagues")
 def catalog_leagues(conn: Connection = Depends(db_dep)) -> list:
     rows = conn.execute(
-        """SELECT league_code AS code, league_name AS name, country, league_level,
+        """SELECT league_code AS code, league_name AS name, min(country) AS country, league_level,
                   count(*)::int AS clubs, count(*) FILTER (WHERE has_squad)::int AS clubs_with_squads
-           FROM sm27_club_pool GROUP BY league_code, league_name, country, league_level
+           FROM sm27_club_pool GROUP BY league_code, league_name, league_level
            ORDER BY league_level, league_name"""
     ).fetchall()
     return serialise([dict(row) for row in rows])
@@ -272,7 +386,7 @@ def catalog_clubs(
     rows = conn.execute(
         f"""SELECT source_id, club_name, country, country_iso, league_name, league_code,
                    league_level, division, city, stadium, stadium_capacity, colors_hex,
-                   logo_url, logo_license, has_squad, squad_count, sort_rank
+                   logo_url, logo_license, has_squad, squad_count, sort_rank, fifa_stars, team_strength
             FROM sm27_club_pool WHERE {where}
             ORDER BY sort_rank, club_name LIMIT %s OFFSET %s""",
         (*params, limit, offset),
@@ -333,33 +447,77 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             (game_state_id, tournament["id"], club_id),
         )
         player_rows = conn.execute(
-            """SELECT source_id,name,date_of_birth,nationality,position,market_value_eur,market_value_as_of,raw_data
-               FROM world_player_catalog WHERE club_source_id=%s ORDER BY market_value_eur DESC LIMIT 30""",
+            """SELECT source_id,name,date_of_birth,nationality,position,market_value_eur,
+                      market_value_as_of,source_url,raw_data
+               FROM world_player_catalog WHERE club_source_id=%s
+               ORDER BY market_value_eur DESC, name LIMIT 30""",
             (pool_row["source_id"],),
         ).fetchall()
         for player in player_rows:
             dob = player["date_of_birth"]
             age = max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425))) if dob else 24
-            overall = overall_from_market_value(int(player["market_value_eur"] or 0), age, int(team_records[-1]["reputation"]))
-            potential = potential_from_overall(overall, age, int(hashlib.sha1(str(player["source_id"]).encode()).hexdigest()[:8], 16))
+            source_id = str(player["source_id"])
+            position = normalise_player_position(player["position"], source_id)
+            secondary = list(SECONDARY_POSITIONS.get(position, ()))
+            overall = overall_from_market_value(
+                int(player["market_value_eur"] or 0), age, int(team_records[-1]["reputation"])
+            )
+            potential = potential_from_overall(
+                overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
+            )
+            sourced_market_value = int(player["market_value_eur"] or 0)
+            market_value = sourced_market_value or estimated_market_value(overall, potential, age)
+            profile_source = (
+                f"Transfermarkt snapshot ({player['market_value_as_of'].isoformat()})"
+                if sourced_market_value and player["market_value_as_of"]
+                else "SM27 estimate — no verified market value in source snapshot"
+            )
             raw = dict(player["raw_data"] or {})
-            raw.update({"market_value_as_of": player["market_value_as_of"].isoformat() if player["market_value_as_of"] else None,
-                        "game_rating_type": "SM27 estimate", "generated": False})
+            raw.update({
+                "market_value_source": "Transfermarkt" if sourced_market_value else "SM27 estimate",
+                "market_value_as_of": player["market_value_as_of"].isoformat() if player["market_value_as_of"] else None,
+                "game_rating_type": "SM27 estimate",
+                "contract_source": "SM27 estimate",
+                "wage_source": "SM27 estimate",
+                "generated": False,
+            })
+            contract_end = estimated_contract_end(age, source_id)
+            weekly_wage = estimated_weekly_wage(market_value)
             conn.execute(
-                """INSERT INTO players (game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
-                           overall,potential,market_value,attributes,original_data,source_name,data_verified_at)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """INSERT INTO players (
+                       game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
+                       secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
+                       attributes,original_data,source_name,source_url,data_verified_at,
+                       form,morale,sharpness,nationality_flag,profile_source
+                   ) VALUES (
+                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                   )
                    ON CONFLICT (game_state_id,external_id) DO NOTHING""",
-                (game_state_id, club_id, player["source_id"], player["name"], player["nationality"], dob, age,
-                 player["position"] or "MF", overall, potential, int(player["market_value_eur"] or 0),
-                 Jsonb({"pace": overall, "shooting": overall, "passing": overall, "defending": overall, "physical": overall}),
-                 Jsonb(raw), "OpenFootballBase / Transfermarkt", player["market_value_as_of"]),
+                (
+                    game_state_id, club_id, source_id, player["name"], player["nationality"], dob, age, position,
+                    secondary, overall, potential, market_value, weekly_wage, contract_end,
+                    Jsonb(player_attributes(overall, position, source_id)),
+                    Jsonb(raw), "OpenFootballBase / Transfermarkt", player["source_url"],
+                    player["market_value_as_of"], 50, 70, 85,
+                    flag_for_nationality(player["nationality"]), profile_source,
+                ),
             )
     selected_game_club = next(row["id"] for row in team_records if row["source_id"] == selected["source_id"])
     conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
     ensure_demo_roster(conn, game_state_id, selected_game_club, selected["club_name"], 70)
     create_schedule(conn, game_state_id, str(tournament["id"]), team_records)
     return {"ok": True, "save_id": game_state_id, "club": selected["club_name"], "league": selected.get("league_name"), "teams": len(team_records)}
+
+
+
+@app.post("/api/saves/restart")
+def restart_save(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    """Archive the active career. A fresh save is created from the immutable world catalog."""
+    result = conn.execute(
+        "UPDATE game_states SET status='abandoned',updated_at=now() WHERE manager_id=%s AND status='active' RETURNING id",
+        (manager["id"],),
+    ).fetchall()
+    return {"ok": True, "archived_saves": len(result)}
 
 
 @app.get("/api/dashboard")
@@ -403,10 +561,14 @@ def dashboard(manager: dict = Depends(manager_dep), conn: Connection = Depends(d
 def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
     save = require_save(conn, str(manager["id"]))
     rows = conn.execute(
-        """SELECT id,name,age,position,overall,potential,market_value,weekly_wage,fatigue,
-                  injury_until,original_data FROM players
+        """SELECT id,name,nationality,nationality_flag,birth_date,age,position,secondary_positions,
+                  overall,potential,market_value,weekly_wage,contract_end,fatigue,form,morale,sharpness,
+                  injury_type,injury_until,attributes,original_data,profile_source,source_url
+           FROM players
            WHERE game_state_id=%s AND club_id=%s
-           ORDER BY CASE position WHEN 'GK' THEN 0 WHEN 'DF' THEN 1 WHEN 'MF' THEN 2 ELSE 3 END, overall DESC, name""",
+           ORDER BY CASE position WHEN 'GK' THEN 0 WHEN 'CB' THEN 1 WHEN 'RB' THEN 1 WHEN 'LB' THEN 1
+                     WHEN 'CDM' THEN 2 WHEN 'CM' THEN 2 WHEN 'CAM' THEN 2 ELSE 3 END,
+                    overall DESC, name""",
         (save["id"], save["managed_club_id"]),
     ).fetchall()
     return serialise([dict(row) for row in rows])
