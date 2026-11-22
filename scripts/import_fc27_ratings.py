@@ -66,6 +66,16 @@ CLUB_ALIASES = {
     "manchester city": {"man city"},
     "atletico madrid": {"atletico de madrid","atletico"},
     "athletic bilbao": {"athletic club","athletic club bilbao"},
+    "al hilal sfc": {"al hilal"},
+    "al nassr fc": {"al nassr"},
+    "al ittihad fc": {"al ittihad"},
+    "al ahli saudi fc": {"al ahli"},
+    "al qadsiah fc": {"al qadsiah"},
+    "al shabab club": {"al shabab"},
+    "al taawoun fc": {"al taawoun"},
+    "al fateh sc": {"al fateh"},
+    "al ettifaq club": {"al ettifaq"},
+    "al fayha club": {"al fayha"},
 }
 
 
@@ -346,12 +356,17 @@ def choose_match(name, nationality, club_name, position, index):
                 continue
             score += 10
         candidate_group = position_group(candidate["position"])
+        wide_role_match = (
+            (source_group == "FW" and candidate["position"] in {"LM", "RM"})
+            or (source_group == "MF" and candidate["position"] in {"LW", "RW"})
+        )
         if source_group and candidate_group:
-            if source_group != candidate_group:
+            if source_group != candidate_group and not wide_role_match:
                 continue
-            score += 3
+            score += 2 if wide_role_match else 3
         club_score = club_match_score(club_name, candidate["club_name"])
-        if len(candidates) > 1 and club_score < 3:
+        # Never attach a player to a different club, even when the name is unique.
+        if club_score < 3:
             continue
         score += club_score
         if (position or "").upper() == candidate["position"]:
