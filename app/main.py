@@ -40,12 +40,16 @@ def _run_fc27_rating_import() -> None:
     try:
         from scripts.import_fc27_ratings import main as import_ratings
         import_ratings(settings.database_url)
+        refreshed_lineups = refresh_ai_lineups()
         with connection() as conn:
             conn.execute(
                 """UPDATE fc27_import_state SET status='succeeded',finished_at=now(),error_message=NULL
                    WHERE import_key='ratings'"""
             )
-        LOGGER.info("One-time FC 27 rating import completed")
+        LOGGER.info(
+            "One-time FC 27 rating import completed; refreshed %s AI lineups",
+            refreshed_lineups,
+        )
     except Exception as error:
         LOGGER.exception("FC 27 rating import failed; the app will keep using labelled SM27 estimates")
         try:
@@ -485,6 +489,71 @@ def create_schedule(
                 (game_state_id, tournament_id, season, match_date, round_index + 1, home_id, away_id),
             )
 
+
+
+def refresh_ai_lineups() -> int:
+    """Rebuild AI club XIs after official player matches change; preserve each manager's XI."""
+    refreshed = 0
+    with connection() as conn:
+        saves = conn.execute(
+            """SELECT id,managed_club_id
+               FROM game_states
+               WHERE status='active' AND managed_club_id IS NOT NULL"""
+        ).fetchall()
+        for save in saves:
+            rows = conn.execute(
+                """SELECT c.id AS club_id,p.id,p.position,p.secondary_positions,p.overall,
+                          GREATEST(1,LEAST(99,p.overall + ROUND(
+                            (p.form-50)*0.06 + (p.morale-70)*0.04
+                            + (p.sharpness-85)*0.04 - p.fatigue*0.08
+                          )::int)) AS dynamic_overall,
+                          t.formation,t.mentality,t.style
+                   FROM clubs c
+                   JOIN players p ON p.game_state_id=c.game_state_id AND p.club_id=c.id
+                   LEFT JOIN tactics t ON t.game_state_id=c.game_state_id AND t.club_id=c.id
+                   WHERE c.game_state_id=%s AND c.id<>%s
+                   ORDER BY c.id,p.overall DESC,p.id""",
+                (save["id"], save["managed_club_id"]),
+            ).fetchall()
+            grouped: dict[str, list[dict]] = {}
+            for row in rows:
+                player = dict(row)
+                grouped.setdefault(str(player["club_id"]), []).append(player)
+            for club_id, players in grouped.items():
+                if len(players) < 11:
+                    continue
+                tactic = players[0]
+                formation = tactic.get("formation") or "4-3-3"
+                mentality = tactic.get("mentality") or "balanced"
+                style = dict(tactic.get("style") or {})
+                starters, bench, roles = best_lineup(players, formation)
+                selected = set(starters) | set(bench)
+                style["slot_roles"] = [
+                    {"player_id": player_id, "role": role}
+                    for player_id, role in zip(starters, roles)
+                ]
+                style["reserve_order"] = [
+                    str(player["id"]) for player in players
+                    if str(player["id"]) not in selected
+                ]
+                conn.execute(
+                    """INSERT INTO tactics (
+                           game_state_id,club_id,formation,mentality,style,starting_xi,bench
+                       ) VALUES (%s,%s,%s,%s,%s,%s::uuid[],%s::uuid[])
+                       ON CONFLICT (game_state_id,club_id) DO UPDATE SET
+                           formation=EXCLUDED.formation,
+                           mentality=EXCLUDED.mentality,
+                           style=EXCLUDED.style,
+                           starting_xi=EXCLUDED.starting_xi,
+                           bench=EXCLUDED.bench,
+                           updated_at=now()""",
+                    (
+                        save["id"], club_id, formation, mentality, Jsonb(style),
+                        starters, bench,
+                    ),
+                )
+                refreshed += 1
+    return refreshed
 
 
 @app.exception_handler(Exception)
