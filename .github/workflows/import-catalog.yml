@@ -1,0 +1,38 @@
+
+name: Import SM27 world catalog
+
+on:
+  workflow_dispatch:
+    inputs:
+      club_target:
+        description: "Maximum clubs to import (100–1000)"
+        required: true
+        default: "750"
+
+permissions:
+  contents: read
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Import current-season clubs and squads
+        env:
+          DATABASE_URL: ${{ secrets.SM27_DATABASE_URL }}
+          SM27_CLUB_TARGET: ${{ inputs.club_target }}
+        run: |
+          test -n "$DATABASE_URL" || (echo "Missing SM27_DATABASE_URL repository secret" && exit 1)
+          python -m scripts.import_catalog
