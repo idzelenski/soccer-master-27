@@ -148,7 +148,7 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
 .club-card:hover { border-color: rgba(65,217,139,.4); background: #132d20; transform: translateY(-2px); }
 .club-card { min-width: 0; min-height: 94px; }
 .club-card > span { min-width: 0; overflow-wrap: anywhere; }
-.club-card .crest { width: 56px; height: 56px; border-radius: 12px; padding: 0; }
+.club-card .crest { width: 56px; height: 56px; flex-basis: 56px; border-radius: 12px; padding: 0; }
 .club-card .crest img { padding: 4px; }
 .club-card b { display: block; font-size: 12px; margin-bottom: 5px; line-height: 1.35; }
 .club-star-rating { color: #e7bf62; font-size: 10px; font-style: normal; white-space: nowrap; }
