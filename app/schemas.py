@@ -41,3 +41,7 @@ class TacticIn(BaseModel):
     style: dict = Field(default_factory=dict)
     starting_xi: list[str] = Field(default_factory=list, max_length=11)
     bench: list[str] = Field(default_factory=list, max_length=9)
+
+
+class PositionTrainingIn(BaseModel):
+    position: str = Field(pattern=r"^(?:GK|RB|CB|LB|RWB|LWB|CDM|CM|CAM|RM|LM|RW|LW|ST|CF)$")
