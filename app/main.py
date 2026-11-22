@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import random
 import re
 import uuid
@@ -26,7 +27,7 @@ from app.auth import (
 from app.config import settings
 from app.db import close_pool, connection, migrate
 from app.engine import overall_from_market_value, potential_from_overall, round_robin, simulate_score
-from app.schemas import CreateSaveIn, LoginIn, RegisterIn, TacticIn
+from app.schemas import CreateSaveIn, LoginIn, PositionTrainingIn, RegisterIn, TacticIn
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOGGER = logging.getLogger("sm27")
@@ -69,12 +70,6 @@ def serialise(row: Any) -> Any:
 
 
 POSITION_CODES = {"GK", "RB", "CB", "LB", "RWB", "LWB", "CDM", "CM", "CAM", "RM", "LM", "RW", "LW", "ST", "CF"}
-POSITION_OPTIONS = {
-    "DF": ("CB", "RB", "LB", "RWB", "LWB"),
-    "MF": ("CM", "CDM", "CAM", "RM", "LM"),
-    "FW": ("ST", "CF", "RW", "LW"),
-    "GK": ("GK",),
-}
 SECONDARY_POSITIONS = {
     "GK": (), "RB": ("LB", "RWB"), "LB": ("RB", "LWB"),
     "CB": ("CDM",), "RWB": ("RB", "RM"), "LWB": ("LB", "LM"),
@@ -83,58 +78,51 @@ SECONDARY_POSITIONS = {
     "LM": ("LW", "CM"), "RW": ("RM", "ST"),
     "LW": ("LM", "ST"), "ST": ("CF", "LW"), "CF": ("ST", "CAM"),
 }
-NATIONALITY_FLAGS = {
-    "argentina": "🇦🇷", "australia": "🇦🇺", "austria": "🇦🇹", "belgium": "🇧🇪",
-    "brazil": "🇧🇷", "cameroon": "🇨🇲", "canada": "🇨🇦", "chile": "🇨🇱",
-    "china": "🇨🇳", "colombia": "🇨🇴", "croatia": "🇭🇷", "czech republic": "🇨🇿",
-    "denmark": "🇩🇰", "ecuador": "🇪🇨", "egypt": "🇪🇬", "england": "🏴",
-    "finland": "🇫🇮", "france": "🇫🇷", "georgia": "🇬🇪", "germany": "🇩🇪",
-    "ghana": "🇬🇭", "greece": "🇬🇷", "ireland": "🇮🇪", "italy": "🇮🇹",
-    "ivory coast": "🇨🇮", "japan": "🇯🇵", "mexico": "🇲🇽", "morocco": "🇲🇦",
-    "netherlands": "🇳🇱", "new zealand": "🇳🇿", "nigeria": "🇳🇬", "north macedonia": "🇲🇰",
-    "norway": "🇳🇴", "poland": "🇵🇱", "portugal": "🇵🇹", "romania": "🇷🇴",
-    "russia": "🇷🇺", "scotland": "🏴", "serbia": "🇷🇸", "slovakia": "🇸🇰",
-    "slovenia": "🇸🇮", "south korea": "🇰🇷", "spain": "🇪🇸", "sweden": "🇸🇪",
-    "switzerland": "🇨🇭", "turkey": "🇹🇷", "ukraine": "🇺🇦", "united states": "🇺🇸",
-    "uruguay": "🇺🇾", "venezuela": "🇻🇪", "wales": "🏴", "algeria": "🇩🇿",
-    "angola": "🇦🇴", "bosnia and herzegovina": "🇧🇦", "burkina faso": "🇧🇫",
-    "cape verde": "🇨🇻", "congo": "🇨🇬", "democratic republic of the congo": "🇨🇩",
-    "guinea": "🇬🇳", "iran": "🇮🇷", "israel": "🇮🇱", "jamaica": "🇯🇲",
-    "kosovo": "🇽🇰", "mali": "🇲🇱", "montenegro": "🇲🇪", "senegal": "🇸🇳",
-    "south africa": "🇿🇦", "togo": "🇹🇬", "tunisia": "🇹🇳", "uzbekistan": "🇺🇿",
+FLAG_SPECIAL_CODES = {
+    "england": "gb-eng", "eng": "gb-eng",
+    "scotland": "gb-sct", "sco": "gb-sct",
+    "wales": "gb-wls", "wal": "gb-wls",
+    "northern ireland": "gb-nir", "nir": "gb-nir",
+    "kosovo": "xk", "xk": "xk",
 }
 
 
 def flag_for_nationality(value: str | None) -> str:
+    """Return an ISO flag-icon code for a rectangular SVG flag, never an emoji."""
     key = (value or "").strip().casefold()
-    if key in NATIONALITY_FLAGS:
-        return NATIONALITY_FLAGS[key]
+    if not key:
+        return ""
+    if key in FLAG_SPECIAL_CODES:
+        return FLAG_SPECIAL_CODES[key]
     try:
         import pycountry
-        country = pycountry.countries.lookup(value or "")
-        return "".join(chr(127397 + ord(char)) for char in country.alpha_2.upper())
+        country = pycountry.countries.get(alpha_3=key.upper()) if len(key) == 3 else None
+        if country is None:
+            country = pycountry.countries.lookup(value or "")
+        return (country.alpha_2 or "").lower()
     except (ImportError, LookupError, AttributeError):
-        return "🏳️"
+        return ""
 
 
 def normalise_player_position(position: str | None, source_id: str = "") -> str:
+    """Map broad source positions to a sensible primary role without gifting alternatives."""
     value = (position or "").strip().upper()
     if value in POSITION_CODES:
         return value
-    group = value if value in POSITION_OPTIONS else (
-        "GK" if value in {"GOALKEEPER", "G"} else
-        "DF" if value in {"DEFENDER", "DEFENCE", "D"} else
-        "FW" if value in {"FORWARD", "ATTACKER", "STRIKER", "F"} else
-        "MF"
-    )
-    options = POSITION_OPTIONS[group]
-    seed = int(hashlib.sha1((source_id or value or "SM27").encode()).hexdigest()[:8], 16)
-    return options[seed % len(options)]
+    if value in {"GK", "GOALKEEPER", "G"}:
+        return "GK"
+    if value in {"DF", "DEFENDER", "DEFENCE", "D"}:
+        return "CB"
+    if value in {"FW", "FORWARD", "ATTACKER", "STRIKER", "F"}:
+        return "ST"
+    if value in {"MF", "MIDFIELDER", "MIDFIELD", "M"}:
+        return "CM"
+    return "CM"
 
 
-def player_attributes(overall: int, position: str, source_id: str) -> dict[str, int]:
-    seed = int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
-    rng = random.Random(seed)
+def player_attributes(overall: int, position: str, source_id: str = "") -> dict[str, int]:
+    """Deterministic SM27 fallback attributes; matched FC 27 data always takes priority."""
+    rating = max(35, min(90, int(overall)))
     if position == "GK":
         offsets = {"DIV": 1, "HAN": 0, "KIC": -3, "REF": 4, "SPE": -2, "POS": 2}
     else:
@@ -147,18 +135,54 @@ def player_attributes(overall: int, position: str, source_id: str) -> dict[str, 
             "DEF": 7 if group == "DF" else 0 if group == "MF" else -12,
             "PHY": 4 if group == "DF" else 1 if group == "FW" else -1,
         }
-    return {key: int(max(20, min(99, overall + offset + rng.randint(-5, 5)))) for key, offset in offsets.items()}
+    return {key: max(20, min(99, rating + offset)) for key, offset in offsets.items()}
 
 
 def estimated_market_value(overall: int, potential: int, age: int) -> int:
-    age_factor = 1.22 if age <= 21 else 1.08 if age <= 24 else 1.0 if age <= 29 else max(0.25, 1 - (age - 29) * 0.07)
-    potential_factor = 1 + max(0, potential - overall) * 0.012
-    value = ((max(0, overall - 35) ** 2) * 12_000) * age_factor * potential_factor
+    """Conservative fallback only; fictional academy players and unverified values stay blank."""
+    age_factor = 1.12 if age <= 21 else 1.05 if age <= 24 else 1.0 if age <= 29 else max(0.35, 1 - (age - 29) * 0.055)
+    potential_factor = 1 + max(0, potential - overall) * 0.008
+    value = 50_000 * math.exp(max(-1.0, min(4.2, (overall - 45) * 0.105))) * age_factor * potential_factor
     return int(round(max(25_000, value) / 10_000) * 10_000)
 
 
-def estimated_weekly_wage(market_value: int) -> int:
-    return int(max(250, min(1_500_000, round(max(market_value, 25_000) * 0.00154 / 100) * 100)))
+FC27_WAGE_OVERRIDES = {
+    "cristiano ronaldo": 53_000,
+    "iñigo martínez": 245_000,
+    "inigo martinez": 245_000,
+}
+
+
+def estimated_weekly_wage(
+    overall: int,
+    age: int = 24,
+    reputation: int = 50,
+    player_name: str | None = None,
+    generated: bool = False,
+) -> int:
+    """Weekly wage estimate calibrated to FC 27 career-mode examples."""
+    name_key = (player_name or "").strip().casefold()
+    if name_key in FC27_WAGE_OVERRIDES:
+        return FC27_WAGE_OVERRIDES[name_key]
+    if generated:
+        return int(max(250, min(2_500, round((overall * 14 + max(0, 82 - age) * 8) / 50) * 50)))
+    base = 600 * math.exp((max(35, min(95, overall)) - 60) * 0.21)
+    if age <= 22:
+        age_factor = 0.55
+    elif age <= 25:
+        age_factor = 0.75
+    elif age <= 29:
+        age_factor = 1.0
+    elif age <= 34:
+        age_factor = 1.20
+    elif age <= 37:
+        age_factor = 1.45
+    elif age <= 40:
+        age_factor = 0.90
+    else:
+        age_factor = 0.25
+    club_factor = 0.70 + max(10, min(100, reputation)) * 0.0175
+    return int(max(250, min(1_500_000, round(base * age_factor * club_factor / 100) * 100)))
 
 
 def estimated_contract_end(age: int, source_id: str) -> date:
