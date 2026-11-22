@@ -163,6 +163,12 @@ def test_researched_profiles_are_source_linked_and_not_labelled_as_ea():
     assert profile["research"]["season"] == "2026/27"
     assert profile["source_url"].startswith("https://www.fotmob.com/players/")
     assert get_researched_profile("Esequiel Barco", "Arsenal") is None
+    babic = get_researched_profile("Srđan Babić", "FC Spartak Moscow")
+    assert babic is not None and babic["overall"] == 76
+    zinkovskiy = get_researched_profile("Anton Zinkovskiy", "FC Spartak Moscow")
+    assert zinkovskiy["position"] == "LM"
+    assert zinkovskiy["research"]["season"] == "2025/26"
+    assert zinkovskiy["market_value"] is None
     assert get_researched_profile("An unknown academy player") is None
 
 

@@ -16,7 +16,6 @@ def _key(value: str) -> str:
 
 
 def _profile(position, overall, potential, attributes, url, minutes, rating, goals, assists, **extra):
-    market_value = extra.pop("market_value", None)
     sofascore_url = extra.pop("sofascore_url", None)
     return {
         "position": position,
