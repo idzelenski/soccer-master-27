@@ -23,7 +23,9 @@ def pool() -> ConnectionPool:
             min_size=0,
             max_size=4,
             timeout=10,
-            kwargs={"row_factory": dict_row, "connect_timeout": 10},
+            max_idle=60,
+            check=ConnectionPool.check_connection,
+            kwargs={"row_factory": dict_row, "connect_timeout": 10, "keepalives": 1, "keepalives_idle": 30, "keepalives_interval": 10, "keepalives_count": 3},
             open=True,
         )
     return _pool
@@ -48,12 +50,13 @@ def connection() -> Generator[psycopg.Connection, None, None]:
 
 
 def migrate(conn: psycopg.Connection) -> None:
-    migration = Path(__file__).resolve().parent.parent / "sql" / "001_sm27_migration.sql"
-    sql = migration.read_text(encoding="utf-8")
-    for statement in sql.split(";"):
-        statement = statement.strip()
-        if statement:
-            conn.execute(statement)
+    migration_dir = Path(__file__).resolve().parent.parent / "sql"
+    for migration in sorted(migration_dir.glob("*.sql")):
+        sql = migration.read_text(encoding="utf-8")
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                conn.execute(statement)
     conn.commit()
 
 

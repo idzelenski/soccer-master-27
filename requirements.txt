@@ -4,3 +4,4 @@ psycopg[binary,pool]==3.2.12
 pydantic==2.12.4
 duckdb==1.4.2
 python-dotenv==1.2.1
+pycountry==24.6.1

@@ -29,11 +29,14 @@ def expected_goals(
     away_overall: float = 60,
     home_advantage: float = 0.22,
 ) -> tuple[float, float]:
-    home_strength = (home_reputation * 0.45 + home_overall * 0.55) / 100
-    away_strength = (away_reputation * 0.45 + away_overall * 0.55) / 100
-    difference = clamp(home_strength - away_strength, -0.55, 0.55)
-    home_xg = clamp(1.38 + difference * 1.05 + home_advantage, 0.25, 3.4)
-    away_xg = clamp(1.12 - difference * 0.95, 0.2, 3.1)
+    # Club reputation is derived from the FIFA-style 0.5–5.0 star tier;
+    # average squad OVR has the larger weight, so individual quality still matters.
+    home_strength = (home_reputation * 0.35 + home_overall * 0.65) / 100
+    away_strength = (away_reputation * 0.35 + away_overall * 0.65) / 100
+    difference = clamp(home_strength - away_strength, -0.65, 0.65)
+    # Exponential conversion gives strong sides a meaningful edge without removing upsets.
+    home_xg = clamp(1.42 * math.exp(difference * 1.35) + home_advantage, 0.18, 3.4)
+    away_xg = clamp(1.18 * math.exp(-difference * 1.35), 0.15, 3.1)
     return round(home_xg, 2), round(away_xg, 2)
 
 
@@ -50,7 +53,8 @@ def simulate_score(
     )
     home_score = poisson(home_xg, rng)
     away_score = poisson(away_xg, rng)
-    possession_base = 50 + (home_overall - away_overall) * 0.22
+    combined_gap = (home_reputation - away_reputation) * 0.35 + (home_overall - away_overall) * 0.65
+    possession_base = 50 + combined_gap * 0.20
     possession_home = int(round(clamp(possession_base + rng.uniform(-6, 6), 35, 65)))
     shots_home = max(home_score, int(round(home_xg * 3.4 + rng.uniform(2, 5))))
     shots_away = max(away_score, int(round(away_xg * 3.4 + rng.uniform(2, 5))))
@@ -96,16 +100,21 @@ def schedule_dates(start: date, rounds: int, interval_days: int = 7) -> list[dat
     return [start + timedelta(days=interval_days * index) for index in range(rounds)]
 
 
-def overall_from_market_value(value_eur: int, age: int | None, reputation: int) -> int:
-    """Gameplay rating estimate; this is not a sourced rating or scouting grade."""
+def overall_from_market_value(
+    value_eur: int, age: int | None, reputation: int, seed: int = 0
+) -> int:
+    """Gameplay rating estimate; never presented as an official EA/Transfermarkt rating."""
     age = age or 24
+    rng = random.Random(seed)
     if value_eur > 0:
         value_component = 44 + 13 * math.log10(max(value_eur, 10_000) / 10_000)
         age_component = 5 if 21 <= age <= 28 else 0 if age < 21 else -max(0, age - 29) * 0.65
-        score = value_component + age_component
+        score = value_component + age_component + rng.randint(-2, 2)
     else:
         score = 44 + reputation * 0.34
         score += 3 if 20 <= age <= 27 else -max(0, age - 30) * 0.6
+        # Without a sourced value, players still need a realistic quality spread.
+        score += rng.randint(-8, 8)
     return int(round(clamp(score, 35, 92)))
 
 

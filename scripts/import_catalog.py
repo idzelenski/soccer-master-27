@@ -454,6 +454,40 @@ def main() -> None:
                         player_payload,
                     )
             conn.execute(
+                """WITH club_values AS (
+                     SELECT p.source_id,p.league_level,
+                            coalesce(sum(w.market_value_eur),0)::bigint AS squad_value
+                     FROM sm27_club_pool p
+                     LEFT JOIN world_player_catalog w ON w.club_source_id=p.source_id
+                     GROUP BY p.source_id,p.league_level
+                   ), rated AS (
+                     SELECT source_id,
+                       CASE
+                         WHEN squad_value >= 1000000000 THEN 5.0
+                         WHEN squad_value >= 650000000 THEN 4.5
+                         WHEN squad_value >= 400000000 THEN 4.0
+                         WHEN squad_value >= 220000000 THEN 3.5
+                         WHEN squad_value >= 100000000 THEN 3.0
+                         WHEN squad_value >= 50000000 THEN 2.5
+                         WHEN squad_value >= 20000000 THEN 2.0
+                         WHEN squad_value >= 10000000 THEN 1.5
+                         WHEN squad_value >= 3000000 THEN 1.0
+                         WHEN squad_value > 0 THEN 0.5
+                         ELSE CASE league_level WHEN 1 THEN 3.0 WHEN 2 THEN 2.5 WHEN 3 THEN 2.0 ELSE 1.5 END
+                       END::numeric(2,1) AS stars,
+                       (squad_value > 0) AS has_market_value
+                     FROM club_values
+                   )
+                   UPDATE sm27_club_pool p
+                   SET fifa_stars=r.stars,
+                       team_strength=round(37 + (r.stars-0.5)*14)::smallint,
+                       rating_basis=CASE WHEN r.has_market_value
+                         THEN 'SM27 estimate from available Transfermarkt squad values'
+                         ELSE 'SM27 estimate from league level; no sourced squad values' END,
+                       updated_at=now()
+                   FROM rated r WHERE r.source_id=p.source_id""",
+            )
+            conn.execute(
                 """UPDATE data_import_runs SET imported_clubs=%s,imported_players=%s,
                           status='completed',completed_at=now(),notes=%s WHERE id=%s""",
                 (len(club_payload), len(player_payload),
