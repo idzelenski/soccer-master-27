@@ -254,7 +254,6 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
         "SELECT count(*) AS n FROM players WHERE game_state_id=%s AND club_id=%s",
         (game_state_id, club_id),
     ).fetchone()["n"]
-    # Every playable club needs a complete minimum squad. These are always labelled as generated.
     positions = ["GK", "GK", "RB", "CB", "CB", "LB", "CB", "RB", "CDM", "CM", "CM", "CAM", "CM", "CM", "RW", "LW", "ST", "CF"]
     if existing >= len(positions):
         return
@@ -263,18 +262,18 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
         age = 18 + (index % 12)
         overall = max(40, min(82, reputation - 8 + (index % 7)))
         potential = min(92, overall + 4 + (index % 7))
-        market_value = estimated_market_value(overall, potential, age)
         conn.execute(
             """INSERT INTO players (
                    game_state_id,club_id,external_id,name,age,position,secondary_positions,
                    overall,potential,market_value,weekly_wage,contract_end,attributes,
-                   original_data,source_name,profile_source,form,morale,sharpness
-               ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                         'SM27 generated roster','SM27 estimate — generated academy player',50,70,85)""",
+                   original_data,source_name,profile_source,market_value_source,form,morale,sharpness
+               ) VALUES (%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,0,%s,%s,%s,%s,
+                         'SM27 generated roster','SM27 generated academy player','not_available',50,70,85)""",
             (
                 game_state_id, club_id, source_id, f"Игрок академии {index:02d}", age, position,
-                list(SECONDARY_POSITIONS.get(position, ())), overall, potential,
-                market_value, estimated_weekly_wage(market_value), estimated_contract_end(age, source_id),
+                overall, potential,
+                estimated_weekly_wage(overall, age, reputation, generated=True),
+                estimated_contract_end(age, source_id),
                 Jsonb(player_attributes(overall, position, source_id)),
                 Jsonb({"generated": True, "note": "Fictional game placeholder, not a real player"}),
             ),
@@ -305,44 +304,70 @@ def position_penalty(primary: str, secondary: list[str], target: str) -> int:
     return close.get(primary, {}).get(target, -7)
 
 
+FORMATION_ROLE_MAP = {
+    "3-1-4-2": ["GK","CB","CB","CB","CDM","LM","CM","CM","RM","ST","ST"],
+    "3-4-1-2": ["GK","CB","CB","CB","LM","CM","CM","RM","CAM","ST","ST"],
+    "3-4-2-1": ["GK","CB","CB","CB","LM","CM","CM","RM","CAM","CAM","ST"],
+    "3-4-3": ["GK","CB","CB","CB","LM","CM","CM","RM","LW","ST","RW"],
+    "3-5-2": ["GK","CB","CB","CB","LM","CDM","CM","CDM","RM","ST","ST"],
+    "4-1-2-1-2": ["GK","LB","CB","CB","RB","CDM","CM","CM","CAM","ST","ST"],
+    "4-1-3-2": ["GK","LB","CB","CB","RB","CDM","LM","CM","RM","ST","ST"],
+    "4-1-4-1": ["GK","LB","CB","CB","RB","CDM","LM","CM","CM","RM","ST"],
+    "4-2-1-3": ["GK","LB","CB","CB","RB","CDM","CM","CAM","LW","ST","RW"],
+    "4-2-2-2": ["GK","LB","CB","CB","RB","CDM","CM","CAM","CAM","ST","ST"],
+    "4-2-3-1": ["GK","LB","CB","CB","RB","CDM","CM","LM","CAM","RM","ST"],
+    "4-2-4": ["GK","LB","CB","CB","RB","CDM","CM","LW","ST","ST","RW"],
+    "4-3-1-2": ["GK","LB","CB","CB","RB","CDM","CM","CM","CAM","ST","ST"],
+    "4-3-2-1": ["GK","LB","CB","CB","RB","CM","CDM","CM","CAM","CAM","ST"],
+    "4-3-3": ["GK","LB","CB","CB","RB","CDM","CM","CAM","LW","ST","RW"],
+    "4-3-3 (2)": ["GK","LB","CB","CB","RB","CM","CDM","CM","LW","ST","RW"],
+    "4-3-3 (3)": ["GK","LB","CB","CB","RB","CDM","CM","CDM","LW","ST","RW"],
+    "4-3-3 (4)": ["GK","LB","CB","CB","RB","CM","CAM","CM","LW","ST","RW"],
+    "4-3-3 Attack": ["GK","LB","CB","CB","RB","CDM","CM","CAM","LW","ST","RW"],
+    "4-3-3 Defend": ["GK","LB","CB","CB","RB","CDM","CM","CM","LW","ST","RW"],
+    "4-3-3 Flat": ["GK","LB","CB","CB","RB","CM","CM","CM","LW","ST","RW"],
+    "4-3-3 Holding": ["GK","LB","CB","CB","RB","CDM","CDM","CM","LW","ST","RW"],
+    "4-4-1-1 Midfield": ["GK","LB","CB","CB","RB","LM","CM","CM","RM","CAM","ST"],
+    "4-4-2": ["GK","LB","CB","CB","RB","LM","CM","CM","RM","ST","ST"],
+    "4-4-2 (2)": ["GK","LB","CB","CB","RB","LM","CDM","CDM","RM","ST","ST"],
+    "4-4-2 Flat": ["GK","LB","CB","CB","RB","LM","CM","CM","RM","ST","ST"],
+    "4-4-2 Holding": ["GK","LB","CB","CB","RB","LM","CDM","CDM","RM","ST","ST"],
+    "4-5-1": ["GK","LB","CB","CB","RB","LM","CM","CDM","CM","RM","ST"],
+    "4-5-1 (2)": ["GK","LB","CB","CB","RB","LM","CM","CM","CM","RM","ST"],
+    "4-5-1 Attack": ["GK","LB","CB","CB","RB","LM","CM","CDM","CM","RM","ST"],
+    "4-5-1 Flat": ["GK","LB","CB","CB","RB","LM","CM","CM","CM","RM","ST"],
+    "5-2-1-2": ["GK","LWB","CB","CB","CB","RWB","CM","CM","CAM","ST","ST"],
+    "5-2-3": ["GK","LWB","CB","CB","CB","RWB","CM","CM","LW","ST","RW"],
+    "5-3-2": ["GK","LWB","CB","CB","CB","RWB","CM","CDM","CM","ST","ST"],
+    "5-3-2 Holding": ["GK","LWB","CB","CB","CB","RWB","CDM","CDM","CM","ST","ST"],
+    "5-4-1": ["GK","LWB","CB","CB","CB","RWB","LM","CM","CM","RM","ST"],
+    "5-4-1 Flat": ["GK","LWB","CB","CB","CB","RWB","LM","CM","CM","RM","ST"],
+}
+
+
 def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list[str], list[str], list[str]]:
-    roles_by_formation = {
-        "4-3-3": ["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "CAM", "LW", "ST", "RW"],
-        "4-2-3-1": ["GK", "LB", "CB", "CB", "RB", "CDM", "CDM", "LW", "CAM", "RW", "ST"],
-        "4-4-2": ["GK", "LB", "CB", "CB", "RB", "LM", "CM", "CM", "RM", "ST", "ST"],
-        "3-5-2": ["GK", "CB", "CB", "CB", "LWB", "CDM", "CM", "CM", "RWB", "ST", "ST"],
-        "3-4-3": ["GK", "CB", "CB", "CB", "LM", "CM", "CM", "RM", "LW", "ST", "RW"],
-        "5-3-2": ["GK", "LB", "CB", "CB", "CB", "RB", "CM", "CM", "CDM", "ST", "ST"],
-        "4-1-4-1": ["GK", "LB", "CB", "CB", "RB", "CDM", "LM", "CM", "CM", "RM", "ST"],
-        "4-2-2-2": ["GK", "LB", "CB", "CB", "RB", "CDM", "CDM", "CAM", "CAM", "ST", "ST"],
-        "4-1-2-1-2": ["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "CM", "CAM", "ST", "ST"],
-        "4-3-2-1": ["GK", "LB", "CB", "CB", "RB", "CM", "CDM", "CM", "CAM", "CAM", "ST"],
-        "5-4-1": ["GK", "LB", "CB", "CB", "CB", "RB", "LM", "CM", "CM", "RM", "ST"],
-        "3-4-1-2": ["GK", "CB", "CB", "CB", "LM", "CM", "CM", "RM", "CAM", "ST", "ST"],
-        "4-5-1": ["GK", "LB", "CB", "CB", "RB", "LM", "CM", "CDM", "CM", "RM", "ST"],
-        "4-2-4": ["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "LW", "ST", "ST", "RW"],
-    }
+    roles = FORMATION_ROLE_MAP.get(formation)
+    if roles is None:
+        base = re.sub(r" (?:Flat|Attack|Defend|Holding|Narrow|Wide|Midfield)$", "", formation)
+        roles = FORMATION_ROLE_MAP.get(base, FORMATION_ROLE_MAP["4-3-3"])
     available = [dict(row) for row in player_rows]
     selected: list[str] = []
     selected_roles: list[str] = []
-    roles = roles_by_formation.get(formation, roles_by_formation["4-3-3"])
     for role in roles:
         candidates = []
         for player in available:
             primary = player.get("position") or "CM"
             secondary = list(player.get("secondary_positions") or [])
-            penalty = position_penalty(primary, secondary, role)
-            score = int(player.get("overall") or 0) + penalty
+            score = int(player.get("overall") or 0) + position_penalty(primary, secondary, role)
             candidates.append((score, str(player["id"]), player))
         if not candidates:
             break
-        _, player_id, chosen = max(candidates, key=lambda item: (item[0], item[1]))
+        _, player_id, _ = max(candidates, key=lambda item: (item[0], item[1]))
         selected.append(player_id)
         selected_roles.append(role)
         available = [player for player in available if str(player["id"]) != player_id]
     bench_rows = sorted(available, key=lambda row: int(row.get("overall") or 0), reverse=True)[:7]
-    bench = [str(row["id"]) for row in bench_rows]
-    return selected, bench, selected_roles
+    return selected, [str(row["id"]) for row in bench_rows], selected_roles
 
 
 def create_schedule(
