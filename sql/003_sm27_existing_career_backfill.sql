@@ -48,7 +48,7 @@ WITH base AS (
 )
 UPDATE players p SET
   position=e.new_position,
-  secondary_positions=CASE WHEN cardinality(p.secondary_positions)=0 THEN e.new_secondary ELSE p.secondary_positions END,
+  secondary_positions=coalesce(p.secondary_positions, ARRAY[]::text[]),
   market_value=CASE WHEN p.market_value<=0 THEN e.estimated_value ELSE p.market_value END,
   weekly_wage=CASE WHEN p.weekly_wage<=0
     THEN greatest(250,least(1500000,round(e.estimated_value*0.00154/100)*100))::bigint
@@ -81,7 +81,7 @@ UPDATE players p SET
   updated_at=now()
 FROM enriched e
 WHERE p.id=e.id
-  AND (p.position IN ('DF','MF','FW') OR cardinality(p.secondary_positions)=0
+  AND (p.position IN ('DF','MF','FW')
        OR p.market_value<=0 OR p.weekly_wage<=0 OR p.contract_end IS NULL
        OR NOT (p.attributes ? 'PAC' OR p.attributes ? 'DIV'));
 
