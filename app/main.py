@@ -128,6 +128,9 @@ FLAG_SPECIAL_CODES = {
     "north korea": "kp", "iran": "ir", "ivory coast": "ci",
     "czech republic": "cz", "bolivia": "bo", "vietnam": "vn",
     "syria": "sy", "taiwan": "tw",
+    "por": "pt", "ned": "nl", "ger": "de", "sui": "ch",
+    "rsa": "za", "crc": "cr", "uru": "uy", "cro": "hr",
+    "gre": "gr", "den": "dk", "ksa": "sa", "uae": "ae",
 }
 
 

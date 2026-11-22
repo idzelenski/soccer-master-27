@@ -183,3 +183,5 @@ SM27 — футбольный менеджер / симулятор карьер
 - SQL 005 data update and source-update statements passed EXPLAIN parsing against the Neon schema; actual application awaits next deploy.
 - Remaining work: verify FC27 import status and matched counts; research non-FC27 players; integrate SofaScore player values; complete true calendar fast-forward by single date cell; verify CI, Render logs, absence of legacy triggers, zero initial secondary positions, and retained progress after restart.
 - Continue updating summary.txt at the end of every SM27 session and keep Neon/Render/GitHub on Free tiers only.
+
+- CI выявил FIFA-код POR, который не совпадает с ISO alpha-3 PRT. Исправлены преобразования FIFA→ISO для POR/NED/GER/SUI/RSA/CRC/URU/CRO/GRE/DEN/KSA/UAE в backend flags и FC27 importer; это нужно для правильных флагов и сопоставления рейтингов.

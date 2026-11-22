@@ -33,6 +33,11 @@ SPECIAL_COUNTRIES = {
     "england":"ENG","scotland":"SCO","wales":"WAL",
     "northern ireland":"NIR","kosovo":"XKX",
 }
+FIFA_TO_ISO3 = {
+    "POR":"PRT","NED":"NLD","GER":"DEU","SUI":"CHE","RSA":"ZAF",
+    "CRC":"CRI","URU":"URY","CRO":"HRV","GRE":"GRC","DEN":"DNK",
+    "KSA":"SAU","UAE":"ARE",
+}
 
 
 def normalise_name(value: str | None) -> str:
@@ -49,7 +54,7 @@ def alpha3(value: str | None) -> str:
         return SPECIAL_COUNTRIES[key.casefold()]
     upper = key.upper()
     if len(upper) == 3:
-        return upper
+        return FIFA_TO_ISO3.get(upper, upper)
     try:
         return pycountry.countries.lookup(key).alpha_3
     except LookupError:
