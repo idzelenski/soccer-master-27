@@ -586,12 +586,12 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
 
 @app.post("/api/saves/restart")
 def restart_save(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
-    """Archive the active career. A fresh save is created from the immutable world catalog."""
+    """Delete all career-scoped data for this manager so a new save starts from the immutable baseline."""
     result = conn.execute(
-        "UPDATE game_states SET status='archived',updated_at=now() WHERE manager_id=%s AND status='active' RETURNING id",
+        "DELETE FROM game_states WHERE manager_id=%s RETURNING id",
         (manager["id"],),
     ).fetchall()
-    return {"ok": True, "archived_saves": len(result)}
+    return {"ok": True, "reset_careers": len(result)}
 
 
 @app.get("/api/dashboard")
