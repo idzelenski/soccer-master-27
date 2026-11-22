@@ -409,23 +409,56 @@ def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list
         base = re.sub(r" (?:Flat|Attack|Defend|Holding|Narrow|Wide|Midfield)$", "", formation)
         roles = FORMATION_ROLE_MAP.get(base, FORMATION_ROLE_MAP["4-3-3"])
     available = [dict(row) for row in player_rows]
-    selected: list[str] = []
-    selected_roles: list[str] = []
-    for role in roles:
-        candidates = []
-        for player in available:
-            primary = player.get("position") or "CM"
-            secondary = list(player.get("secondary_positions") or [])
-            score = int(player.get("overall") or 0) + position_penalty(primary, secondary, role)
-            candidates.append((score, str(player["id"]), player))
-        if not candidates:
-            break
-        _, player_id, _ = max(candidates, key=lambda item: (item[0], item[1]))
-        selected.append(player_id)
-        selected_roles.append(role)
-        available = [player for player in available if str(player["id"]) != player_id]
-    bench_rows = sorted(available, key=lambda row: int(row.get("overall") or 0), reverse=True)[:7]
-    return selected, [str(row["id"]) for row in bench_rows], selected_roles
+    if len(available) < len(roles):
+        raise ValueError(f"Для схемы {formation} нужно минимум {len(roles)} игроков")
+
+    # Solve the complete role assignment, rather than greedily consuming the
+    # best player for the first slot and leaving weaker fits for later slots.
+    slot_count = len(roles)
+    full_mask = (1 << slot_count) - 1
+    empty_path: tuple[str | None, ...] = tuple(None for _ in roles)
+    dp: dict[int, tuple[int, tuple[str | None, ...]]] = {0: (0, empty_path)}
+    ordered_players = sorted(available, key=lambda row: str(row["id"]))
+
+    for player in ordered_players:
+        player_id = str(player["id"])
+        primary = player.get("position") or "CM"
+        secondary = list(player.get("secondary_positions") or [])
+        rating = int(player.get("dynamic_overall") or player.get("overall") or 0)
+        next_dp = dict(dp)
+        for mask, (total, path) in dp.items():
+            for slot_index, role in enumerate(roles):
+                bit = 1 << slot_index
+                if mask & bit:
+                    continue
+                next_mask = mask | bit
+                candidate_path = list(path)
+                candidate_path[slot_index] = player_id
+                candidate_path_tuple = tuple(candidate_path)
+                candidate_total = total + rating + position_penalty(primary, secondary, role)
+                previous = next_dp.get(next_mask)
+                candidate_key = tuple(value or "" for value in candidate_path_tuple)
+                previous_key = tuple(value or "" for value in previous[1]) if previous else ()
+                if (
+                    previous is None
+                    or candidate_total > previous[0]
+                    or (candidate_total == previous[0] and candidate_key < previous_key)
+                ):
+                    next_dp[next_mask] = (candidate_total, candidate_path_tuple)
+        dp = next_dp
+
+    best = dp.get(full_mask)
+    if best is None or any(player_id is None for player_id in best[1]):
+        raise ValueError(f"Не удалось собрать полный состав по схеме {formation}")
+    selected = [str(player_id) for player_id in best[1]]
+    selected_set = set(selected)
+    remaining = [row for row in available if str(row["id"]) not in selected_set]
+    bench_rows = sorted(
+        remaining,
+        key=lambda row: int(row.get("dynamic_overall") or row.get("overall") or 0),
+        reverse=True,
+    )[:7]
+    return selected, [str(row["id"]) for row in bench_rows], list(roles)
 
 
 def create_schedule(
