@@ -83,9 +83,11 @@ a { color: inherit; text-decoration: none; }
 .nav-ico { width: 20px; text-align: center; font-size: 15px; opacity: .95; }
 .sidebar-bottom { margin-top: auto; }
 .club-mini { display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: rgba(255,255,255,.025); margin: 0 2px 14px; }
-.crest { width: 42px; height: 42px; flex: 0 0 auto; position: relative; display: grid; place-items: center; border-radius: 11px; background: linear-gradient(145deg,#245c40,#133626); color: var(--green-bright); font: 800 12px Manrope; border: 1px solid rgba(185,255,210,.14); overflow: hidden; }
-.crest > span { position: absolute; inset: 0; display: grid; place-items: center; }
-.crest img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; padding: 3px; background: #fff; }
+.crest { width: 42px; height: 42px; flex: 0 0 42px; position: relative; display: inline-grid; place-items: center; vertical-align: middle; border-radius: 11px; background: linear-gradient(145deg,#245c40,#133626); color: var(--green-bright); font: 800 12px Manrope; border: 1px solid rgba(185,255,210,.14); overflow: hidden; box-sizing: border-box; }
+.crest .crest-fallback { position: absolute; inset: 0; display: grid; place-items: center; z-index: 0; }
+.crest img { position: absolute; inset: 0; z-index: 1; display: block; width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; object-position: center; padding: 4px; background: #fff; box-sizing: border-box; }
+.crest-large { width: 58px; height: 58px; flex-basis: 58px; border-radius: 16px; font-size: 16px; }
+
 .club-mini b { display: block; max-width: 130px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .club-mini small { color: var(--muted-2); font-size: 9px; }
 .main-area { min-width: 0; padding: 0 36px 60px; }
@@ -131,7 +133,7 @@ th { color: #648273; font-size: 9px; text-transform: uppercase; letter-spacing: 
 td { padding: 11px 10px; border-top: 1px solid rgba(187,227,205,.055); font-size: 11px; color: #c2d3c8; }
 td:first-child { color: var(--muted); width: 32px; }
 tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); font-weight: 800; }
-.team-cell { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; }
+.team-cell { display: flex; align-items: center; gap: 8px; color: var(--text); font-weight: 700; min-width: 180px; }
 .team-dot { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 7px; background: #1c4932; color: var(--green); font-size: 8px; font-weight: 800; }
 .empty-state { text-align: center; color: var(--muted); padding: 36px 14px; font-size: 12px; line-height: 1.6; }
 .empty-state strong { color: var(--text); display: block; font: 800 14px Manrope; margin-bottom: 5px; }
@@ -313,6 +315,10 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
 .calendar-match-row { border-top: 1px solid var(--line); padding: 14px 0; }
 .calendar-match-row small { color: var(--muted); font-size: 8px; }
 .calendar-match-row b { display: block; margin-top: 7px; line-height: 1.7; font-size: 11px; }
+.calendar-teams { display: grid; grid-template-columns: 32px minmax(0,1fr) auto minmax(0,1fr) 32px; align-items: center; gap: 6px; margin-top: 8px; }
+.calendar-teams .crest { width: 30px; height: 30px; flex-basis: 30px; border-radius: 7px; font-size: 9px; }
+.calendar-teams b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.calendar-teams span:not(.crest):not(.crest-fallback) { color: var(--green-bright); font-weight: 800; font-variant-numeric: tabular-nums; }
 .calendar-match-row b span { color: var(--green-bright); margin: 0 4px; }
 .calendar-legend { display: flex; align-items: center; gap: 9px; padding-top: 15px; color: var(--muted); font-size: 9px; }
 .event-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); }
