@@ -581,60 +581,71 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             (game_state_id, tournament["id"], club_id),
         )
         player_rows = conn.execute(
-            """SELECT source_id,name,date_of_birth,nationality,position,market_value_eur,
-                      market_value_as_of,source_url,raw_data
-               FROM world_player_catalog WHERE club_source_id=%s
-               ORDER BY market_value_eur DESC, name LIMIT 30""",
+            """SELECT wp.source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
+                      wp.market_value_eur,wp.market_value_as_of,wp.source_url,wp.raw_data,
+                      wp.fc27_player_id,fc.position AS fc27_position,fc.overall AS fc27_overall,
+                      fc.potential AS fc27_potential,fc.attributes AS fc27_attributes
+               FROM world_player_catalog wp
+               LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=wp.fc27_player_id
+               WHERE wp.club_source_id=%s
+               ORDER BY wp.market_value_eur DESC, wp.name LIMIT 30""",
             (pool_row["source_id"],),
         ).fetchall()
         for player in player_rows:
             dob = player["date_of_birth"]
             age = max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425))) if dob else 24
             source_id = str(player["source_id"])
-            position = normalise_player_position(player["position"], source_id)
-            secondary = list(SECONDARY_POSITIONS.get(position, ()))
-            overall = overall_from_market_value(
+            fc27_id = player.get("fc27_player_id")
+            position = normalise_player_position(player.get("fc27_position") or player["position"], source_id)
+            overall = int(player["fc27_overall"]) if player.get("fc27_overall") is not None else overall_from_market_value(
                 int(player["market_value_eur"] or 0), age, int(team_records[-1]["reputation"]),
                 int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
             )
-            potential = potential_from_overall(
-                overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
+            potential = int(player["fc27_potential"]) if player.get("fc27_potential") is not None else max(
+                overall,
+                potential_from_overall(overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)),
             )
             sourced_market_value = int(player["market_value_eur"] or 0)
-            market_value = sourced_market_value or estimated_market_value(overall, potential, age)
-            profile_source = (
-                f"Transfermarkt snapshot ({player['market_value_as_of'].isoformat()})"
-                if sourced_market_value and player["market_value_as_of"]
-                else "SM27 estimate — no verified market value in source snapshot"
-            )
+            market_value = sourced_market_value
+            if fc27_id:
+                profile_source = "EA SPORTS FC 27 Ratings Database (snapshot 2026-09-10)"
+            else:
+                profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
+            market_value_source = "Transfermarkt" if sourced_market_value and player["market_value_as_of"] else "not_available"
             raw = dict(player["raw_data"] or {})
             raw.update({
-                "market_value_source": "Transfermarkt" if sourced_market_value else "SM27 estimate",
+                "market_value_source": market_value_source,
                 "market_value_as_of": player["market_value_as_of"].isoformat() if player["market_value_as_of"] else None,
-                "game_rating_type": "SM27 estimate",
+                "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 estimate",
                 "contract_source": "SM27 estimate",
-                "wage_source": "SM27 estimate",
+                "wage_source": "SM27 career wage model",
                 "generated": False,
             })
             contract_end = estimated_contract_end(age, source_id)
-            weekly_wage = estimated_weekly_wage(market_value)
+            weekly_wage = estimated_weekly_wage(
+                overall, age, int(team_records[-1]["reputation"]), player["name"]
+            )
+            attributes = dict(player["fc27_attributes"] or {}) if fc27_id else {}
+            if not attributes:
+                attributes = player_attributes(overall, position, source_id)
             conn.execute(
                 """INSERT INTO players (
                        game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
                        secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
                        attributes,original_data,source_name,source_url,data_verified_at,
-                       form,morale,sharpness,nationality_flag,profile_source
+                       form,morale,sharpness,nationality_flag,profile_source,fc27_player_id,
+                       market_value_source
                    ) VALUES (
-                       %s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s
+                       %s,%s,%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                       50,70,85,%s,%s,%s,%s
                    )
                    ON CONFLICT (game_state_id,external_id) DO NOTHING""",
                 (
                     game_state_id, club_id, source_id, player["name"], player["nationality"], dob, age, position,
-                    secondary, overall, potential, market_value, weekly_wage, contract_end,
-                    Jsonb(player_attributes(overall, position, source_id)),
-                    Jsonb(raw), "OpenFootballBase / Transfermarkt", player["source_url"],
-                    player["market_value_as_of"], 50, 70, 85,
-                    flag_for_nationality(player["nationality"]), profile_source,
+                    overall, potential, market_value, weekly_wage, contract_end,
+                    Jsonb(attributes), Jsonb(raw), "OpenFootballBase / Transfermarkt / EA FC 27",
+                    player["source_url"], player["market_value_as_of"],
+                    flag_for_nationality(player["nationality"]), profile_source, fc27_id, market_value_source,
                 ),
             )
     for team in team_records:
@@ -697,12 +708,14 @@ def dashboard(manager: dict = Depends(manager_dep), conn: Connection = Depends(d
 def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
     save = require_save(conn, str(manager["id"]))
     rows = conn.execute(
-        """SELECT id,name,nationality,nationality_flag,birth_date,age,position,secondary_positions,
+        """SELECT id,name,nationality,birth_date,age,position,secondary_positions,
                   overall,GREATEST(1,LEAST(99,overall + ROUND(
                     (form-50)*0.06 + (morale-70)*0.04 + (sharpness-85)*0.04 - fatigue*0.08
                   )::int)) AS dynamic_overall,
-                  potential,market_value,weekly_wage,contract_end,fatigue,form,morale,sharpness,
-                  injury_type,injury_until,attributes,original_data,profile_source,source_url
+                  potential,market_value,market_value_source,weekly_wage,contract_end,
+                  fatigue,form,morale,sharpness,position_training_target,
+                  position_training_progress,fc27_player_id,injury_type,injury_until,
+                  attributes,original_data,profile_source,source_url
            FROM players
            WHERE game_state_id=%s AND club_id=%s
            ORDER BY CASE position WHEN 'GK' THEN 0 WHEN 'CB' THEN 1 WHEN 'RB' THEN 1 WHEN 'LB' THEN 1
@@ -713,12 +726,41 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
     result = []
     for row in rows:
         player = dict(row)
-        if not player.get("nationality_flag"):
-            player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
-        if not player.get("secondary_positions"):
-            player["secondary_positions"] = list(SECONDARY_POSITIONS.get(player.get("position"), ()))
+        player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
+        player["secondary_positions"] = list(player.get("secondary_positions") or [])
         result.append(player)
     return serialise(result)
+
+
+@app.post("/api/players/{player_id}/position-training")
+def start_position_training(
+    player_id: str,
+    body: PositionTrainingIn,
+    manager: dict = Depends(manager_dep),
+    conn: Connection = Depends(db_dep),
+) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    player = conn.execute(
+        """SELECT id,position,secondary_positions,position_training_target
+           FROM players WHERE id=%s AND game_state_id=%s AND club_id=%s""",
+        (player_id, save["id"], save["managed_club_id"]),
+    ).fetchone()
+    if not player:
+        raise HTTPException(status_code=404, detail="Игрок не найден в вашем составе")
+    target = body.position.strip().upper()
+    if target not in SECONDARY_POSITIONS.get(player["position"], ()):
+        raise HTTPException(status_code=422, detail="Эту позицию нельзя прокачать для выбранной основной позиции")
+    if target in list(player["secondary_positions"] or []):
+        raise HTTPException(status_code=409, detail="Эта дополнительная позиция уже освоена")
+    if player["position_training_target"]:
+        raise HTTPException(status_code=409, detail="Игрок уже прокачивает другую позицию")
+    conn.execute(
+        """UPDATE players
+           SET position_training_target=%s,position_training_progress=0,updated_at=now()
+           WHERE id=%s""",
+        (target, player_id),
+    )
+    return {"ok": True, "position": target, "progress": 0}
 
 
 @app.get("/api/tactics")
@@ -826,6 +868,30 @@ def update_player_condition(conn: Connection, game_state_id: str, club_id: str, 
              updated_at=now()
            WHERE game_state_id=%s AND club_id=%s""",
         (form_delta,morale_delta,game_state_id,club_id),
+    )
+
+
+def advance_position_training(conn: Connection, game_state_id: str, club_id: str) -> None:
+    conn.execute(
+        """UPDATE players
+           SET secondary_positions=CASE
+                 WHEN position_training_progress+5>=100
+                   AND position_training_target IS NOT NULL
+                   AND NOT (position_training_target=ANY(secondary_positions))
+                 THEN array_append(secondary_positions,position_training_target)
+                 ELSE secondary_positions
+               END,
+               position_training_progress=CASE
+                 WHEN position_training_progress+5>=100 THEN 0
+                 ELSE LEAST(100,position_training_progress+5)
+               END,
+               position_training_target=CASE
+                 WHEN position_training_progress+5>=100 THEN NULL
+                 ELSE position_training_target
+               END,
+               updated_at=now()
+           WHERE game_state_id=%s AND club_id=%s AND position_training_target IS NOT NULL""",
+        (game_state_id,club_id),
     )
 
 
@@ -973,6 +1039,8 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
         away_condition = "win" if result["away_score"] > result["home_score"] else "loss" if result["away_score"] < result["home_score"] else "draw"
         update_player_condition(conn, str(save["id"]), str(fixture["home_club_id"]), home_condition)
         update_player_condition(conn, str(save["id"]), str(fixture["away_club_id"]), away_condition)
+        advance_position_training(conn, str(save["id"]), str(fixture["home_club_id"]))
+        advance_position_training(conn, str(save["id"]), str(fixture["away_club_id"]))
         add_goal_events(conn, fixture, result)
         completed.append({"home": fixture["home_name"], "away": fixture["away_name"], "home_score": result["home_score"], "away_score": result["away_score"]})
     conn.execute(
