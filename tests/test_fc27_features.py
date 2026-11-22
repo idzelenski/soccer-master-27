@@ -178,3 +178,14 @@ def test_reported_weekly_wages_use_2026_27_salary_estimates():
 
     assert estimated_weekly_wage(90, 41, 80, "Cristiano Ronaldo") == 4_007_692
     assert estimated_weekly_wage(80, 35, 80, "Íñigo Martínez") == 196_154
+
+
+def test_spartak_research_profiles_use_sofascore_market_values():
+    from app.researched_profiles import get_researched_profile
+
+    barco = get_researched_profile("Esequiel Barco", "FC Spartak Moscow")
+    ugalde = get_researched_profile("Manfred Ugalde", "FC Spartak Moscow")
+    assert barco["market_value"] == 16_700_000
+    assert barco["market_value_source"] == "SofaScore"
+    assert barco["research"]["sofascore_url"].startswith("https://www.sofascore.com/")
+    assert ugalde["market_value"] == 12_400_000

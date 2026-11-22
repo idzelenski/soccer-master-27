@@ -676,18 +676,19 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                     overall,
                     potential_from_overall(overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)),
                 )
-            market_value = 0
+            market_value = int(researched["market_value"]) if researched and researched.get("market_value") is not None else 0
             if fc27_id:
                 profile_source = "EA SPORTS FC 27 official ratings database"
             elif researched:
                 profile_source = researched["profile_source"]
             else:
                 profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
-            market_value_source = "not_available"
+            market_value_source = "SofaScore" if researched and researched.get("market_value") is not None else "not_available"
+            market_value_as_of = researched.get("market_value_as_of") if market_value_source == "SofaScore" else None
             raw = dict(player["raw_data"] or {})
             raw.update({
                 "market_value_source": market_value_source,
-                "market_value_as_of": None,
+                "market_value_as_of": market_value_as_of,
                 "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 researched estimate" if researched else "SM27 estimate",
                 "contract_source": "SM27 estimate",
                 "wage_source": "Capology 2026/27 estimate" if normalise_player_name(player["name"]).startswith(("cristianoronaldo", "inigomartinez")) else "SM27 career wage model",

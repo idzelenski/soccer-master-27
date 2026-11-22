@@ -336,6 +336,7 @@ function showPlayerDetails(playerId) {
   const marketSource = marketValueSourceLabel(player);
   const fc27SourceUrl = /^https:\/\/www\.ea\.com\//i.test(player.fc27_source_url || '') ? player.fc27_source_url : '';
   const fotmobSourceUrl = !player.fc27_player_id && /^https:\/\/www\.fotmob\.com\/players\//i.test(player.source_url || '') ? player.source_url : '';
+  const sofascoreSourceUrl = /^https:\/\/www\.sofascore\.com\/football\/player\//i.test(player.original_data?.research?.sofascore_url || '') ? player.original_data.research.sofascore_url : '';
   const hasVerifiedValue = Number(player.market_value || 0) > 0
     && player.market_value_source === 'SofaScore';
   const modal = document.createElement('div');
@@ -365,7 +366,7 @@ function showPlayerDetails(playerId) {
       </div>
       <div class="panel-head"><h3>Характеристики ${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
       <div class="attribute-grid">${bars}</div>
-      <div class="catalog-note"><span>ⓘ</span><span>${player.fc27_player_id ? 'OVR и шесть основных характеристик взяты из базы EA SPORTS FC 27. Потенциал и зарплата — отдельные оценки SM27.' : 'Игрок не найден в базе EA SPORTS FC 27. OVR, потенциал и характеристики — исследовательская оценка SM27, не официальный рейтинг EA.'} ${fc27SourceUrl ? '<a href="' + esc(fc27SourceUrl) + '" target="_blank" rel="noopener noreferrer">Официальная карточка EA</a>' : ''} ${fotmobSourceUrl ? '<a href="' + esc(fotmobSourceUrl) + '" target="_blank" rel="noopener noreferrer">Статистика FotMob 2026/27</a>' : ''}</span></div>
+      <div class="catalog-note"><span>ⓘ</span><span>${player.fc27_player_id ? 'OVR и шесть основных характеристик взяты из базы EA SPORTS FC 27. Потенциал и зарплата — отдельные оценки SM27.' : 'Игрок не найден в базе EA SPORTS FC 27. OVR, потенциал и характеристики — исследовательская оценка SM27, не официальный рейтинг EA.'} ${fc27SourceUrl ? '<a href="' + esc(fc27SourceUrl) + '" target="_blank" rel="noopener noreferrer">Официальная карточка EA</a>' : ''} ${fotmobSourceUrl ? '<a href="' + esc(fotmobSourceUrl) + '" target="_blank" rel="noopener noreferrer">Статистика FotMob 2026/27</a>' : ''} ${sofascoreSourceUrl ? '<a href="' + esc(sofascoreSourceUrl) + '" target="_blank" rel="noopener noreferrer">Стоимость SofaScore</a>' : ''}</span></div>
     </section>`;
   document.body.appendChild(modal);
   document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());

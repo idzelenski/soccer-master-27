@@ -457,6 +457,9 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
             if market_source!="SofaScore":
                 market_source="not_available"
             if researched:
+                if researched.get("market_value") is not None:
+                    market_value=int(researched["market_value"])
+                    market_source="SofaScore"
                 overall=int(researched["overall"])
                 position=researched["position"]
                 attributes=dict(researched["attributes"])
