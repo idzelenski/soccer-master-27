@@ -103,19 +103,22 @@ def schedule_dates(start: date, rounds: int, interval_days: int = 7) -> list[dat
 def overall_from_market_value(
     value_eur: int, age: int | None, reputation: int, seed: int = 0
 ) -> int:
-    """Gameplay rating estimate; never presented as an official EA/Transfermarkt rating."""
+    """Fallback rating estimate for players without an FC 27 database match."""
     age = age or 24
     rng = random.Random(seed)
+    age_component = (
+        5 if age <= 21 else
+        3 if age <= 24 else
+        0 if age <= 29 else
+        -min(12, (age - 29) * 0.75)
+    )
     if value_eur > 0:
-        value_component = 44 + 13 * math.log10(max(value_eur, 10_000) / 10_000)
-        age_component = 5 if 21 <= age <= 28 else 0 if age < 21 else -max(0, age - 29) * 0.65
-        score = value_component + age_component + rng.randint(-2, 2)
+        # One market-value decade changes OVR by 15 points, not 40–50.
+        score = 60 + 15 * math.log10(max(value_eur, 25_000) / 1_000_000)
+        score += age_component + rng.randint(-1, 1)
     else:
-        score = 44 + reputation * 0.34
-        score += 3 if 20 <= age <= 27 else -max(0, age - 30) * 0.6
-        # Without a sourced value, players still need a realistic quality spread.
-        score += rng.randint(-8, 8)
-    return int(round(clamp(score, 35, 92)))
+        score = 42 + reputation * 0.29 + age_component + rng.randint(-3, 3)
+    return int(round(clamp(score, 35, 90)))
 
 
 def potential_from_overall(overall: int, age: int | None, seed: int) -> int:
