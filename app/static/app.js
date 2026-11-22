@@ -76,11 +76,14 @@ function renderToneCrystals(value) {
   const score = Math.max(0, Math.min(100, Number(value ?? 85)));
   const active = Math.max(0, Math.min(5, Math.ceil(score / 20)));
   const colors = ['#ff6c79','#ffad55','#efd15c','#83d477','#58c9d8'];
-  return `<span class="tone-crystals" role="img" aria-label="Тонус ${score} из 100">${colors.map((color,index) => `
-    <svg viewBox="0 0 16 19" aria-hidden="true">
-      <path d="M8 1 14 5 12 14 8 18 4 14 2 5Z" fill="${index < active ? color : '#34463d'}" stroke="${index < active ? color : '#56675d'}" stroke-width="1"/>
-      <path d="M8 1 8 18M2 5 14 5M4 14 12 14" fill="none" stroke="${index < active ? '#102117' : '#1b2922'}" stroke-width=".8" opacity=".65"/>
-    </svg>`).join('')}</span>`;
+  return `<span class="tone-crystals" role="img" aria-label="Тонус ${score} из 100">${colors.map((color,index) => {
+    const opacity = index < active ? 1 : .28;
+    return `
+    <svg viewBox="0 0 16 19" aria-hidden="true" style="opacity:${opacity}">
+      <path d="M8 1 14 5 12 14 8 18 4 14 2 5Z" fill="${color}" stroke="${color}" stroke-width="1"/>
+      <path d="M8 1 8 18M2 5 14 5M4 14 12 14" fill="none" stroke="#102117" stroke-width=".8" opacity=".65"/>
+    </svg>`;
+  }).join('')}</span>`;
 }
 function renderMoodFaces(value) {
   const score = Math.max(0, Math.min(100, Number(value ?? 70)));
@@ -332,6 +335,7 @@ function showPlayerDetails(playerId) {
       : '<small class="training-help">Для этой позиции нет доступных соседних ролей.</small>';
   const marketSource = marketValueSourceLabel(player);
   const fc27SourceUrl = /^https:\/\/www\.ea\.com\//i.test(player.fc27_source_url || '') ? player.fc27_source_url : '';
+  const fotmobSourceUrl = !player.fc27_player_id && /^https:\/\/www\.fotmob\.com\/players\//i.test(player.source_url || '') ? player.source_url : '';
   const hasVerifiedValue = Number(player.market_value || 0) > 0
     && player.market_value_source === 'SofaScore';
   const modal = document.createElement('div');
@@ -361,7 +365,7 @@ function showPlayerDetails(playerId) {
       </div>
       <div class="panel-head"><h3>Характеристики ${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
       <div class="attribute-grid">${bars}</div>
-      <div class="catalog-note"><span>ⓘ</span><span>${player.fc27_player_id ? 'OVR и шесть основных характеристик взяты из базы EA SPORTS FC 27. Потенциал и зарплата — отдельные оценки SM27.' : 'Игрок не найден в базе EA SPORTS FC 27. OVR, потенциал и характеристики являются оценками SM27, а не официальными данными EA.'} ${fc27SourceUrl ? '<a href="' + esc(fc27SourceUrl) + '" target="_blank" rel="noopener noreferrer">Официальная карточка EA</a>' : ''}</span></div>
+      <div class="catalog-note"><span>ⓘ</span><span>${player.fc27_player_id ? 'OVR и шесть основных характеристик взяты из базы EA SPORTS FC 27. Потенциал и зарплата — отдельные оценки SM27.' : 'Игрок не найден в базе EA SPORTS FC 27. OVR, потенциал и характеристики — исследовательская оценка SM27, не официальный рейтинг EA.'} ${fc27SourceUrl ? '<a href="' + esc(fc27SourceUrl) + '" target="_blank" rel="noopener noreferrer">Официальная карточка EA</a>' : ''} ${fotmobSourceUrl ? '<a href="' + esc(fotmobSourceUrl) + '" target="_blank" rel="noopener noreferrer">Статистика FotMob 2026/27</a>' : ''}</span></div>
     </section>`;
   document.body.appendChild(modal);
   document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());
