@@ -14,6 +14,7 @@ from datetime import date
 from typing import Any
 
 import psycopg
+from psycopg.rows import dict_row
 import pycountry
 from psycopg.types.json import Jsonb
 
@@ -418,7 +419,7 @@ def main(database_url: str | None = None) -> None:
     if not database_url:
         raise SystemExit("DATABASE_URL is required")
     records=fetch_all_players()
-    with psycopg.connect(database_url,connect_timeout=20) as conn:
+    with psycopg.connect(database_url,connect_timeout=20,row_factory=dict_row) as conn:
         ensure_schema(conn)
         import_catalog(conn,records)
         matched,fallback=update_career_players(conn,records)
