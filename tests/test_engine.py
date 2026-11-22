@@ -39,3 +39,20 @@ def test_market_value_generates_game_rating_not_source_rating():
     assert 35 <= low <= 92
     assert 35 <= high <= 92
     assert high > low
+
+
+
+def test_team_strength_creates_meaningful_expected_goal_gap():
+    strong = expected_goals(100, 37, 86, 52)
+    weak = expected_goals(37, 100, 52, 86)
+    assert strong[0] > strong[1]
+    assert weak[0] < weak[1]
+    assert strong[0] - strong[1] >= 1.0
+
+
+def test_stronger_team_wins_more_often_over_a_large_sample():
+    outcomes = []
+    for seed in range(500):
+        result = simulate_score(100, 37, 86, 52, seed=seed)
+        outcomes.append(result["home_score"] > result["away_score"])
+    assert sum(outcomes) / len(outcomes) >= 0.60
