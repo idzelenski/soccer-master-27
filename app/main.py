@@ -25,6 +25,7 @@ from app.auth import (
 )
 from app.config import settings
 from app.db import close_pool, connection, migrate
+from app.player_sources import sync_managed_player_data
 from app.engine import overall_from_market_value, potential_from_overall, round_robin, simulate_score
 from app.schemas import CreateSaveIn, LoginIn, RegisterIn, TacticIn, PositionTrainingIn
 
@@ -252,7 +253,7 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
             (
                 game_state_id, club_id, source_id, f"Игрок академии {index:02d}", age, position,
                 list(SECONDARY_POSITIONS.get(position, ())), overall, potential,
-                market_value, estimated_weekly_wage(market_value), estimated_contract_end(age, source_id),
+                market_value, estimated_weekly_wage(market_value, overall, age, reputation), estimated_contract_end(age, source_id),
                 Jsonb(player_attributes(overall, position, source_id)),
                 Jsonb({"generated": True, "note": "Fictional game placeholder, not a real player"}),
             ),
@@ -730,6 +731,17 @@ def train_player_position(player_id: str, body: PositionTrainingIn, manager: dic
         (target, player_id),
     )
     return {"ok": True, "position": target, "weeks_required": POSITION_TRAINING_WEEKS}
+
+
+@app.post("/api/squad/sync-player-data")
+def sync_squad_player_data(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    try:
+        result = sync_managed_player_data(conn, str(save["id"]), str(save["managed_club_id"]))
+        return {"ok": True, **result}
+    except Exception as exc:
+        LOGGER.exception("Player-source sync failed for game %s", save["id"])
+        raise HTTPException(status_code=502, detail="Не удалось получить данные EA FC 27 / Sofascore. Текущие данные карьеры сохранены.") from exc
 
 
 @app.get("/api/tactics")
