@@ -32,6 +32,10 @@ class CreateSaveIn(BaseModel):
     save_name: str = Field(default="Моя карьера", min_length=2, max_length=48)
 
 
+class PositionTrainingIn(BaseModel):
+    position: str = Field(min_length=2, max_length=3, pattern=r"^(?:GK|RB|CB|LB|RWB|LWB|CDM|CM|CAM|RM|LM|RW|LW|ST|CF)$")
+
+
 class TacticIn(BaseModel):
     formation: str = Field(
         default="4-3-3",
