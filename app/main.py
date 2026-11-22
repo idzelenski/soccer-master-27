@@ -186,8 +186,12 @@ def require_save(conn: Connection, manager_id: str) -> dict:
 
 
 def display_club_name(value: str | None) -> str:
-    name = (value or '').strip()
-    return re.sub(r'\\s+F\\.C\\.    stars = float(pool_row.get("fifa_stars") or 2.5)
+    name = (value or "").strip()
+    return re.sub(r"\s+F\.C\.$", "", name, flags=re.IGNORECASE).strip()
+
+
+def make_club(conn: Connection, game_state_id: str, pool_row: dict) -> str:
+    stars = float(pool_row.get("fifa_stars") or 2.5)
     reputation = max(10, min(100, int(pool_row.get("team_strength") or round(stars * 20))))
     capacity = pool_row.get("stadium_capacity") or 20000
     budget = int(max(350_000, min(220_000_000, (reputation**2) * 22_000)))
