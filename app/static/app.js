@@ -263,31 +263,302 @@ function showPlayerDetails(playerId) {
   modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
 }
 
+
+const FORMATIONS = [
+  "3-1-4-2","3-4-1-2","3-4-2-1","3-4-3","3-4-3 Flat","3-5-2",
+  "4-1-2-1-2","4-1-2-1-2 Narrow","4-1-2-1-2 Wide","4-1-3-2","4-1-4-1",
+  "4-2-1-3","4-2-2-2","4-2-3-1","4-2-3-1 Narrow","4-2-3-1 Wide",
+  "4-2-4","4-3-1-2","4-3-2-1","4-3-3","4-3-3 Attack","4-3-3 Defend",
+  "4-3-3 Flat","4-3-3 Holding","4-4-1-1 Midfield","4-4-2","4-4-2 Holding",
+  "4-5-1","4-5-1 Attack","4-5-1 Flat","5-2-1-2","5-2-3","5-3-2",
+  "5-3-2 Holding","5-4-1","5-4-1 Flat"
+];
+const FORMATION_SHAPES = {
+  "3-1-4-2":[["GK"],["CB","CB","CB"],["CDM"],["LM","CM","CM","RM"],["ST","ST"]],
+  "3-4-1-2":[["GK"],["CB","CB","CB"],["LM","CM","CM","RM"],["CAM"],["ST","ST"]],
+  "3-4-2-1":[["GK"],["CB","CB","CB"],["LM","CM","CM","RM"],["CAM","CAM"],["ST"]],
+  "3-4-3":[["GK"],["CB","CB","CB"],["LM","CM","CM","RM"],["LW","ST","RW"]],
+  "3-5-2":[["GK"],["CB","CB","CB"],["LM","CDM","CM","CDM","RM"],["ST","ST"]],
+  "4-1-2-1-2":[["GK"],["LB","CB","CB","RB"],["CDM"],["CM","CM"],["CAM"],["ST","ST"]],
+  "4-1-3-2":[["GK"],["LB","CB","CB","RB"],["CDM"],["LM","CM","RM"],["ST","ST"]],
+  "4-1-4-1":[["GK"],["LB","CB","CB","RB"],["CDM"],["LM","CM","CM","RM"],["ST"]],
+  "4-2-1-3":[["GK"],["LB","CB","CB","RB"],["CDM","CM"],["CAM"],["LW","ST","RW"]],
+  "4-2-2-2":[["GK"],["LB","CB","CB","RB"],["CDM","CM"],["CAM","CAM"],["ST","ST"]],
+  "4-2-3-1":[["GK"],["LB","CB","CB","RB"],["CDM","CDM"],["LM","CAM","RM"],["ST"]],
+  "4-2-4":[["GK"],["LB","CB","CB","RB"],["CDM","CM"],["LW","ST","ST","RW"]],
+  "4-3-1-2":[["GK"],["LB","CB","CB","RB"],["CDM","CM","CM"],["CAM"],["ST","ST"]],
+  "4-3-2-1":[["GK"],["LB","CB","CB","RB"],["CM","CDM","CM"],["CAM","CAM"],["ST"]],
+  "4-3-3":[["GK"],["LB","CB","CB","RB"],["CDM","CM","CAM"],["LW","ST","RW"]],
+  "4-4-1-1 Midfield":[["GK"],["LB","CB","CB","RB"],["LM","CM","CM","RM"],["CAM"],["ST"]],
+  "4-4-2":[["GK"],["LB","CB","CB","RB"],["LM","CM","CM","RM"],["ST","ST"]],
+  "4-5-1":[["GK"],["LB","CB","CB","RB"],["LM","CM","CDM","CM","RM"],["ST"]],
+  "5-2-1-2":[["GK"],["LWB","CB","CB","CB","RWB"],["CM","CM"],["CAM"],["ST","ST"]],
+  "5-2-3":[["GK"],["LWB","CB","CB","CB","RWB"],["CM","CM"],["LW","ST","RW"]],
+  "5-3-2":[["GK"],["LWB","CB","CB","CB","RWB"],["CM","CDM","CM"],["ST","ST"]],
+  "5-4-1":[["GK"],["LWB","CB","CB","CB","RWB"],["LM","CM","CM","RM"],["ST"]]
+};
+function shapeForFormation(formation) {
+  const base = formation.replace(/ (Flat|Attack|Defend|Holding|Narrow|Wide|Midfield)$/i, "");
+  return FORMATION_SHAPES[formation] || FORMATION_SHAPES[base] || FORMATION_SHAPES["4-3-3"];
+}
+function formationSlots(formation) {
+  const lines = shapeForFormation(formation);
+  const y = [91, 75, 56, 35, 15];
+  const roles = [];
+  lines.forEach((line,row) => {
+    const n = line.length;
+    line.forEach((role,index) => roles.push({
+      role,
+      left: n === 1 ? 50 : 10 + index * (80 / (n-1)),
+      top: y[Math.min(row,y.length-1)]
+    }));
+  });
+  return roles.slice(0,11);
+}
+function positionPenalty(player, target) {
+  const primary = player.position || "CM";
+  const secondary = player.secondary_positions || [];
+  if (primary === target || secondary.includes(target)) return 0;
+  if (primary === "GK" || target === "GK") return -40;
+  const distances = {
+    RB:{LB:-2,RWB:-2,LWB:-5,CB:-3,RM:-5,CDM:-7},
+    LB:{RB:-2,LWB:-2,RWB:-5,CB:-3,LM:-5,CDM:-7},
+    CB:{LB:-3,RB:-3,CDM:-3,RWB:-5,LWB:-5,CM:-7},
+    CDM:{CM:-2,CB:-3,CAM:-5,RM:-7,LM:-7},
+    CM:{CDM:-2,CAM:-2,RM:-3,LM:-3,CB:-7,ST:-10},
+    CAM:{CM:-2,CF:-3,ST:-5,RM:-5,LM:-5},
+    RM:{RW:-2,CM:-3,RB:-5,ST:-7,LM:-7},
+    LM:{LW:-2,CM:-3,LB:-5,ST:-7,RM:-7},
+    RW:{RM:-2,ST:-3,CF:-5,LW:-7,RB:-7},
+    LW:{LM:-2,ST:-3,CF:-5,RW:-7,LB:-7},
+    ST:{CF:-2,CAM:-5,RW:-7,LW:-7,CM:-10},
+    CF:{ST:-2,CAM:-3,RW:-5,LW:-5,CM:-7},
+    RWB:{RB:-2,RM:-3,LB:-5,CB:-5},
+    LWB:{LB:-2,LM:-3,RB:-5,CB:-5}
+  };
+  return (distances[primary] || {})[target] ?? -7;
+}
+function optimiseLineup(players, formation) {
+  const remaining = [...players];
+  const starters = [];
+  for (const slot of formationSlots(formation)) {
+    if (!remaining.length) break;
+    remaining.sort((a,b) => (b.overall + positionPenalty(b,slot.role)) - (a.overall + positionPenalty(a,slot.role)));
+    starters.push(remaining.shift());
+  }
+  return {starters,remaining};
+}
+function ensureTacticState(players, tactics) {
+  const formation = tactics.formation || "4-3-3";
+  const existing = new Map(players.map(player => [String(player.id),player]));
+  let starters = (tactics.starting_xi || []).map(id => existing.get(String(id))).filter(Boolean);
+  let rest = players.filter(p => !starters.some(s => String(s.id)===String(p.id)));
+  if (starters.length !== 11) {
+    const optimized = optimiseLineup(players,formation);
+    starters = optimized.starters;
+    rest = optimized.remaining;
+  }
+  state.tacticSlots = starters.slice(0,11).map(p => String(p.id));
+  const savedBench = (tactics.bench || []).map(id => String(id)).filter(id => existing.has(id) && !state.tacticSlots.includes(id));
+  state.tacticBench = savedBench.slice(0,9);
+  const fillBench = rest.filter(p => !state.tacticBench.includes(String(p.id))).sort((a,b)=>b.overall-a.overall);
+  while(state.tacticBench.length<7 && fillBench.length) state.tacticBench.push(String(fillBench.shift().id));
+  state.tacticSettings = {
+    build_up: "balanced", chance_creation: "balanced", pressing: "on_mistake",
+    defensive_approach: "balanced", width: 50, depth: 55, tempo: "balanced",
+    focus: "balanced", player_roles: {}, ...(tactics.style || {})
+  };
+  state.tacticSettings.player_roles ||= {};
+  state.selectedTacticSlot = null;
+}
+function playerTag(player, slotIndex = null) {
+  if (!player) return "";
+  return `<div class="pitch-player-card" draggable="true" data-player-id="${esc(player.id)}" ${slotIndex !== null ? `data-pitch-slot="${slotIndex}"` : ""}>
+    <b>${player.overall}</b><small>${esc(player.name.split(" ").slice(-1)[0])}</small>
+  </div>`;
+}
 function renderTactics(players, tactics) {
-  const formations = ['4-3-3','4-2-3-1','4-4-2','3-5-2','3-4-3','5-3-2'];
-  const selected = new Set(tactics.starting_xi || []);
-  const rows = players.map((player) => `<label class="fixture-row" style="grid-template-columns:25px 1fr 50px;cursor:pointer"><input type="checkbox" class="xi-check" value="${esc(player.id)}" ${selected.has(String(player.id))?'checked':''} style="accent-color:var(--green)" ${selected.size>=11&&!selected.has(String(player.id))?'disabled':''}><span class="fixture-teams">${esc(player.name)}<br><small style="color:var(--muted)">${esc(player.position)} · ${player.age} лет</small></span><span class="rating">${player.overall}</span></label>`).join('');
-  const lineup = players.filter(p => selected.has(String(p.id)));
-  const pitch = lineup.slice(0,11).map((player,index) => {
-    const coords = [[50,91],[18,75],[40,78],[60,78],[82,75],[34,55],[66,55],[18,35],[50,37],[82,35],[50,13]];
-    const [left,top] = coords[index]; return `<div class="pitch-player" style="left:${left}%;top:${top}%"><span>${esc(player.position)}</span><small>${esc(player.name.split(' ').slice(-1)[0])}</small></div>`;
-  }).join('');
-  return `${pageHead('ПЛАН НА МАТЧ','Тактика','Выбери схему и стартовые 11. Состав сохраняется в твоей карьере.')}
-    <div class="tactic-layout"><section class="panel"><div class="panel-head"><h3>Тактическая доска</h3><span>${lineup.length}/11 игроков</span></div><div class="pitch"><div class="pitch-line"></div>${pitch}</div><div class="catalog-note"><span>ⓘ</span><span>Игроки отображаются схематично; позиции на поле в этой версии — визуальная расстановка стартового состава.</span></div></section>
-    <section class="panel tactic-controls"><div class="panel-head"><h3>Настройки команды</h3></div>
-      <div class="form-field"><label>РАССТАНОВКА</label><select id="formation" class="select-input">${formations.map(f=>`<option ${tactics.formation===f?'selected':''}>${f}</option>`).join('')}</select></div>
-      <div class="form-field"><label>МЕНТАЛИТЕТ</label><select id="mentality" class="select-input">${[['defensive','Оборонительный'],['balanced','Сбалансированный'],['positive','Позитивный'],['attacking','Атакующий']].map(([v,l])=>`<option value="${v}" ${tactics.mentality===v?'selected':''}>${l}</option>`).join('')}</select></div>
-      <div class="panel-head" style="margin:10px 0 0"><h3>Стартовый состав</h3><span>до 11 игроков</span></div>
-      <div style="max-height:295px;overflow:auto" id="xi-list">${rows || '<div class="empty-state">Игроков пока нет</div>'}</div>
-      <button id="save-tactics" class="btn-primary block">Сохранить тактику</button>
-    </section></div>`;
+  const formation = tactics.formation || "4-3-3";
+  const slots = formationSlots(formation);
+  const byId = new Map(players.map(player => [String(player.id),player]));
+  const pitchPlayers = slots.map((slot,index) => {
+    const player = byId.get(state.tacticSlots[index]);
+    const selected = state.selectedTacticSlot === index;
+    const rating = player ? player.overall + positionPenalty(player,slot.role) : null;
+    return `<button class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
+      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? esc(player.name.split(" ").slice(-1)[0]) : "Выбрать"}</em>
+    </button>`;
+  }).join("");
+  const benchIds = new Set(state.tacticBench);
+  const bench = state.tacticBench.map(id => {
+    const p=byId.get(id); return p ? `<button class="tactic-player-row bench-player" data-player-id="${esc(id)}"><b>${p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button>` : "";
+  }).join("");
+  const reserves = players.filter(p => !state.tacticSlots.includes(String(p.id)) && !benchIds.has(String(p.id)))
+    .sort((a,b)=>b.overall-a.overall)
+    .map(p=>`<button class="tactic-player-row reserve-player" data-player-id="${esc(p.id)}"><b>${p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · резерв</small></span></button>`).join("");
+  const settings = state.tacticSettings;
+  const select = (id,label,value,options) => `<label class="tactic-setting"><span>${label}</span><select id="${id}" class="select-input">${options.map(([v,l])=>`<option value="${v}" ${value===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
+  const options = {
+    balanced:"Сбалансированно", short:"Короткий пас", direct:"Вертикальный пас", fast:"Быстрый выход",
+    possession:"Контроль мяча", counter:"Контратака", high:"Высокий прессинг", mid:"Средний блок",
+    low:"Низкий блок", aggressive:"Агрессивно", conservative:"Осторожно", wide:"Через фланги",
+    centre:"Через центр", on_mistake:"Прессинг после потери", heavy:"Постоянный прессинг"
+  };
+  return `${pageHead("ПЛАН НА МАТЧ","Тактика","Выбери схему, расставь футболистов и настрой поведение команды.")}
+    <div class="tactic-toolbar panel">
+      <label>СХЕМА<select id="formation" class="select-input">${FORMATIONS.map(f=>`<option value="${esc(f)}" ${formation===f?"selected":""}>${esc(f)}</option>`).join("")}</select></label>
+      <span class="lineup-counter">${state.tacticSlots.filter(Boolean).length}/11 В ОСНОВЕ</span>
+      <span class="lineup-counter">${state.tacticBench.length}/9 В ЗАПАСЕ</span>
+      <button id="auto-lineup" class="btn-secondary">Лучший состав</button>
+      <button id="save-tactics" class="btn-primary">Сохранить</button>
+    </div>
+    <div class="tactic-layout tactic-layout-full">
+      <section class="panel tactic-board-panel">
+        <div class="panel-head"><h3>Тактическое поле</h3><span>Нажми на двух игроков, чтобы поменять местами · можно перетаскивать</span></div>
+        <div class="pitch pitch-football" id="tactic-pitch"><div class="pitch-line"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-circle"></div>${pitchPlayers}</div>
+        <div class="catalog-note"><span>ⓘ</span><span>ОВР на поле учитывает позиционный штраф. Родная и дополнительная позиция не снижают рейтинг. Позиция вратаря и полевого игрока — штраф 40.</span></div>
+        <div class="squad-bench-block"><div class="panel-head"><h3>Запас</h3><span>от 5 до 9 игроков</span></div><div class="tactic-roster-grid" id="tactic-bench">${bench || '<p class="empty-state">Скамейка пуста</p>'}</div></div>
+        <div class="squad-bench-block"><div class="panel-head"><h3>Резерв</h3><span>Остальные футболисты</span></div><div class="tactic-roster-grid reserves-list" id="tactic-reserves">${reserves || '<p class="empty-state">В резерве пока нет игроков</p>'}</div></div>
+      </section>
+      <aside class="panel tactic-controls tactic-settings-panel">
+        <div class="panel-head"><h3>Тактика команды</h3><span>Установки на матч</span></div>
+        ${select("build-up","Построение атаки",settings.build_up,[["balanced","Сбалансированно"],["short","Короткий пас"],["direct","Вертикальные передачи"],["fast","Быстрый выход"],["possession","Контроль мяча"]])}
+        ${select("chance-creation","Создание моментов",settings.chance_creation,[["balanced","Сбалансированно"],["wide","Через фланги"],["centre","Через центр"],["direct","Забросы за спину"],["patient","Терпеливое владение"]])}
+        ${select("pressing","Прессинг",settings.pressing,[["on_mistake","После потери"],["heavy","Постоянный прессинг"],["mid","Средний блок"],["low","Низкий блок"]])}
+        ${select("defensive-approach","Оборонительная линия",settings.defensive_approach,[["balanced","Сбалансированно"],["aggressive","Высокая линия"],["conservative","Низкий блок"],["offside","Искусственный офсайд"]])}
+        ${select("tempo","Темп",settings.tempo,[["balanced","Обычный"],["slow","Медленный"],["fast","Высокий"]])}
+        ${select("focus","Акцент команды",settings.focus,[["balanced","Баланс"],["attack","Атака"],["defence","Оборона"],["left","Левый фланг"],["right","Правый фланг"],["centre","Центр поля"]])}
+        <label class="tactic-setting"><span>Ширина атаки <b id="width-value">${settings.width}</b></span><input type="range" id="tactic-width" min="1" max="100" value="${settings.width}"></label>
+        <label class="tactic-setting"><span>Высота линии <b id="depth-value">${settings.depth}</b></span><input type="range" id="tactic-depth" min="1" max="100" value="${settings.depth}"></label>
+        <div class="panel-head"><h3>Роли игроков</h3><span>Указания футболистам</span></div>
+        <div class="player-role-list">${state.tacticSlots.map((id,index)=>{const p=byId.get(id);return p?`<label class="tactic-setting"><span>${esc(p.name)}</span><select data-player-role="${esc(id)}" class="select-input">${[["balanced","Сбалансированно"],["attack","Подключаться в атаку"],["stay","Оставаться сзади"],["free","Свободная роль"],["press","Активный прессинг"]].map(([v,l])=>`<option value="${v}" ${(settings.player_roles[id]||"balanced")===v?"selected":""}>${l}</option>`).join("")}</select></label>`: ""}).join("")}</div>
+      </aside>
+    </div>`;
+}
+function swapTacticPlayers(slotIndex, playerId) {
+  const id=String(playerId);
+  const current=state.tacticSlots[slotIndex];
+  const fromSlot=state.tacticSlots.indexOf(id);
+  if(fromSlot>=0){
+    state.tacticSlots[slotIndex]=id;
+    state.tacticSlots[fromSlot]=current || null;
+  }else{
+    state.tacticSlots[slotIndex]=id;
+    state.tacticBench=state.tacticBench.filter(x=>x!==id);
+    if(current && state.tacticBench.length<9 && !state.tacticBench.includes(current)) state.tacticBench.push(current);
+  }
+  state.selectedTacticSlot=null;
+  renderCurrent();
+}
+function setupTacticsInteractions() {
+  document.getElementById("formation")?.addEventListener("change",event=>{
+    const result=optimiseLineup(state.squad,event.target.value);
+    state.tacticSlots=result.starters.map(p=>String(p.id));
+    state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
+    state.tacticSettings.formation=event.target.value;
+    renderCurrent();
+  });
+  document.getElementById("auto-lineup")?.addEventListener("click",()=>{
+    const formation=document.getElementById("formation").value;
+    const result=optimiseLineup(state.squad,formation);
+    state.tacticSlots=result.starters.map(p=>String(p.id));
+    state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
+    renderCurrent();
+  });
+  document.querySelectorAll("[data-pitch-slot]").forEach(button=>button.addEventListener("click",()=>{
+    const slot=Number(button.dataset.pitchSlot);
+    if(state.selectedTacticSlot!==null && state.selectedTacticSlot!==slot){
+      const a=state.tacticSlots[state.selectedTacticSlot], b=state.tacticSlots[slot];
+      state.tacticSlots[slot]=a; state.tacticSlots[state.selectedTacticSlot]=b;
+      state.selectedTacticSlot=null; renderCurrent(); return;
+    }
+    state.selectedTacticSlot=state.selectedTacticSlot===slot?null:slot; renderCurrent();
+  }));
+  document.querySelectorAll(".tactic-player-row").forEach(button=>button.addEventListener("click",()=>{
+    if(state.selectedTacticSlot===null){
+      toast("Сначала выбери позицию на поле",true); return;
+    }
+    swapTacticPlayers(state.selectedTacticSlot,button.dataset.playerId);
+  }));
+  const pitch=document.getElementById("tactic-pitch");
+  pitch?.querySelectorAll("[data-pitch-slot]").forEach(slot=>{
+    slot.addEventListener("dragstart",event=>{event.dataTransfer.setData("text/player-id",state.tacticSlots[Number(slot.dataset.pitchSlot)]||"");});
+  });
+  document.querySelectorAll("[data-player-id]").forEach(node=>{
+    node.addEventListener("dragstart",event=>event.dataTransfer.setData("text/player-id",node.dataset.playerId));
+  });
+  pitch?.querySelectorAll("[data-drop-slot]").forEach(slot=>{
+    slot.addEventListener("dragover",event=>event.preventDefault());
+    slot.addEventListener("drop",event=>{
+      event.preventDefault();
+      const id=event.dataTransfer.getData("text/player-id");
+      if(id) swapTacticPlayers(Number(slot.dataset.dropSlot),id);
+    });
+  });
+  ["build-up","chance-creation","pressing","defensive-approach","tempo","focus"].forEach(id=>{
+    document.getElementById(id)?.addEventListener("change",event=>{
+      const key=id.replace(/-([a-z])/g,(_,c)=>c.toUpperCase()).replace(/^buildUp$/,"build_up").replace(/^chanceCreation$/,"chance_creation").replace(/^defensiveApproach$/,"defensive_approach");
+      state.tacticSettings[key]=event.target.value;
+    });
+  });
+  document.getElementById("tactic-width")?.addEventListener("input",event=>{
+    state.tacticSettings.width=Number(event.target.value);document.getElementById("width-value").textContent=event.target.value;
+  });
+  document.getElementById("tactic-depth")?.addEventListener("input",event=>{
+    state.tacticSettings.depth=Number(event.target.value);document.getElementById("depth-value").textContent=event.target.value;
+  });
+  document.querySelectorAll("[data-player-role]").forEach(node=>node.addEventListener("change",event=>{
+    state.tacticSettings.player_roles[event.target.dataset.playerRole]=event.target.value;
+  }));
+  document.getElementById("save-tactics")?.addEventListener("click",saveTactics);
 }
 function renderFixtures(rows) {
-  return `${pageHead('РАСПИСАНИЕ','Календарь','Матчи твоей лиги. Продолжай сезон по игровым турам.')}
-    <section class="panel"><div class="panel-head"><h3>Все матчи сезона</h3><span>2026 / 27</span></div>
-      ${rows.map(f=>`<div class="fixture-row"><span class="fixture-date">${dateLabel(f.match_date)}<br><span class="badge-soft">Тур ${f.matchday||'—'}</span></span><div class="fixture-teams">${esc(f.home_name)}<br>${esc(f.away_name)}</div><div class="fixture-score">${f.status==='completed'?`${f.home_score} : ${f.away_score}`:'— : —'}</div></div>`).join('') || '<div class="empty-state">Матчей пока нет</div>'}
-    </section>`;
+  if(!rows.length) return `${pageHead("РАСПИСАНИЕ","Календарь","Календарь сезона 2026/27.")}<section class="panel"><div class="empty-state">Матчей пока нет</div></section>`;
+  if(!state.calendarMonth){
+    const date=new Date(state.save?.game_date || "2026-07-01T12:00:00");
+    state.calendarMonth=new Date(date.getFullYear(),date.getMonth(),1);
+  }
+  const month=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth(),1);
+  const monthLabel=month.toLocaleDateString("ru-RU",{month:"long",year:"numeric"});
+  const keyDate=value=>{const d=new Date(value);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
+  const byDate=new Map();
+  rows.forEach(row=>{const k=keyDate(row.match_date);if(!byDate.has(k))byDate.set(k,[]);byDate.get(k).push(row);});
+  const offset=(month.getDay()+6)%7;
+  const days=new Date(month.getFullYear(),month.getMonth()+1,0).getDate();
+  const cells=[];
+  for(let i=0;i<offset;i++) cells.push('<div class="calendar-empty"></div>');
+  for(let day=1;day<=days;day++){
+    const key=`${month.getFullYear()}-${String(month.getMonth()+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
+    const events=byDate.get(key)||[];
+    cells.push(`<button class="calendar-day ${state.selectedCalendarDate===key?"selected":""} ${events.length?"has-event":""}" data-calendar-date="${key}">
+      <b>${day}</b>${events.length?`<span>${events.length} МАТЧ</span>`:""}
+    </button>`);
+  }
+  const selected=state.selectedCalendarDate || keyDate(state.save?.game_date || "2026-07-01T12:00:00");
+  const selectedRows=byDate.get(selected)||[];
+  const selectedContent=selectedRows.length?selectedRows.map(f=>`<div class="calendar-match-row">
+    <small>ТУР ${f.matchday||"—"} · ${f.status==="completed"?"СЫГРАН":"ЗАПЛАНИРОВАН"}</small>
+    <b>${esc(f.home_name)} <span>${f.status==="completed"?`${f.home_score} : ${f.away_score}`:"— : —"}</span> ${esc(f.away_name)}</b>
+  </div>`).join(""):'<div class="empty-state">На выбранную дату матчей нет</div>';
+  const weekdays=["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map(d=>`<span>${d}</span>`).join("");
+  return `${pageHead("СЕЗОН 2026/27","Календарь","Месячный календарь матчей и событий твоей карьеры.")}
+    <div class="calendar-layout panel">
+      <section class="calendar-main">
+        <div class="calendar-month-nav"><button class="btn-quiet" id="calendar-prev">‹</button><h2>${monthLabel}</h2><button class="btn-quiet" id="calendar-next">›</button></div>
+        <div class="calendar-weekdays">${weekdays}</div><div class="calendar-grid">${cells.join("")}</div>
+        <div class="calendar-legend"><span class="event-dot"></span> Матч лиги <span class="badge-soft">Сезон 2026/27</span></div>
+      </section>
+      <aside class="calendar-selected"><div class="eyebrow">ВЫБРАННЫЙ ДЕНЬ</div><h3>${dateLabel(selected+"T12:00:00")}</h3>${selectedContent}</aside>
+    </div>`;
 }
+function setupCalendarInteractions() {
+  document.getElementById("calendar-prev")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()-1,1);renderCurrent();});
+  document.getElementById("calendar-next")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()+1,1);renderCurrent();});
+  document.querySelectorAll("[data-calendar-date]").forEach(button=>button.addEventListener("click",()=>{
+    state.selectedCalendarDate=button.dataset.calendarDate;renderCurrent();
+  }));
+}
+
 function renderTable(rows) {
   return `${pageHead('ЧЕМПИОНАТ','Турнирная таблица','Каждый сыгранный тур обновляет положение команд.')}
     <section class="panel"><div class="panel-head"><h3>${esc(state.save?.league || 'Лига')}</h3><span>СЕЗОН 2026 / 27</span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead><tbody>${rows.map((r,i)=>`<tr class="${r.name===state.save?.club_name?'me-row':''}"><td>${i+1}</td><td><div class="team-cell"><span class="team-dot">${esc(initials(r.name))}</span>${esc(r.name)}</div></td><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference||0}</td><td><b>${r.points}</b></td></tr>`).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div></section>`;
