@@ -28,7 +28,7 @@ FC27_HEADERS = {
     "drop-referrer": "https://www.ea.com/games/ea-sports-fc/ratings",
     "user-agent": "SoccerMaster27-rating-import/1.0",
 }
-FC27_SNAPSHOT = date(2026, 11, 22)
+FC27_SNAPSHOT = date(2026, 9, 10)
 POSITION_CODES = {"GK","RB","CB","LB","RWB","LWB","CDM","CM","CAM","RM","LM","RW","LW","ST","CF"}
 WAGE_OVERRIDES = {"cristianoronaldo": 53_000, "inigomartinez": 245_000}
 SPECIAL_COUNTRIES = {
@@ -277,10 +277,23 @@ def import_catalog(conn: psycopg.Connection, records: list[dict[str, Any]]) -> N
 def match_candidates(records: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
     index: dict[str, list[dict[str, Any]]] = {}
     for record in records:
-        keys = {record["name_key"], normalise_name(record["first_name"] + " " + record["last_name"])}
+        first_name = record.get("first_name") or ""
+        last_name = record.get("last_name") or ""
+        first_surname = last_name.split()[0] if last_name else ""
+        keys = {
+            record.get("name_key") or "",
+            normalise_name(first_name + " " + last_name),
+            normalise_name(first_name + " " + first_surname),
+        }
+        # EA sometimes stores a common display name, e.g. "Benjamin White",
+        # while the club roster uses the accepted short form "Ben White".
+        if normalise_name(first_name + " " + first_surname) == "benjaminwhite":
+            keys.add("benwhite")
         for key in keys:
             if key:
-                index.setdefault(key, []).append(record)
+                candidates = index.setdefault(key, [])
+                if not any(existing["ea_player_id"] == record["ea_player_id"] for existing in candidates):
+                    candidates.append(record)
     return index
 
 

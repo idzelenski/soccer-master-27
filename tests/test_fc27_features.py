@@ -70,3 +70,50 @@ def test_fc27_import_preserves_trained_secondary_positions():
     assert "secondary_positions=ARRAY[]::text[]" not in source
     assert "UPDATE players SET secondary_positions" not in source
     assert "wc.name AS club_name" in source
+
+def test_fc27_import_matches_full_and_short_player_names():
+    from scripts.import_fc27_ratings import choose_match, match_candidates
+
+    records = [
+        {
+            "ea_player_id": 248148,
+            "name_key": "zubimendi",
+            "first_name": "Martín",
+            "last_name": "Zubimendi Ibáñez",
+            "nationality_code": "ESP",
+            "club_name": "Arsenal",
+            "position": "CDM",
+        },
+        {
+            "ea_player_id": 263578,
+            "name_key": "balde",
+            "first_name": "Alejandro",
+            "last_name": "Balde Martínez",
+            "nationality_code": "ESP",
+            "club_name": "FC Barcelona",
+            "position": "LB",
+        },
+        {
+            "ea_player_id": 277179,
+            "name_key": "fermin",
+            "first_name": "Fermín",
+            "last_name": "López Marín",
+            "nationality_code": "ESP",
+            "club_name": "FC Barcelona",
+            "position": "CAM",
+        },
+        {
+            "ea_player_id": 231936,
+            "name_key": "benjaminwhite",
+            "first_name": "Benjamin",
+            "last_name": "White",
+            "nationality_code": "ENG",
+            "club_name": "Arsenal",
+            "position": "RB",
+        },
+    ]
+    index = match_candidates(records)
+    assert choose_match("Martín Zubimendi", "ESP", "Arsenal", "CAM", index)["ea_player_id"] == 248148
+    assert choose_match("Alejandro Balde", "ESP", "FC Barcelona", "RWB", index)["ea_player_id"] == 263578
+    assert choose_match("Fermín López", "ESP", "FC Barcelona", "CAM", index)["ea_player_id"] == 277179
+    assert choose_match("Ben White", "ENG", "Arsenal", "RB", index)["ea_player_id"] == 231936
