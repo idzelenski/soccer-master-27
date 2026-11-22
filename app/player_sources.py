@@ -289,30 +289,47 @@ def _sofascore_stats_by_player_id(player: dict[str, Any]) -> dict[str, Any]:
     value = _market_value(player)
     return {"player_id": int(player["id"]), "market_value_eur": value}
 
+def _canonical_position(value: str | None) -> str:
+    value = (value or "").strip().upper()
+    if value in {"GK","RB","CB","LB","RWB","LWB","CDM","CM","CAM","RM","LM","RW","LW","ST","CF"}:
+        return value
+    return {"DF":"CB","D":"CB","DEF":"CB","MF":"CM","M":"CM","MID":"CM","FW":"ST","F":"ST","G":"GK","GOALKEEPER":"GK"}.get(value,"CM")
+
+def _estimated_weekly_wage(overall: int, age: int, club_strength: int) -> int:
+    bands=((92,350000),(89,220000),(86,145000),(83,78000),(80,45000),(77,24000),
+           (74,13000),(70,7000),(66,3800),(62,2000),(58,1000),(0,500))
+    base=next(amount for threshold,amount in bands if overall>=threshold)
+    club_factor=max(0.55,min(1.45,(club_strength or 60)/70))
+    age_factor=0.78 if age>=38 else 0.90 if age>=34 else 1.0
+    return int(max(400,min(650000,round(base*club_factor*age_factor/100)*100)))
+
 def sync_managed_player_data(conn, game_state_id: str, club_id: str) -> dict[str, int]:
+    """Sync FC 27 card data for this career and Sofascore values for the managed club."""
     rows = conn.execute(
         """SELECT p.id,p.external_id,p.name,p.birth_date,p.age,p.position,p.overall,p.potential,
-                  p.market_value,p.weekly_wage,p.nationality,c.name AS club_name
+                  p.market_value,p.weekly_wage,p.nationality,p.club_id,c.name AS club_name,c.reputation
            FROM players p JOIN clubs c ON c.id=p.club_id
-           WHERE p.game_state_id=%s AND p.club_id=%s ORDER BY p.name""",
-        (game_state_id, club_id),
+           WHERE p.game_state_id=%s ORDER BY p.club_id,p.name""",
+        (game_state_id,),
     ).fetchall()
     squad = [dict(row) for row in rows]
     if not squad:
         return {"fc27_matched": 0, "sofascore_matched": 0, "unmatched": 0}
     fc_data = _load_ea_squad_rows(squad)
+    managed = next((row for row in squad if str(row["club_id"]) == str(club_id)), None)
     try:
-        sofa_roster = _sofa_team_roster(squad[0]["club_name"])
+        sofa_roster = _sofa_team_roster(managed["club_name"]) if managed else []
     except Exception as exc:
-        LOGGER.warning("Sofascore team lookup failed for %s: %s", squad[0]["club_name"], exc)
+        LOGGER.warning("Sofascore team lookup failed for %s: %s", managed["club_name"] if managed else "managed club", exc)
         sofa_roster = []
     sofa_by_name = {normalize_name(item.get("name")): item for item in sofa_roster if item.get("name")}
     fc_matched = sofa_matched = unmatched = 0
     current_date = datetime.now(timezone.utc).date()
     for player in squad:
         player_id = str(player["id"])
+        is_managed = str(player["club_id"]) == str(club_id)
         fc = fc_data.get(player_id)
-        sofa_player = sofa_by_name.get(normalize_name(player["name"]))
+        sofa_player = sofa_by_name.get(normalize_name(player["name"])) if is_managed else None
         sofa = _sofascore_stats_by_player_id(sofa_player) if sofa_player else {}
         if sofa_player and sofa.get("market_value_eur") is None:
             try:
@@ -332,18 +349,19 @@ def sync_managed_player_data(conn, game_state_id: str, club_id: str) -> dict[str
             fc.setdefault("potential", None)
             fc.setdefault("weekly_wage", None)
             fc.setdefault("contract_end", None)
-            if fc.get("potential") is None and fc.get("weekly_wage") is None:
-                fc.setdefault("source_snapshot", EA_SNAPSHOT_DATE)
             fc_matched += 1
         if sofa.get("market_value_eur"):
             sofa.update({"market_value_as_of": current_date.isoformat()})
             sofa_matched += 1
         if not fc and stats:
-            overall, attrs = _estimate_from_sofascore(player.get("position") or "CM", int(player.get("age") or 25), stats)
+            position = _canonical_position(player.get("position"))
+            overall, attrs = _estimate_from_sofascore(position, int(player.get("age") or 25), stats)
+            potential = overall + (8 if int(player.get("age") or 25) <= 22 else 3 if int(player.get("age") or 25) <= 27 else 0)
             fc = {
-                "overall": overall, "potential": overall + (8 if player["age"] <= 22 else 3 if player["age"] <= 27 else 0),
-                "position": player.get("position") or "CM", "alternate_positions": [], "attributes": attrs,
+                "overall": overall, "potential": potential, "position": position,
+                "alternate_positions": [], "attributes": attrs,
                 "source": "SM27 estimate from Sofascore season statistics",
+                "sofascore_average_rating": stats.get("rating") or stats.get("avgRating") or stats.get("averageRating"),
             }
         if not fc and not sofa:
             unmatched += 1
@@ -361,19 +379,30 @@ def sync_managed_player_data(conn, game_state_id: str, club_id: str) -> dict[str
             "UPDATE world_player_catalog SET raw_data=%s,updated_at=now() WHERE source_id=%s",
             (Jsonb(raw_data), player["external_id"]),
         )
-        overall = int(fc.get("overall") or player["overall"]) if fc else player["overall"]
-        potential = int(fc.get("potential") or (overall + 3 if player["age"] <= 27 else overall)) if fc else player["potential"]
-        position = fc.get("position") or player["position"] if fc else player["position"]
+        overall = int(fc.get("overall") or player["overall"]) if fc else int(player["overall"])
+        if fc and fc.get("potential") is not None:
+            potential = int(fc["potential"])
+        elif fc:
+            age = int(player.get("age") or 25)
+            potential = overall + (12 if age<=20 else 8 if age<=23 else 5 if age<=26 else 2 if age<=29 else 0)
+        else:
+            potential = int(player["potential"])
+        position = _canonical_position(fc.get("position") if fc else player.get("position"))
         attrs = fc.get("attributes") if fc else None
-        weekly_wage = int(fc.get("weekly_wage") or player["weekly_wage"] or 0) if fc else player["weekly_wage"]
+        age = int(player.get("age") or 25)
+        weekly_wage = int(fc.get("weekly_wage") or _estimated_weekly_wage(overall,age,int(player.get("reputation") or 60))) if fc else _estimated_weekly_wage(overall,age,int(player.get("reputation") or 60))
         contract_end = fc.get("contract_end") if fc else None
         market_value = sofa.get("market_value_eur") if sofa.get("market_value_eur") else 0
-        rating_source = fc.get("source") if fc else player.get("rating_source") or "SM27 estimate"
-        market_source = "Sofascore" if market_value else "SM27 estimate — waiting for SofaScore"
-        wage_source = "EA FC 27" if fc and fc.get("weekly_wage") else "SM27 estimate"
+        rating_source = fc.get("source") if fc else "SM27 estimate — no FC 27 entry found"
+        wage_source = "EA FC 27 / FAFIFA" if fc and fc.get("weekly_wage") else "SM27 estimate by OVR and club strength"
+        original_payload = {}
+        if fc:
+            original_payload["fc27"] = fc
+        if sofa:
+            original_payload["sofascore"] = sofa
         conn.execute(
             """UPDATE players SET overall=%s,potential=%s,position=%s,secondary_positions=ARRAY[]::text[],
-                      attributes=coalesce(%s,attributes),weekly_wage=CASE WHEN %s>0 THEN %s ELSE weekly_wage END,
+                      attributes=coalesce(%s,attributes),weekly_wage=%s,
                       contract_end=coalesce(%s::date,contract_end),
                       market_value=CASE WHEN %s>0 THEN %s ELSE market_value END,
                       market_value_source=CASE WHEN %s>0 THEN 'Sofascore' ELSE market_value_source END,
@@ -382,10 +411,10 @@ def sync_managed_player_data(conn, game_state_id: str, club_id: str) -> dict[str
                       original_data=coalesce(original_data,'{}'::jsonb)||%s,
                       profile_source=%s,source_sync_attempted_at=now(),updated_at=now()
                WHERE id=%s""",
-            (overall,potential,position,Jsonb(attrs) if attrs else None,weekly_wage,weekly_wage,
+            (overall,potential,position,Jsonb(attrs) if attrs else None,weekly_wage,
              contract_end,market_value,market_value,market_value,current_date if market_value else None,
-             rating_source,wage_source,sofa.get("player_id"),Jsonb({"fc27":fc,"sofascore":sofa}) if fc or sofa else Jsonb({}),
-             rating_source,player_id),
+             rating_source,wage_source,sofa.get("player_id"),
+             Jsonb(original_payload),rating_source,player_id),
         )
     conn.execute(
         "UPDATE players SET source_sync_attempted_at=now() WHERE game_state_id=%s AND club_id=%s",
