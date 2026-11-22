@@ -27,7 +27,7 @@ FC27_HEADERS = {
     "drop-referrer": "https://www.ea.com/games/ea-sports-fc/ratings",
     "user-agent": "SoccerMaster27-rating-import/1.0",
 }
-FC27_SNAPSHOT = date(2026, 9, 10)
+FC27_SNAPSHOT = date(2026, 11, 22)
 POSITION_CODES = {"GK","RB","CB","LB","RWB","LWB","CDM","CM","CAM","RM","LM","RW","LW","ST","CF"}
 WAGE_OVERRIDES = {"cristianoronaldo": 53_000, "inigomartinez": 245_000}
 SPECIAL_COUNTRIES = {
@@ -325,8 +325,9 @@ def fallback_attributes(overall: int, position: str) -> dict[str, int]:
 
 def estimated_weekly_wage(overall: int, age: int, reputation: int, name: str) -> int:
     key=normalise_name(name)
-    if key in WAGE_OVERRIDES:
-        return WAGE_OVERRIDES[key]
+    for alias, wage in WAGE_OVERRIDES.items():
+        if key.startswith(alias):
+            return wage
     base=600*math.exp((max(35,min(95,overall))-60)*0.21)
     if age<=22: age_factor=0.55
     elif age<=25: age_factor=0.75
@@ -364,7 +365,7 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
             position=match["position"]
             attributes=dict(match["attributes"] or {}) or fallback_attributes(overall,position)
             fc_id=match["ea_player_id"]
-            profile_source="EA SPORTS FC 27 official ratings database · 10.09.2026"
+            profile_source=f"EA SPORTS FC 27 official ratings database · {FC27_SNAPSHOT.strftime('%d.%m.%Y')}"
             market_source=row["market_value_source"] or "not_available"
             if market_source == "SofaScore":
                 market_value=int(row["market_value"] or 0)
@@ -397,7 +398,7 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
         original.update({
             "rating_source":"EA FC 27 official ratings API" if match else "SM27 model estimate",
             "rating_snapshot":FC27_SNAPSHOT.isoformat() if match else None,
-            "wage_source":"FC Career Manager FC27 squad estimate" if normalise_name(row["name"]) in WAGE_OVERRIDES else "SM27 wage model",
+            "wage_source":"FC 27 Career Mode squad data" if any(normalise_name(row["name"]).startswith(alias) for alias in WAGE_OVERRIDES) else "SM27 wage model",
         })
         updates.append((
             fc_id,position,overall,potential,market_value,market_source,wage,

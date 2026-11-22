@@ -57,5 +57,16 @@ def test_flags_use_country_codes_for_rectangular_svg_assets():
 
 def test_weekly_wages_are_on_a_realistic_fc27_scale():
     assert estimated_weekly_wage(84, 41, 95, "Cristiano Ronaldo") == 53_000
+    assert estimated_weekly_wage(84, 41, 95, "Cristiano Ronaldo dos Santos Aveiro") == 53_000
     assert estimated_weekly_wage(83, 35, 95, "Iñigo Martínez") == 245_000
+    assert estimated_weekly_wage(83, 35, 95, "Iñigo Martínez Berridi") == 245_000
     assert estimated_weekly_wage(65, 24, 35) < 5_000
+
+
+def test_fc27_import_preserves_trained_secondary_positions():
+    from pathlib import Path
+
+    source = Path("scripts/import_fc27_ratings.py").read_text(encoding="utf-8")
+    assert "secondary_positions=ARRAY[]::text[]" not in source
+    assert "UPDATE players SET secondary_positions" not in source
+    assert "wc.name AS club_name" in source

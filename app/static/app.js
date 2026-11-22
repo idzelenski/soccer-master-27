@@ -4,10 +4,15 @@ const state = { manager: null, save: null, summary: null, clubs: [], leagues: []
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
+function flagAssetUrl(code) {
+  const value = String(code || '').toLowerCase();
+  const safe = /^[a-z]{2}$|^gb-(?:eng|sct|wls|nir)$/.test(value) ? value : '';
+  return safe ? 'https://flagcdn.com/w80/' + safe + '.png' : '';
+}
 function flagImage(code) {
-  const iso = String(code || '').toLowerCase();
-  return /^[a-z]{2}(?:-[a-z]{3})?$/.test(iso)
-    ? `<span class="fi fi-${iso} national-flag" role="img" aria-label="Флаг ${iso.toUpperCase()}"></span>`
+  const src = flagAssetUrl(code);
+  return src
+    ? '<img class="national-flag" src="' + src + '" alt="Флаг ' + esc(String(code).toUpperCase()) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">'
     : '';
 }
 function stateIcons(kind, value) {
@@ -62,12 +67,10 @@ async function api(url, options = {}) {
   return data;
 }
 function flagIcon(code, label = 'Флаг страны') {
-  const safe = /^[a-z]{2}$|^gb-(?:eng|sct|wls|nir)$/.test(String(code || '').toLowerCase())
-    ? String(code).toLowerCase()
+  const src = flagAssetUrl(code);
+  return src
+    ? '<img class="player-flag" src="' + src + '" alt="' + esc(label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">'
     : '';
-  return safe
-    ? `<span class="fi fi-${safe} player-flag" role="img" aria-label="${esc(label)}"></span>`
-    : '<span class="player-flag player-flag-missing" aria-hidden="true"></span>';
 }
 function renderToneCrystals(value) {
   const score = Math.max(0, Math.min(100, Number(value ?? 85)));
@@ -84,17 +87,20 @@ function renderMoodFaces(value) {
   const active = Math.max(0, Math.min(4, Math.ceil(score / 20) - 1));
   const colors = ['#f06b72','#f29a52','#e8c95a','#8dce72','#55c8a1'];
   const mouths = [
-    'M6 12 Q8 9 10 12',
-    'M6 11.5 Q8 10.5 10 11.5',
-    'M6 11 L10 11',
-    'M6 10.5 Q8 13 10 10.5',
-    'M5.5 10 Q8 14 10.5 10'
+    'M5.5 10.8 Q8 8.4 10.5 10.8',
+    'M5.5 10.5 Q8 9.6 10.5 10.5',
+    'M5.5 10.5 L10.5 10.5',
+    'M5.5 9.8 Q8 12.3 10.5 9.8',
+    'M5 9.2 Q8 13.5 11 9.2'
   ];
-  return `<span class="mood-faces" role="img" aria-label="Настрой ${score} из 100">${colors.map((color,index) => `
-    <svg viewBox="0 0 16 16" aria-hidden="true">
-      <circle cx="8" cy="8" r="7" fill="${index === active ? color : '#34463d'}" stroke="${index === active ? color : '#56675d'}" stroke-width=".8"/>
-      <path d="M5.5 6.2v.2M10.5 6.2v.2${mouths[index]}" fill="none" stroke="${index === active ? '#112019' : '#819187'}" stroke-width="1.25" stroke-linecap="round"/>
-    </svg>`).join('')}</span>`;
+  const faces = colors.map((color,index) => {
+    const opacity = index === active ? 1 : .32;
+    return '<svg viewBox="0 0 16 16" aria-hidden="true" style="opacity:' + opacity + '">' +
+      '<circle cx="8" cy="8" r="7" fill="' + color + '" stroke="' + color + '" stroke-width=".8"/>' +
+      '<path d="M5.4 6.2v.2M10.6 6.2v.2' + mouths[index] + '" fill="none" stroke="#17231d" stroke-width="1.25" stroke-linecap="round"/>' +
+      '</svg>';
+  }).join('');
+  return '<span class="mood-faces" role="img" aria-label="Настрой ' + score + ' из 100">' + faces + '</span>';
 }
 const POSITION_TRAINING_OPTIONS = {
   GK: [], RB: ['LB','RWB'], LB: ['RB','LWB'], CB: ['CDM'],
@@ -282,7 +288,7 @@ function renderSquad(players) {
       && player.market_value_source === 'SofaScore';
     const valueLabel = hasVerifiedValue ? money(player.market_value) : '—';
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
-      <td><span class="rating">${player.dynamic_overall ?? player.overall}</span></td>
+      <td><span class="rating">${player.overall}</span></td>
       <td><span class="player-name">${flagIcon(player.nationality_flag, player.nationality || 'Флаг страны')} ${esc(player.name)}</span>
         ${player.original_data?.generated ? '<div class="player-source-generated">Вымышленный игрок SM27</div>' : ''}</td>
       <td><span class="position-tag">${esc(player.position)}</span></td>
@@ -325,6 +331,7 @@ function showPlayerDetails(playerId) {
       ? `<div class="position-training-controls"><label>Осваивать позицию<select id="position-training-target" class="select-input">${trainOptions.map(position => `<option value="${position}">${position}</option>`).join('')}</select></label><button id="start-position-training" class="btn-secondary">Начать тренировку</button></div><small class="training-help">Одна новая позиция за раз. До освоения игрок получает позиционный штраф.</small>`
       : '<small class="training-help">Для этой позиции нет доступных соседних ролей.</small>';
   const marketSource = marketValueSourceLabel(player);
+  const fc27SourceUrl = /^https:\/\/www\.ea\.com\//i.test(player.fc27_source_url || '') ? player.fc27_source_url : '';
   const hasVerifiedValue = Number(player.market_value || 0) > 0
     && player.market_value_source === 'SofaScore';
   const modal = document.createElement('div');
@@ -336,13 +343,13 @@ function showPlayerDetails(playerId) {
       <div class="player-modal-head">
         <div class="player-modal-flag">${flagIcon(player.nationality_flag, player.nationality || 'Флаг страны')}</div>
         <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>${esc(player.name)}</h2><p>${esc(player.nationality || 'Национальность не указана')} · ${player.age} лет · ${esc(player.position)}</p></div>
-        <div class="player-modal-ratings"><b>${player.dynamic_overall ?? player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
+        <div class="player-modal-ratings"><b>${player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
       </div>
       <div class="player-modal-grid">
         <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Не освоены'}</b></div>
         <div class="player-metric"><small>Рыночная стоимость</small><b>${hasVerifiedValue ? money(player.market_value) : 'Нет подтверждённой оценки'}</b><em>${esc(marketSource)}</em></div>
         <div class="player-metric"><small>Контракт до</small><b>${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Источник: ${esc(player.profile_source || 'SM27 estimate')}</em></div>
-        <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b><em>FC 27 / оценка SM27</em></div>
+        <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b><em>Оценка SM27 по FC 27 Career Mode</em></div>
       </div>
       <div class="player-state-grid">
         <div class="condition-metric"><small>Тонус</small><b>${player.sharpness ?? 85}/100</b>${renderToneCrystals(player.sharpness)}</div>
@@ -354,7 +361,7 @@ function showPlayerDetails(playerId) {
       </div>
       <div class="panel-head"><h3>Характеристики ${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
       <div class="attribute-grid">${bars}</div>
-      <div class="catalog-note"><span>ⓘ</span><span>${player.fc27_player_id ? 'Рейтинг и основные характеристики сопоставлены с базой EA SPORTS FC 27.' : 'Игрок не найден в базе EA SPORTS FC 27. Его OVR и характеристики являются оценкой SM27 на основе доступных данных, а не официальными показателями EA.'}</span></div>
+      <div class="catalog-note"><span>ⓘ</span><span>${player.fc27_player_id ? 'OVR и шесть основных характеристик взяты из базы EA SPORTS FC 27. Потенциал и зарплата — отдельные оценки SM27.' : 'Игрок не найден в базе EA SPORTS FC 27. OVR, потенциал и характеристики являются оценками SM27, а не официальными данными EA.'} ${fc27SourceUrl ? '<a href="' + esc(fc27SourceUrl) + '" target="_blank" rel="noopener noreferrer">Официальная карточка EA</a>' : ''}</span></div>
     </section>`;
   document.body.appendChild(modal);
   document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());
@@ -495,6 +502,10 @@ function ensureTacticState(players, tactics) {
     focus: "balanced", player_roles: {}, ...(tactics.style || {})
   };
   state.tacticSettings.player_roles ||= {};
+  const savedReserve = Array.isArray(state.tacticSettings.reserve_order) ? state.tacticSettings.reserve_order.map(String) : [];
+  const assigned = new Set([...state.tacticSlots, ...state.tacticBench]);
+  state.tacticReserve = savedReserve.filter(id => existing.has(id) && !assigned.has(id));
+  currentReserveIds();
   if (state.selectedTacticSlot === undefined) state.selectedTacticSlot = null;
   if (state.selectedTacticPlayer === undefined) state.selectedTacticPlayer = null;
   if (!Array.isArray(state.tacticReserve)) state.tacticReserve = [];
@@ -559,11 +570,11 @@ function renderTactics(players, tactics) {
     </div>
     <div class="tactic-layout tactic-layout-full">
       <section class="panel tactic-board-panel">
-        <div class="panel-head"><h3>Тактическое поле</h3><span>Нажми на двух игроков, чтобы поменять местами · можно перетаскивать</span></div>
+        <div class="panel-head"><h3>Тактическое поле</h3><span>Для обмена в запасе/резерве выбери двух игроков в списках ниже — поле выбирать не нужно</span></div>
         <div class="pitch pitch-football" id="tactic-pitch"><div class="pitch-line"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-circle"></div>${pitchPlayers}</div>
         <div class="catalog-note"><span>ⓘ</span><span>ОВР на поле учитывает позиционный штраф. Родная и дополнительная позиция не снижают рейтинг. Позиция вратаря и полевого игрока — штраф 40.</span></div>
-        <div class="squad-bench-block"><div class="panel-head"><h3>Запас</h3><span>от 5 до 9 игроков</span></div><div class="tactic-roster-grid" id="tactic-bench">${bench || '<p class="empty-state">Скамейка пуста</p>'}</div></div>
-        <div class="squad-bench-block"><div class="panel-head"><h3>Резерв</h3><span>Остальные футболисты</span></div><div class="tactic-roster-grid reserves-list" id="tactic-reserves">${reserves || '<p class="empty-state">В резерве пока нет игроков</p>'}</div></div>
+        <div class="squad-bench-block"><div class="panel-head"><h3>Запас</h3><span>5–9 игроков · клик или перетаскивание для обмена</span></div><div class="tactic-roster-grid" id="tactic-bench">${bench || '<p class="empty-state">Скамейка пуста</p>'}</div></div>
+        <div class="squad-bench-block"><div class="panel-head"><h3>Резерв</h3><span>Кликни по двум игрокам или перетащи одного на другого</span></div><div class="tactic-roster-grid reserves-list" id="tactic-reserves">${reserves || '<p class="empty-state">В резерве пока нет игроков</p>'}</div></div>
       </section>
       <aside class="panel tactic-controls tactic-settings-panel">
         <div class="panel-head"><h3>Тактика команды</h3><span>Установки на матч</span></div>
@@ -703,6 +714,45 @@ function setupTacticsInteractions() {
   document.querySelectorAll("[data-player-id]").forEach(node=>{
     node.addEventListener("dragstart",event=>event.dataTransfer.setData("text/player-id",node.dataset.playerId));
   });
+  document.querySelectorAll(".tactic-player-row").forEach(target=>{
+    target.addEventListener("dragover",event=>event.preventDefault());
+    target.addEventListener("drop",event=>{
+      event.preventDefault();
+      event.stopPropagation();
+      const from=event.dataTransfer.getData("text/player-id");
+      const to=String(target.dataset.playerId || "");
+      if(from && to && from!==to) swapRosterPlayers(from,to);
+    });
+  });
+  const moveRosterDrop = (selector, destination) => {
+    const zone=document.querySelector(selector);
+    zone?.addEventListener("dragover",event=>event.preventDefault());
+    zone?.addEventListener("drop",event=>{
+      if(event.target.closest(".tactic-player-row")) return;
+      event.preventDefault();
+      const id=String(event.dataTransfer.getData("text/player-id") || "");
+      if(!id || state.tacticSlots.includes(id)) return;
+      const reserve=currentReserveIds();
+      const inBench=state.tacticBench.includes(id);
+      const inReserve=reserve.includes(id);
+      if(!inBench && !inReserve) return;
+      if(destination==="bench"){
+        if(!inBench && state.tacticBench.length>=9){toast("В запасе может быть максимум 9 игроков",true);return;}
+        state.tacticBench=state.tacticBench.filter(value=>value!==id);
+        if(!state.tacticBench.includes(id)) state.tacticBench.push(id);
+        state.tacticReserve=state.tacticReserve.filter(value=>value!==id);
+      }else{
+        if(inBench && state.tacticBench.length<=5){toast("В запасе должно остаться минимум 5 игроков",true);return;}
+        state.tacticBench=state.tacticBench.filter(value=>value!==id);
+        state.tacticReserve=state.tacticReserve.filter(value=>value!==id);
+        state.tacticReserve.push(id);
+      }
+      state.selectedTacticPlayer=null;
+      redrawTactics();
+    });
+  };
+  moveRosterDrop("#tactic-bench","bench");
+  moveRosterDrop("#tactic-reserves","reserve");
   pitch?.querySelectorAll("[data-drop-slot]").forEach(slot=>{
     slot.addEventListener("dragover",event=>event.preventDefault());
     slot.addEventListener("drop",event=>{
@@ -876,7 +926,7 @@ async function saveTactics() {
   const button=document.getElementById('save-tactics'); if(button){button.disabled=true;button.textContent='Сохраняем…';}
   try {
     const formation=document.getElementById('formation').value;
-    const style={...state.tacticSettings,slot_roles:formationSlots(formation).map((slot,index)=>({player_id:starting_xi[index],role:slot.role}))};
+    const style={...state.tacticSettings,reserve_order:currentReserveIds(),slot_roles:formationSlots(formation).map((slot,index)=>({player_id:starting_xi[index],role:slot.role}))};
     await api('/api/tactics',{method:'PUT',body:JSON.stringify({formation,mentality:'balanced',style,starting_xi,bench})});
     toast('Тактика сохранена'); await renderCurrent();
   } catch(err){toast(err.message,true);if(button){button.disabled=false;button.textContent='Сохранить';}}
