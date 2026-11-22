@@ -249,6 +249,47 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
         )
 
 
+
+def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list[str], list[str], list[str]]:
+    roles_by_formation = {
+        "4-3-3": ["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "CAM", "LW", "ST", "RW"],
+        "4-2-3-1": ["GK", "LB", "CB", "CB", "RB", "CDM", "CDM", "LW", "CAM", "RW", "ST"],
+        "4-4-2": ["GK", "LB", "CB", "CB", "RB", "LM", "CM", "CM", "RM", "ST", "ST"],
+        "3-5-2": ["GK", "CB", "CB", "CB", "LWB", "CDM", "CM", "CM", "RWB", "ST", "ST"],
+        "3-4-3": ["GK", "CB", "CB", "CB", "LM", "CM", "CM", "RM", "LW", "ST", "RW"],
+        "5-3-2": ["GK", "LB", "CB", "CB", "CB", "RB", "CM", "CM", "CDM", "ST", "ST"],
+        "4-1-4-1": ["GK", "LB", "CB", "CB", "RB", "CDM", "LM", "CM", "CM", "RM", "ST"],
+        "4-2-2-2": ["GK", "LB", "CB", "CB", "RB", "CDM", "CDM", "CAM", "CAM", "ST", "ST"],
+        "4-1-2-1-2": ["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "CM", "CAM", "ST", "ST"],
+        "4-3-2-1": ["GK", "LB", "CB", "CB", "RB", "CM", "CDM", "CM", "CAM", "CAM", "ST"],
+        "5-4-1": ["GK", "LB", "CB", "CB", "CB", "RB", "LM", "CM", "CM", "RM", "ST"],
+        "3-4-1-2": ["GK", "CB", "CB", "CB", "LM", "CM", "CM", "RM", "CAM", "ST", "ST"],
+        "4-5-1": ["GK", "LB", "CB", "CB", "RB", "LM", "CM", "CDM", "CM", "RM", "ST"],
+        "4-2-4": ["GK", "LB", "CB", "CB", "RB", "CDM", "CM", "LW", "ST", "ST", "RW"],
+    }
+    available = [dict(row) for row in player_rows]
+    selected: list[str] = []
+    selected_roles: list[str] = []
+    roles = roles_by_formation.get(formation, roles_by_formation["4-3-3"])
+    for role in roles:
+        candidates = []
+        for player in available:
+            primary = player.get("position") or "CM"
+            secondary = list(player.get("secondary_positions") or [])
+            penalty = position_penalty(primary, secondary, role)
+            score = int(player.get("overall") or 0) + penalty
+            candidates.append((score, str(player["id"]), player))
+        if not candidates:
+            break
+        _, player_id, chosen = max(candidates, key=lambda item: (item[0], item[1]))
+        selected.append(player_id)
+        selected_roles.append(role)
+        available = [player for player in available if str(player["id"]) != player_id]
+    bench_rows = sorted(available, key=lambda row: int(row.get("overall") or 0), reverse=True)[:7]
+    bench = [str(row["id"]) for row in bench_rows]
+    return selected, bench, selected_roles
+
+
 def create_schedule(conn: Connection, game_state_id: str, tournament_id: str, teams: list[dict]) -> None:
     ids = [str(team["id"]) for team in teams]
     rounds = round_robin(ids)
@@ -581,7 +622,20 @@ def get_tactics(manager: dict = Depends(manager_dep), conn: Connection = Depends
         "SELECT formation,mentality,style,starting_xi,bench FROM tactics WHERE game_state_id=%s AND club_id=%s",
         (save["id"], save["managed_club_id"]),
     ).fetchone()
-    return serialise(dict(tactic) if tactic else {"formation": "4-3-3", "mentality": "balanced", "style": {}, "starting_xi": [], "bench": []})
+    if tactic:
+        return serialise(dict(tactic))
+    squad = conn.execute(
+        "SELECT id,position,secondary_positions,overall FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC",
+        (save["id"], save["managed_club_id"]),
+    ).fetchall()
+    starters, bench, roles = best_lineup([dict(row) for row in squad], "4-3-3")
+    return {
+        "formation": "4-3-3", "mentality": "balanced",
+        "style": {"build_up": "balanced", "chance_creation": "balanced", "defensive_approach": "balanced",
+                  "width": 50, "depth": 55, "pressing": "on_mistake", "focus": "balanced",
+                  "slot_roles": roles},
+        "starting_xi": starters, "bench": bench,
+    }
 
 
 @app.put("/api/tactics")
@@ -592,7 +646,14 @@ def update_tactics(body: TacticIn, manager: dict = Depends(manager_dep), conn: C
             "SELECT id FROM players WHERE game_state_id=%s AND club_id=%s", (save["id"], save["managed_club_id"])
         ).fetchall()
     }
-    if any(player_id not in valid_ids for player_id in body.starting_xi + body.bench):
+    if len(body.starting_xi) != 11:
+        raise HTTPException(status_code=422, detail="В стартовом составе должно быть ровно 11 игроков")
+    if not 5 <= len(body.bench) <= 9:
+        raise HTTPException(status_code=422, detail="В запасе должно быть от 5 до 9 игроков")
+    combined = body.starting_xi + body.bench
+    if len(set(combined)) != len(combined):
+        raise HTTPException(status_code=422, detail="Один игрок не может одновременно находиться в стартовом составе и запасе")
+    if any(player_id not in valid_ids for player_id in combined):
         raise HTTPException(status_code=422, detail="В тактике можно выбрать только игроков своего клуба")
     conn.execute(
         """INSERT INTO tactics (game_state_id,club_id,formation,mentality,style,starting_xi,bench)
