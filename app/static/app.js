@@ -197,30 +197,30 @@ function renderSquad(players) {
     const valueLabel = player.market_value
       ? money(player.market_value)
       : 'Нет оценки';
-    return \`<tr class="player-row" data-player-details="\${esc(player.id)}">
-      <td><span class="rating">\${player.overall}</span></td>
-      <td><span class="player-name">\${esc(player.nationality_flag || '🏳️')} \${esc(player.name)}</span>
-        \${player.original_data?.generated ? '<div class="player-source-generated">Игровой игрок SM27</div>' : ''}</td>
-      <td><span class="position-tag">\${esc(player.position)}</span></td>
-      <td>\${(player.secondary_positions || []).map(pos => \`<span class="secondary-position">\${esc(pos)}</span>\`).join(' ') || '—'}</td>
-      <td>\${player.age}</td>
-      <td><span class="potential-rating">\${player.potential}</span></td>
-      <td class="value" title="\${esc(source)}">\${valueLabel}\${player.market_value ? \`<div class="data-source">\${esc(source)}</div>\` : '<div class="data-source">Игровая оценка отсутствует</div>'}</td>
-      <td>\${player.contract_end ? new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}) : '—'}</td>
-      <td>\${money(player.weekly_wage)}<div class="data-source">/ нед.</div></td>
-      <td><span class="mini-meter">\${player.form ?? 50}</span></td>
-      <td><span class="mini-meter">\${player.morale ?? 70}</span></td>
-    </tr>\`;
+    return `<tr class="player-row" data-player-details="${esc(player.id)}">
+      <td><span class="rating">${player.overall}</span></td>
+      <td><span class="player-name">${esc(player.nationality_flag || '🏳️')} ${esc(player.name)}</span>
+        ${player.original_data?.generated ? '<div class="player-source-generated">Игровой игрок SM27</div>' : ''}</td>
+      <td><span class="position-tag">${esc(player.position)}</span></td>
+      <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
+      <td>${player.age}</td>
+      <td><span class="potential-rating">${player.potential}</span></td>
+      <td class="value" title="${esc(source)}">${valueLabel}${player.market_value ? `<div class="data-source">${esc(source)}</div>` : '<div class="data-source">Игровая оценка отсутствует</div>'}</td>
+      <td>${player.contract_end ? new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}) : '—'}</td>
+      <td>${money(player.weekly_wage)}<div class="data-source">/ нед.</div></td>
+      <td><span class="mini-meter">${player.form ?? 50}</span></td>
+      <td><span class="mini-meter">${player.morale ?? 70}</span></td>
+    </tr>`;
   }).join('');
-  return \`\${pageHead('ПЕРВАЯ КОМАНДА','Состав',\`\${players.length} игроков · нажми на игрока, чтобы открыть полный профиль\`)}
+  return `${pageHead('ПЕРВАЯ КОМАНДА','Состав',`${players.length} игроков · нажми на игрока, чтобы открыть полный профиль`)}
     <section class="panel">
       <div class="panel-head"><h3>Игроки первой команды</h3><span>OVR / POTENTIAL / VALUE</span></div>
       <div class="table-wrap squad-table-wrap"><table class="squad-table">
         <thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ФОРМА</th><th>НАСТРОЙ</th></tr></thead>
-        <tbody>\${rows || '<tr><td colspan="11">Состав не загружен</td></tr>'}</tbody>
+        <tbody>${rows || '<tr><td colspan="11">Состав не загружен</td></tr>'}</tbody>
       </table></div>
       <div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Оценки OVR/POT, зарплата, контракт, форма и настрой — игровые параметры SM27. Стоимость Transfermarkt показывается только там, где найдена подтверждённая оценка; остальные суммы будут обозначаться как игровые оценки.</span></div>
-    </section>\`;
+    </section>`;
 }
 function showPlayerDetails(playerId) {
   const player = state.squad.find(item => String(item.id) === String(playerId));
@@ -231,33 +231,33 @@ function showPlayerDetails(playerId) {
   const labels = keeper
     ? [['DIV','Отражение'],['HAN','Игра руками'],['KIC','Удар'],['REF','Реакция'],['SPE','Скорость'],['POS','Позиционирование']]
     : [['PAC','Скорость'],['SHO','Удар'],['PAS','Пас'],['DRI','Дриблинг'],['DEF','Защита'],['PHY','Физика']];
-  const bars = labels.map(([code,label]) => \`<div class="attribute-item"><div><b>\${code}</b><span>\${label}</span><strong>\${stats[code] ?? player.overall}</strong></div><i><span style="width:\${stats[code] ?? player.overall}%"></span></i></div>\`).join('');
+  const bars = labels.map(([code,label]) => `<div class="attribute-item"><div><b>${code}</b><span>${label}</span><strong>${stats[code] ?? player.overall}</strong></div><i><span style="width:${stats[code] ?? player.overall}%"></span></i></div>`).join('');
   const modal = document.createElement('div');
   modal.id = 'player-detail-modal';
   modal.className = 'player-modal-backdrop';
-  modal.innerHTML = \`
+  modal.innerHTML = `
     <section class="player-modal panel">
       <button class="modal-close" id="close-player-modal" aria-label="Закрыть">×</button>
       <div class="player-modal-head">
-        <div class="player-modal-flag">\${esc(player.nationality_flag || '🏳️')}</div>
-        <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>\${esc(player.name)}</h2><p>\${esc(player.nationality || 'Национальность не указана')} · \${player.age} лет · \${esc(player.position)}</p></div>
-        <div class="player-modal-ratings"><b>\${player.overall}</b><span>OVR</span><b>\${player.potential}</b><span>POT</span></div>
+        <div class="player-modal-flag">${esc(player.nationality_flag || '🏳️')}</div>
+        <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>${esc(player.name)}</h2><p>${esc(player.nationality || 'Национальность не указана')} · ${player.age} лет · ${esc(player.position)}</p></div>
+        <div class="player-modal-ratings"><b>${player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
       </div>
       <div class="player-modal-grid">
-        <div class="player-metric"><small>Дополнительные позиции</small><b>\${(player.secondary_positions || []).map(esc).join(' · ') || 'Нет данных'}</b></div>
-        <div class="player-metric"><small>Рыночная стоимость</small><b>\${money(player.market_value)}</b><em>\${esc(player.profile_source || 'SM27 estimate')}</em></div>
-        <div class="player-metric"><small>Контракт до</small><b>\${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Игровая оценка, не официальный срок</em></div>
-        <div class="player-metric"><small>Зарплата в неделю</small><b>\${money(player.weekly_wage)}</b><em>Игровая оценка SM27</em></div>
+        <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Нет данных'}</b></div>
+        <div class="player-metric"><small>Рыночная стоимость</small><b>${money(player.market_value)}</b><em>${esc(player.profile_source || 'SM27 estimate')}</em></div>
+        <div class="player-metric"><small>Контракт до</small><b>${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Игровая оценка, не официальный срок</em></div>
+        <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b><em>Игровая оценка SM27</em></div>
       </div>
       <div class="player-state-grid">
-        <div><small>Тонус</small><b>\${player.sharpness ?? 85}%</b><i><span style="width:\${player.sharpness ?? 85}%"></span></i></div>
-        <div><small>Форма</small><b>\${player.form ?? 50}/100</b><i><span style="width:\${player.form ?? 50}%"></span></i></div>
-        <div><small>Настрой</small><b>\${player.morale ?? 70}/100</b><i><span style="width:\${player.morale ?? 70}%"></span></i></div>
+        <div><small>Тонус</small><b>${player.sharpness ?? 85}%</b><i><span style="width:${player.sharpness ?? 85}%"></span></i></div>
+        <div><small>Форма</small><b>${player.form ?? 50}/100</b><i><span style="width:${player.form ?? 50}%"></span></i></div>
+        <div><small>Настрой</small><b>${player.morale ?? 70}/100</b><i><span style="width:${player.morale ?? 70}%"></span></i></div>
       </div>
-      <div class="panel-head"><h3>Характеристики \${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
-      <div class="attribute-grid">\${bars}</div>
+      <div class="panel-head"><h3>Характеристики ${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
+      <div class="attribute-grid">${bars}</div>
       <div class="catalog-note"><span>ⓘ</span><span>Если у источника нет конкретных характеристик, они сгенерированы игровым движком на основе OVR и позиции. Это не официальные атрибуты EA или Transfermarkt.</span></div>
-    </section>\`;
+    </section>`;
   document.body.appendChild(modal);
   document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());
   modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
