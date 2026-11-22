@@ -321,22 +321,28 @@ def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list
     return selected, bench, selected_roles
 
 
-def create_schedule(conn: Connection, game_state_id: str, tournament_id: str, teams: list[dict]) -> None:
+def create_schedule(
+    conn: Connection,
+    game_state_id: str,
+    tournament_id: str,
+    teams: list[dict],
+    season: str = "2026/27",
+    start_date: date = date(2026, 8, 15),
+) -> None:
     ids = [str(team["id"]) for team in teams]
     rounds = round_robin(ids)
-    start = date(2026, 8, 15)
     for round_index, fixtures in enumerate(rounds):
-        match_date = datetime.combine(start + timedelta(days=7 * round_index), datetime.min.time()).replace(
+        match_date = datetime.combine(start_date + timedelta(days=7 * round_index), datetime.min.time()).replace(
             tzinfo=timezone.utc
         ) + timedelta(hours=14)
         for home_id, away_id in fixtures:
             conn.execute(
                 """INSERT INTO fixtures (game_state_id, tournament_id, season, match_date,
                            matchday, home_club_id, away_club_id, status)
-                   VALUES (%s,%s,'2026/27',%s,%s,%s,%s,'scheduled')
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,'scheduled')
                    ON CONFLICT (game_state_id,tournament_id,season,match_date,home_club_id,away_club_id)
                    DO NOTHING""",
-                (game_state_id, tournament_id, match_date, round_index + 1, home_id, away_id),
+                (game_state_id, tournament_id, season, match_date, round_index + 1, home_id, away_id),
             )
 
 
@@ -619,10 +625,10 @@ def dashboard(manager: dict = Depends(manager_dep), conn: Connection = Depends(d
         """SELECT c.id,c.name,c.logo_url,ct.played,ct.won,ct.drawn,ct.lost,ct.goals_for,
                   ct.goals_against,ct.goal_difference,ct.points
            FROM club_tournaments ct JOIN clubs c ON c.id=ct.club_id
-           WHERE ct.game_state_id=%s AND ct.tournament_id=(
-             SELECT tournament_id FROM club_tournaments WHERE game_state_id=%s AND club_id=%s LIMIT 1)
+           WHERE ct.game_state_id=%s AND ct.season=%s AND ct.tournament_id=(
+             SELECT tournament_id FROM club_tournaments WHERE game_state_id=%s AND season=%s AND club_id=%s LIMIT 1)
            ORDER BY ct.points DESC, coalesce(ct.goal_difference,0) DESC, ct.goals_for DESC, c.name LIMIT 30""",
-        (game_state_id, game_state_id, club_id),
+        (game_state_id, save["season"], game_state_id, save["season"], club_id),
     ).fetchall()
     squad = conn.execute(
         "SELECT count(*) AS players, coalesce(round(avg(overall)),0)::int AS avg_overall, coalesce(sum(market_value),0)::bigint AS squad_value FROM players WHERE game_state_id=%s AND club_id=%s",
@@ -730,7 +736,7 @@ def fixtures(manager: dict = Depends(manager_dep), conn: Connection = Depends(db
         """SELECT f.id,f.match_date,f.matchday,f.status,f.home_score,f.away_score,
                   h.name AS home_name,a.name AS away_name,h.logo_url AS home_logo,a.logo_url AS away_logo
            FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
-           WHERE f.game_state_id=%s ORDER BY f.match_date LIMIT %s""",
+           WHERE f.game_state_id=%s ORDER BY f.match_date DESC LIMIT %s""",
         (save["id"], limit),
     ).fetchall()
     return serialise([dict(row) for row in rows])
@@ -798,7 +804,37 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
         (save["id"],),
     ).fetchone()
     if not next_date:
-        raise HTTPException(status_code=409, detail="Все матчи сезона сыграны")
+        current_year = int(str(save.get("season") or "2026/27")[:4])
+        next_year = current_year + 1
+        next_season = f"{next_year}/{(next_year + 1) % 100:02d}"
+        tournament_id = conn.execute(
+            "SELECT tournament_id FROM club_tournaments WHERE game_state_id=%s AND season=%s LIMIT 1",
+            (save["id"], save["season"]),
+        ).fetchone()
+        if not tournament_id:
+            raise HTTPException(status_code=409, detail="Не удалось определить турнир для следующего сезона")
+        clubs = conn.execute(
+            "SELECT id,name,reputation FROM clubs WHERE game_state_id=%s ORDER BY name",
+            (save["id"],),
+        ).fetchall()
+        conn.execute(
+            """INSERT INTO club_tournaments (game_state_id,tournament_id,club_id,season)
+               SELECT game_state_id,tournament_id,club_id,%s
+               FROM club_tournaments WHERE game_state_id=%s AND season=%s
+               ON CONFLICT (game_state_id,tournament_id,club_id,season) DO NOTHING""",
+            (next_season, save["id"], save["season"]),
+        )
+        season_start = date(next_year, 8, 15)
+        create_schedule(
+            conn, str(save["id"]), str(tournament_id["tournament_id"]),
+            [dict(club) for club in clubs], season=next_season, start_date=season_start,
+        )
+        conn.execute(
+            """UPDATE game_states SET season=%s,game_date=%s,simulation_cursor=%s,
+                      last_autosave_at=now(),updated_at=now() WHERE id=%s""",
+            (next_season, date(next_year, 7, 1), date(next_year, 7, 1), save["id"]),
+        )
+        return {"ok": True, "new_season": next_season, "matches_simulated": 0, "results": []}
     match_date = next_date["match_date"]
     # One round is normally one week apart; recover players before the next matchday.
     conn.execute(
@@ -904,8 +940,9 @@ def standings(manager: dict = Depends(manager_dep), conn: Connection = Depends(d
         """SELECT c.name,c.logo_url,ct.played,ct.won,ct.drawn,ct.lost,ct.goals_for,ct.goals_against,
                   ct.goal_difference,ct.points
            FROM club_tournaments ct JOIN clubs c ON c.id=ct.club_id
-           WHERE ct.game_state_id=%s ORDER BY ct.points DESC,coalesce(ct.goal_difference,0) DESC,ct.goals_for DESC,c.name""",
-        (save["id"],),
+           WHERE ct.game_state_id=%s AND ct.season=%s
+           ORDER BY ct.points DESC,coalesce(ct.goal_difference,0) DESC,ct.goals_for DESC,c.name""",
+        (save["id"], save["season"]),
     ).fetchall()
     return serialise([dict(row) for row in rows])
 
