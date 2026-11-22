@@ -664,66 +664,98 @@ function setupTacticsInteractions() {
   document.getElementById("save-tactics")?.addEventListener("click",saveTactics);
 }
 function renderFixtures(rows) {
-  if(!rows.length) return `${pageHead("РАСПИСАНИЕ","Календарь","Календарь сезона 2026/27.")}<section class="panel"><div class="empty-state">Матчей пока нет</div></section>`;
-  if(!state.calendarMonth){
-    const date=new Date(state.save?.game_date || "2026-07-01T12:00:00");
-    state.calendarMonth=new Date(date.getFullYear(),date.getMonth(),1);
+  if (!rows.length) {
+    return pageHead("РАСПИСАНИЕ","Календарь","Календарь сезона 2026/27.") +
+      '<section class="panel"><div class="empty-state">Матчей пока нет</div></section>';
   }
-  const month=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth(),1);
-  const monthLabel=month.toLocaleDateString("ru-RU",{month:"long",year:"numeric"});
-  const keyDate=value=>{const d=new Date(value);return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;};
-  const byDate=new Map();
-  rows.forEach(row=>{const k=keyDate(row.match_date);if(!byDate.has(k))byDate.set(k,[]);byDate.get(k).push(row);});
-  const offset=(month.getDay()+6)%7;
-  const days=new Date(month.getFullYear(),month.getMonth()+1,0).getDate();
-  const cells=[];
-  for(let i=0;i<offset;i++) cells.push('<div class="calendar-empty"></div>');
-  for(let day=1;day<=days;day++){
-    const key=`${month.getFullYear()}-${String(month.getMonth()+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
-    const events=byDate.get(key)||[];
-    const match=events[0];
-    const outcome=match?.result || "";
-    const score=match && match.status==="completed"
-      ? `<b class="calendar-cell-score ${outcome}">${match.home_score}:${match.away_score}</b>`
-      : "";
-    cells.push(`<button class="calendar-day ${state.selectedCalendarDate===key?"selected":""} ${match?"has-event":""}" data-calendar-date="${key}" title="${match?esc(match.opponent_name):""}">
-      <b>${day}</b>${match?`<span class="calendar-cell-match">${crest(match.opponent_name,match.opponent_logo)}<small>${esc(match.tournament_name||"Турнир")} · ${esc(match.stage_label||"МАТЧ")}</small></span>${score}`:""}
-    </button>`);
+  if (!state.calendarMonth) {
+    const initialDate = new Date(state.save?.game_date || "2026-07-01T12:00:00");
+    state.calendarMonth = new Date(initialDate.getFullYear(), initialDate.getMonth(), 1);
   }
-  const selected=state.selectedCalendarDate || keyDate(state.save?.game_date || "2026-07-01T12:00:00");
-  const selectedRows=byDate.get(selected)||[];
-  const selectedContent=selectedRows.length?selectedRows.map(f=>`<div class="calendar-match-row">
-    <small>${esc(f.tournament_name||"Турнир")} · ${esc(f.stage_label||"МАТЧ")} · ${f.is_home?"ДОМА":"В ГОСТЯХ"}</small>
-    <div class="calendar-teams">${crest(f.home_name,f.home_logo)}<b>${esc(f.home_name)}</b><span class="calendar-score ${f.result||""}">${f.status==="completed"?`${f.home_score} : ${f.away_score}`:"— : —"}</span><b>${esc(f.away_name)}</b>${crest(f.away_name,f.away_logo)}</div>
-    <small>${f.status==="completed"?"МАТЧ СЫГРАН":"ЗАПЛАНИРОВАН"}</small>
-  </div>`).join(""):'<div class="empty-state">На выбранную дату матчей нет</div>';
-  const weekdays=["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map(d=>`<span>${d}</span>`).join("");
-  return `${pageHead("СЕЗОН 2026/27","Календарь","Месячный календарь матчей и событий твоей карьеры.")}
-    <div class="calendar-layout panel">
-      <section class="calendar-main">
-        <div class="calendar-month-nav"><button class="btn-quiet" id="calendar-prev">‹</button><h2>${monthLabel}</h2><button class="btn-quiet" id="calendar-next">›</button></div>
-        <div class="calendar-weekdays">${weekdays}</div><div class="calendar-grid">${cells.join("")}</div>
-        <div class="calendar-legend"><span class="event-dot"></span> Матч лиги <span class="badge-soft">Сезон 2026/27</span></div>
-      </section>
-      <aside class="calendar-selected"><div class="eyebrow">ВЫБРАННЫЙ ДЕНЬ</div><h3>${dateLabel(selected+"T12:00:00")}</h3>${selectedContent}</aside>
-    </div>`;
+  const month = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth(), 1);
+  const monthLabel = month.toLocaleDateString("ru-RU", {month:"long", year:"numeric"});
+  const keyDate = value => {
+    const date = new Date(value);
+    return date.getFullYear() + "-" + String(date.getMonth()+1).padStart(2,"0") + "-" + String(date.getDate()).padStart(2,"0");
+  };
+  const byDate = new Map();
+  rows.forEach(row => {
+    const key = keyDate(row.match_date);
+    if (!byDate.has(key)) byDate.set(key, []);
+    byDate.get(key).push(row);
+  });
+  const offset = (month.getDay()+6)%7;
+  const days = new Date(month.getFullYear(), month.getMonth()+1, 0).getDate();
+  const cells = [];
+  for (let i=0; i<offset; i++) cells.push('<div class="calendar-empty"></div>');
+  for (let day=1; day<=days; day++) {
+    const key = month.getFullYear() + "-" + String(month.getMonth()+1).padStart(2,"0") + "-" + String(day).padStart(2,"0");
+    const match = (byDate.get(key) || [])[0];
+    const result = match?.result || "scheduled";
+    let cell = '<button class="calendar-day ' +
+      (state.selectedCalendarDate===key ? "selected " : "") +
+      (match ? "has-event" : "") + '" data-calendar-date="' + key + '" title="' +
+      (match ? esc(match.opponent_name) : "") + '"><b>' + day + '</b>';
+    if (match) {
+      const score = match.status === "completed"
+        ? String(match.home_score) + " : " + String(match.away_score)
+        : "— : —";
+      cell += '<span class="calendar-day-event">' +
+        crest(match.opponent_name, match.opponent_logo) +
+        '<span class="calendar-day-opponent"><b>' + esc(match.opponent_name) +
+        '</b><small class="calendar-day-meta">' + esc(match.tournament_name || "Турнир") +
+        ' · ' + esc(match.stage_label || "МАТЧ") +
+        '</small><small class="calendar-day-homeaway">' + (match.is_home ? "ДОМА" : "В ГОСТЯХ") +
+        '</small></span><strong class="calendar-day-score ' + result + '">' + score +
+        '</strong></span>';
+    }
+    cell += '</button>';
+    cells.push(cell);
+  }
+  const selected = state.selectedCalendarDate || keyDate(state.save?.game_date || "2026-07-01T12:00:00");
+  const selectedRows = byDate.get(selected) || [];
+  const selectedContent = selectedRows.length ? selectedRows.map(f => {
+    const score = f.status === "completed"
+      ? String(f.home_score) + " : " + String(f.away_score)
+      : "— : —";
+    const result = f.result || "scheduled";
+    return '<div class="calendar-match-row calendar-selected-match">' +
+      '<div class="calendar-selected-opponent">' + crest(f.opponent_name, f.opponent_logo) +
+      '<span><b>' + esc(f.opponent_name) + '</b><small>' + esc(f.tournament_name || "Турнир") +
+      '</small></span></div><div class="calendar-match-details"><span>' +
+      esc(f.stage_label || "МАТЧ") + '</span><span>' + (f.is_home ? "ДОМА" : "В ГОСТЯХ") +
+      '</span></div><strong class="calendar-match-score ' + result + '">' + score +
+      '</strong><small>' + (f.status === "completed" ? "МАТЧ СЫГРАН" : "ЗАПЛАНИРОВАН") +
+      '</small></div>';
+  }).join("") : '<div class="empty-state">На выбранную дату матчей нет</div>';
+  const weekdays = ["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map(day => '<span>' + day + '</span>').join("");
+  return pageHead("СЕЗОН 2026/27","Календарь","Месячный календарь матчей твоего клуба.") +
+    '<div class="calendar-layout panel"><section class="calendar-main">' +
+    '<div class="calendar-month-nav"><button class="btn-quiet" id="calendar-prev">‹</button><h2>' + monthLabel +
+    '</h2><button class="btn-quiet" id="calendar-next">›</button></div>' +
+    '<div class="calendar-weekdays">' + weekdays + '</div><div class="calendar-grid">' + cells.join("") +
+    '</div><div class="calendar-legend"><span class="calendar-score win">Победа</span>' +
+    '<span class="calendar-score draw">Ничья</span><span class="calendar-score loss">Поражение</span></div></section>' +
+    '<aside class="calendar-selected"><div class="eyebrow">ВЫБРАННЫЙ ДЕНЬ</div><h3>' +
+    dateLabel(selected + "T12:00:00") + '</h3>' + selectedContent + '</aside></div>';
 }
 function setupCalendarInteractions() {
-  document.getElementById("calendar-prev")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()-1,1);renderCurrent();});
-  document.getElementById("calendar-next")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()+1,1);renderCurrent();});
-  document.querySelectorAll("[data-calendar-date]").forEach(button=>{
-    button.addEventListener("click",()=>{
-      state.selectedCalendarDate=button.dataset.calendarDate;renderCurrent();
-    });
-    button.addEventListener("contextmenu",event=>{
-      event.preventDefault();
-      const target=new Date(button.dataset.calendarDate+"T12:00:00");
-      state.calendarMonth=new Date(target.getFullYear(),target.getMonth(),1);
-      state.selectedCalendarDate=button.dataset.calendarDate;
+  document.getElementById("calendar-prev")?.addEventListener("click", () => {
+    state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth()-1, 1);
+    renderCurrent();
+  });
+  document.getElementById("calendar-next")?.addEventListener("click", () => {
+    state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth()+1, 1);
+    renderCurrent();
+  });
+  document.querySelectorAll("[data-calendar-date]").forEach(button => {
+    button.addEventListener("click", () => {
+      state.selectedCalendarDate = button.dataset.calendarDate;
       renderCurrent();
     });
   });
 }
+
 
 function renderTable(rows) {
   return `${pageHead('ЧЕМПИОНАТ','Турнирная таблица','Каждый сыгранный тур обновляет положение команд.')}
