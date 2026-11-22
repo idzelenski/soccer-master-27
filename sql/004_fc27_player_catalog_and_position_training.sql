@@ -19,6 +19,13 @@ CREATE TABLE IF NOT EXISTS fc27_player_catalog (
     raw_data JSONB NOT NULL DEFAULT '{}'::jsonb,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+CREATE TABLE IF NOT EXISTS fc27_import_state (
+    import_key TEXT PRIMARY KEY,
+    status TEXT NOT NULL,
+    attempted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    finished_at TIMESTAMPTZ,
+    error_message TEXT
+);
 CREATE INDEX IF NOT EXISTS idx_fc27_player_name_key ON fc27_player_catalog(name_key);
 CREATE INDEX IF NOT EXISTS idx_fc27_player_nationality ON fc27_player_catalog(nationality_code,name_key);
 CREATE INDEX IF NOT EXISTS idx_fc27_player_overall ON fc27_player_catalog(overall DESC);
