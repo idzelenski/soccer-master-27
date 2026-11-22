@@ -820,15 +820,33 @@ def update_tactics(body: TacticIn, manager: dict = Depends(manager_dep), conn: C
 
 
 @app.get("/api/fixtures")
-def fixtures(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep), limit: int = 40) -> list:
+def fixtures(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep), limit: int = 400) -> list:
     save = require_save(conn, str(manager["id"]))
     limit = max(1, min(limit, 400))
+    managed_club_id = save["managed_club_id"]
     rows = conn.execute(
-        """SELECT f.id,f.match_date,f.matchday,f.status,f.home_score,f.away_score,
-                  h.name AS home_name,a.name AS away_name,h.logo_url AS home_logo,a.logo_url AS away_logo
-           FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
-           WHERE f.game_state_id=%s ORDER BY f.match_date DESC LIMIT %s""",
-        (save["id"], limit),
+        """SELECT f.id,f.match_date,f.matchday,f.stage,f.status,f.home_score,f.away_score,
+                  h.name AS home_name,a.name AS away_name,h.logo_url AS home_logo,a.logo_url AS away_logo,
+                  coalesce(t.name,%s) AS tournament_name,
+                  CASE WHEN f.stage IS NOT NULL AND btrim(f.stage)<>'' THEN f.stage
+                       WHEN f.matchday IS NOT NULL THEN 'ТУР '||f.matchday::text
+                       ELSE 'МАТЧ' END AS stage_label,
+                  (f.home_club_id=%s) AS is_home,
+                  CASE WHEN f.home_club_id=%s THEN a.name ELSE h.name END AS opponent_name,
+                  CASE WHEN f.home_club_id=%s THEN a.logo_url ELSE h.logo_url END AS opponent_logo,
+                  CASE WHEN f.status<>'completed' THEN NULL
+                       WHEN f.home_score=f.away_score THEN 'draw'
+                       WHEN (f.home_club_id=%s AND f.home_score>f.away_score)
+                         OR (f.away_club_id=%s AND f.away_score>f.home_score) THEN 'win'
+                       ELSE 'loss' END AS result
+           FROM fixtures f
+           JOIN clubs h ON h.id=f.home_club_id
+           JOIN clubs a ON a.id=f.away_club_id
+           LEFT JOIN tournaments t ON t.id=f.tournament_id
+           WHERE f.game_state_id=%s AND (f.home_club_id=%s OR f.away_club_id=%s)
+           ORDER BY f.match_date ASC LIMIT %s""",
+        (save["league"], managed_club_id, managed_club_id, managed_club_id,
+         managed_club_id, managed_club_id, save["id"], managed_club_id, managed_club_id, limit),
     ).fetchall()
     return serialise([dict(row) for row in rows])
 
