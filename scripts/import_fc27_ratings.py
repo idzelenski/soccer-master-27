@@ -490,6 +490,8 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
             else:
                 original.pop("research",None)
         wage=estimated_weekly_wage(overall,age,reputation,row["name"])
+        if not match and researched:
+            original["market_value_as_of"]=researched.get("market_value_as_of")
         original.update({
             "rating_source":rating_source,
             "rating_snapshot":FC27_SNAPSHOT.isoformat() if match else None,
