@@ -4,6 +4,24 @@ const state = { manager: null, save: null, summary: null, clubs: [], leagues: []
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
+function flagImage(code,label='') {
+  const value=String(code||'').toLowerCase();
+  if(!/^(?:[a-z]{2}|gb-(?:eng|sct|wls|nir))$/.test(value)) return '<span class="player-flag flag-empty" aria-hidden="true"></span>';
+  const src='https://cdn.jsdelivr.net/gh/lipis/flag-icons@7.3.2/flags/4x3/'+value+'.svg';
+  return '<img class="player-flag" src="'+src+'" alt="'+esc(label)+'" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.replaceWith(Object.assign(document.createElement(\'span\'),{className:\'player-flag flag-empty\'}))">';
+}
+function conditionGems(value) {
+  const level=Math.max(0,Math.min(5,Math.ceil(Number(value??85)/20)));
+  const colors=['#e65b63','#ed9753','#e9c65a','#70c98a','#58b8d4'];
+  return '<span class="condition-gems" title="Тонус: '+level+' из 5">'+colors.map((color,index)=>'<svg viewBox="0 0 16 20" class="'+(index<level?'active':'')+'" aria-hidden="true"><path d="M8 1 14 6 11.8 16 8 19 4.2 16 2 6Z" fill="'+(index<level?color:'#23342e')+'" stroke="'+(index<level?color:'#42554b')+'" stroke-width="1.2"/><path d="M8 2.5 8 17.5M3.5 6.5 12.5 6.5" stroke="#fff" stroke-opacity="'+(index<level?'.38':'.08')+'" stroke-width="1"/></svg>').join('')+'</span>';
+}
+function moodFace(value) {
+  const level=Math.max(1,Math.min(5,Math.ceil(Number(value??70)/20)));
+  const tones=['#e66b65','#e99c5a','#e7c65b','#86c779','#54c5a5'];
+  const mouths=['M7 14 Q12 10 17 14','M7 14 Q12 12 17 14','M7 14 H17','M7 14 Q12 17 17 14','M7 12 Q12 19 17 12'];
+  const color=tones[level-1];
+  return '<span class="mood-face" title="Настрой: '+level+' из 5"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10" fill="'+color+'" stroke="#fff" stroke-opacity=".38" stroke-width="1"/><path d="M7.5 9.5h.3M16.2 9.5h.3" stroke="#18251f" stroke-width="2.2" stroke-linecap="round"/><path d="'+mouths[level-1]+'" fill="none" stroke="#18251f" stroke-width="1.6" stroke-linecap="round"/></svg></span>';
+}
 const money = (value) => {
   const n = Number(value || 0);
   if (!n) return '—';
@@ -204,35 +222,27 @@ function renderHome(data) {
     <section class="panel"><div class="panel-head"><h3>Турнирная таблица</h3><button class="btn-quiet" data-nav="table">Вся таблица →</button></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>РМ</th><th>О</th></tr></thead><tbody>${standingRows || '<tr><td colspan="5">Таблица пока пустая</td></tr>'}</tbody></table></div></section></div>`;
 }
 function renderSquad(players) {
-  const rows = players.map((player) => {
-    const source = player.profile_source || 'SM27 estimate';
-    const valueLabel = player.market_value
-      ? money(player.market_value)
-      : 'Нет оценки';
-    return `<tr class="player-row" data-player-details="${esc(player.id)}">
-      <td><span class="rating">${player.dynamic_overall ?? player.overall}</span></td>
-      <td><span class="player-name">${esc(player.nationality_flag || '🏳️')} ${esc(player.name)}</span>
-        ${player.original_data?.generated ? '<div class="player-source-generated">Игровой игрок SM27</div>' : ''}</td>
-      <td><span class="position-tag">${esc(player.position)}</span></td>
-      <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
-      <td>${player.age}</td>
-      <td><span class="potential-rating">${player.potential}</span></td>
-      <td class="value" title="${esc(source)}">${valueLabel}${player.market_value ? `<div class="data-source">${esc(source)}</div>` : '<div class="data-source">Игровая оценка отсутствует</div>'}</td>
-      <td>${player.contract_end ? new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}) : '—'}</td>
-      <td>${money(player.weekly_wage)}<div class="data-source">/ нед.</div></td>
-      <td><span class="mini-meter">${player.form ?? 50}</span></td>
-      <td><span class="mini-meter">${player.morale ?? 70}</span></td>
-    </tr>`;
+  const rows=players.map(player=>{
+    const ratingSource=player.rating_source||'SM27 estimate';
+    const valueSource=player.market_value_source||'SM27 estimate';
+    const valueLabel=player.market_value?money(player.market_value):'—';
+    const sourceTone=ratingSource.toLowerCase().includes('ea fc 27')?'source-official':'source-estimate';
+    return '<tr class="player-row" data-player-details="'+esc(player.id)+'">'+
+      '<td><span class="rating" title="'+esc(ratingSource)+'">'+(player.dynamic_overall??player.overall)+'</span><small class="data-source '+sourceTone+'">'+(ratingSource.toLowerCase().includes('ea fc 27')?'FC 27':'SM27')+'</small></td>'+
+      '<td><span class="player-name">'+flagImage(player.nationality_flag,player.nationality)+' '+esc(player.name)+'</span>'+(player.original_data?.generated?'<div class="player-source-generated">Вымышленный игрок SM27</div>':'')+'</td>'+
+      '<td><span class="position-tag">'+esc(player.position)+'</span></td>'+
+      '<td>'+(player.secondary_positions||[]).map(pos=>'<span class="secondary-position">'+esc(pos)+'</span>').join(' ')+'</td>'+
+      '<td>'+player.age+'</td><td><span class="potential-rating">'+player.potential+'</span></td>'+
+      '<td class="value" title="'+esc(valueSource)+'">'+valueLabel+'<div class="data-source">'+esc(valueSource)+'</div></td>'+
+      '<td>'+(player.contract_end?new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}):'—')+'</td>'+
+      '<td>'+money(player.weekly_wage)+'<div class="data-source">/ нед.</div><div class="data-source">'+esc(player.wage_source||'SM27 estimate')+'</div></td>'+
+      '<td>'+conditionGems(player.sharpness)+'</td><td>'+moodFace(player.morale)+'</td></tr>';
   }).join('');
-  return `${pageHead('ПЕРВАЯ КОМАНДА','Состав',`${players.length} игроков · нажми на игрока, чтобы открыть полный профиль`)}
-    <section class="panel">
-      <div class="panel-head"><h3>Игроки первой команды</h3><span>OVR / POTENTIAL / VALUE</span></div>
-      <div class="table-wrap squad-table-wrap"><table class="squad-table">
-        <thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ФОРМА</th><th>НАСТРОЙ</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="11">Состав не загружен</td></tr>'}</tbody>
-      </table></div>
-      <div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Оценки OVR/POT, зарплата, контракт, форма и настрой — игровые параметры SM27. Стоимость Transfermarkt показывается только там, где найдена подтверждённая оценка; остальные суммы будут обозначаться как игровые оценки.</span></div>
-    </section>`;
+  return pageHead('ПЕРВАЯ КОМАНДА','Состав',players.length+' игроков · выбери футболиста, чтобы открыть профиль')+
+    '<section class="panel"><div class="panel-head"><h3>Игроки первой команды</h3><span>OVR / POTENTIAL / VALUE</span></div>'+
+    '<div class="table-wrap squad-table-wrap"><table class="squad-table"><thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ТОНУС</th><th>НАСТРОЙ</th></tr></thead><tbody>'+(rows||'<tr><td colspan="11">Состав не загружен</td></tr>')+'</tbody></table></div>'+
+    '<div class="squad-legend"><span>'+conditionGems(100)+' Тонус</span><span>'+moodFace(100)+' Настрой</span></div>'+
+    '<div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Рейтинги и зарплаты FC 27 имеют пометку источника. Для остальных показывается оценка SM27. Рыночная стоимость подписывается Sofascore только после подтверждённой синхронизации.</span></div></section>';
 }
 function showPlayerDetails(playerId) {
   const player = state.squad.find(item => String(item.id) === String(playerId));
