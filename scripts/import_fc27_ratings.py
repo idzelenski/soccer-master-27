@@ -160,8 +160,11 @@ def fetch_all_players() -> list[dict[str, Any]]:
         older = fetch_page(0, False)
     except Exception as error:
         print(f"EA default-version comparison unavailable: {error}")
-    if older and older.get("items") and older.get("totalItems") == first.get("totalItems") and older["items"][0].get("id") == first["items"][0].get("id"):
-        raise RuntimeError("EA returned identical data with and without the FC 27 referrer header; refusing a possible FC 26 import")
+    if older and older.get("items") and older.get("totalItems") == first.get("totalItems"):
+        old_page = json.dumps(older["items"][:PAGE_SIZE], sort_keys=True, ensure_ascii=False)
+        fc27_page = json.dumps(first["items"][:PAGE_SIZE], sort_keys=True, ensure_ascii=False)
+        if old_page == fc27_page:
+            raise RuntimeError("EA returned an identical first page with and without the FC 27 referrer header; refusing a possible FC 26 import")
     total = int(first.get("totalItems") or len(first["items"]))
     if total < 10_000:
         raise RuntimeError(f"Unexpectedly small FC 27 database ({total}); refusing import")
