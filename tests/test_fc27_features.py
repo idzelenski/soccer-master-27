@@ -164,3 +164,17 @@ def test_researched_profiles_are_source_linked_and_not_labelled_as_ea():
     assert profile["source_url"].startswith("https://www.fotmob.com/players/")
     assert get_researched_profile("Esequiel Barco", "Arsenal") is None
     assert get_researched_profile("An unknown academy player") is None
+
+
+def test_researched_profile_is_scoped_to_spartak():
+    from app.researched_profiles import get_researched_profile
+
+    assert get_researched_profile("Esequiel Barco", "FC Spartak Moscow") is not None
+    assert get_researched_profile("Esequiel Barco", "Arsenal") is None
+
+
+def test_reported_weekly_wages_use_2026_27_salary_estimates():
+    from app.main import estimated_weekly_wage
+
+    assert estimated_weekly_wage(90, 41, 80, "Cristiano Ronaldo") == 4_007_692
+    assert estimated_weekly_wage(80, 35, 80, "Íñigo Martínez") == 196_154

@@ -218,9 +218,9 @@ def estimated_weekly_wage(
     """Weekly wage estimate calibrated against FC 27 Career Mode squad data."""
     name_key = normalise_player_name(player_name)
     if name_key.startswith("cristianoronaldo"):
-        return 53_000
+        return 4_007_692
     if name_key.startswith("inigomartinez"):
-        return 245_000
+        return 196_154
     if generated:
         return int(max(250, min(2_500, round((overall * 14 + max(0, 82 - age) * 8) / 50) * 50)))
     base = 600 * math.exp((max(35, min(95, overall)) - 60) * 0.21)
@@ -690,7 +690,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 "market_value_as_of": None,
                 "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 researched estimate" if researched else "SM27 estimate",
                 "contract_source": "SM27 estimate",
-                "wage_source": "SM27 career wage model",
+                "wage_source": "Capology 2026/27 estimate" if normalise_player_name(player["name"]).startswith(("cristianoronaldo", "inigomartinez")) else "SM27 career wage model",
                 "research": researched["research"] if researched else None,
                 "generated": False,
             })

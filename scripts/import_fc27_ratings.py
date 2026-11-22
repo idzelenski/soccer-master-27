@@ -35,7 +35,7 @@ FC27_HEADERS = {
 }
 FC27_SNAPSHOT = date(2026, 9, 10)
 POSITION_CODES = {"GK","RB","CB","LB","RWB","LWB","CDM","CM","CAM","RM","LM","RW","LW","ST","CF"}
-WAGE_OVERRIDES = {"cristianoronaldo": 53_000, "inigomartinez": 245_000}
+WAGE_OVERRIDES = {"cristianoronaldo": 4_007_692, "inigomartinez": 196_154}
 SPECIAL_COUNTRIES = {
     "england":"ENG","scotland":"SCO","wales":"WAL",
     "northern ireland":"NIR","kosovo":"XKX",
@@ -490,7 +490,7 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
         original.update({
             "rating_source":rating_source,
             "rating_snapshot":FC27_SNAPSHOT.isoformat() if match else None,
-            "wage_source":"FC 27 Career Mode squad data" if any(normalise_name(row["name"]).startswith(alias) for alias in WAGE_OVERRIDES) else "SM27 wage model",
+            "wage_source":"Capology 2026/27 estimated gross weekly wage" if any(normalise_name(row["name"]).startswith(alias) for alias in WAGE_OVERRIDES) else "SM27 wage model",
         })
         updates.append((
             fc_id,position,overall,potential,market_value,market_source,wage,
