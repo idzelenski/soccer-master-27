@@ -35,7 +35,7 @@ class CreateSaveIn(BaseModel):
 class TacticIn(BaseModel):
     formation: str = Field(
         default="4-3-3",
-        pattern=r"^(4-3-3|4-2-3-1|4-4-2|3-5-2|3-4-3|5-3-2|4-1-4-1|4-2-2-2|4-1-2-1-2|4-3-2-1|5-4-1|3-4-1-2|4-5-1|4-2-4)$",
+        pattern=r"^(?:3-1-4-2|3-4-1-2|3-4-2-1|3-4-3|3-4-3 Flat|3-5-2|4-1-2-1-2|4-1-2-1-2 Narrow|4-1-2-1-2 Wide|4-1-3-2|4-1-4-1|4-2-1-3|4-2-2-2|4-2-3-1|4-2-3-1 Narrow|4-2-3-1 Wide|4-2-4|4-3-1-2|4-3-2-1|4-3-3|4-3-3 Attack|4-3-3 Defend|4-3-3 Flat|4-3-3 Holding|4-4-1-1 Midfield|4-4-2|4-4-2 Holding|4-5-1|4-5-1 Attack|4-5-1 Flat|5-2-1-2|5-2-3|5-3-2|5-3-2 Holding|5-4-1|5-4-1 Flat)$",
     )
     mentality: str = Field(default="balanced", pattern=r"^(defensive|balanced|positive|attacking)$")
     style: dict = Field(default_factory=dict)
