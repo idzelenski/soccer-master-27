@@ -405,8 +405,8 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
     return matched,fallback
 
 
-def main() -> None:
-    database_url=os.environ.get("DATABASE_URL")
+def main(database_url: str | None = None) -> None:
+    database_url = database_url or os.environ.get("DATABASE_URL")
     if not database_url:
         raise SystemExit("DATABASE_URL is required")
     records=fetch_all_players()
