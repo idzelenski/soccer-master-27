@@ -1154,6 +1154,9 @@ def data_status(conn: Connection = Depends(db_dep)) -> dict:
         """SELECT (SELECT count(*) FROM sm27_club_pool) AS clubs,
                   (SELECT count(*) FROM world_player_catalog) AS players,
                   (SELECT count(*) FROM sm27_club_pool WHERE has_squad) AS clubs_with_squads,
-                  (SELECT max(source_snapshot) FROM sm27_club_pool) AS snapshot"""
+                  (SELECT max(source_snapshot) FROM sm27_club_pool) AS snapshot,
+                  (SELECT count(*) FROM fc27_player_catalog) AS fc27_catalog_players,
+                  (SELECT count(*) FROM players WHERE fc27_player_id IS NOT NULL) AS career_players_with_fc27,
+                  (SELECT status FROM fc27_import_state WHERE import_key='ratings') AS fc27_import_status"""
     ).fetchone()
     return serialise({"status": "ready" if counts["clubs"] >= 100 else "needs_import", **dict(counts)})
