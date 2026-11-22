@@ -48,12 +48,13 @@ def connection() -> Generator[psycopg.Connection, None, None]:
 
 
 def migrate(conn: psycopg.Connection) -> None:
-    migration = Path(__file__).resolve().parent.parent / "sql" / "001_sm27_migration.sql"
-    sql = migration.read_text(encoding="utf-8")
-    for statement in sql.split(";"):
-        statement = statement.strip()
-        if statement:
-            conn.execute(statement)
+    migration_dir = Path(__file__).resolve().parent.parent / "sql"
+    for migration in sorted(migration_dir.glob("*.sql")):
+        sql = migration.read_text(encoding="utf-8")
+        for statement in sql.split(";"):
+            statement = statement.strip()
+            if statement:
+                conn.execute(statement)
     conn.commit()
 
 
