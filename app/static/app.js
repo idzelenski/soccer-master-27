@@ -59,8 +59,11 @@ async function api(url, options = {}) {
   let data = {};
   try { data = await response.json(); } catch (_) { /* empty response */ }
   if (!response.ok) {
+    const safeDetail = typeof data.detail === 'string' && !/^internal server error$/i.test(data.detail)
+      ? data.detail
+      : '';
     const message = response.status >= 500
-      ? (data.detail || 'Сервер временно не смог выполнить действие. Данные сохранены.')
+      ? (safeDetail || `Ошибка сервера (${response.status}). Результат действия не подтверждён. Обнови экран перед повтором.`)
       : (data.detail || `Не удалось выполнить запрос (${response.status}).`);
     throw new Error(message);
   }

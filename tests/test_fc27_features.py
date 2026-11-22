@@ -195,3 +195,30 @@ def test_spartak_research_profiles_use_sofascore_market_values():
     assert barco["market_value_source"] == "SofaScore"
     assert barco["research"]["sofascore_url"].startswith("https://www.sofascore.com/")
     assert ugalde["market_value"] == 12_400_000
+
+
+def test_squad_query_qualifies_player_columns_when_joining_fc27_catalog():
+    from pathlib import Path
+
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    endpoint = source.split('@app.get("/api/squad")', 1)[1].split(
+        '@app.post("/api/players/{player_id}/position-training")', 1
+    )[0]
+    assert "SELECT p.id,p.name,p.nationality,p.birth_date,p.age,p.position,p.secondary_positions" in endpoint
+    for column in (
+        "overall", "potential", "market_value", "market_value_source", "weekly_wage",
+        "contract_end", "fatigue", "form", "morale", "sharpness",
+        "position_training_target", "position_training_progress", "fc27_player_id",
+        "injury_type", "injury_until", "attributes", "original_data",
+        "profile_source", "source_url",
+    ):
+        assert f"p.{column}" in endpoint
+    assert "fc.source_url AS fc27_source_url" in endpoint
+
+
+def test_generic_server_error_does_not_claim_career_data_was_saved():
+    from pathlib import Path
+
+    source = Path("app/static/app.js").read_text(encoding="utf-8")
+    assert "Данные сохранены" not in source
+    assert "Результат действия не подтверждён" in source
