@@ -337,4 +337,8 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
   .tactic-roster-grid { grid-template-columns: 1fr; }
   .calendar-day { min-height: 55px; padding: 6px 4px; font-size: 10px; }
   .calendar-day span { display: none; }
-}
+}\n
+.tactic-roster-item { display: flex; align-items: center; min-width: 0; gap: 5px; }
+.tactic-roster-item .tactic-player-row { flex: 1 1 auto; min-width: 0; }
+.roster-action { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: rgba(255,255,255,.04); color: var(--muted); font-size: 8px; font-weight: 800; }
+.roster-action:hover { color: var(--green-bright); border-color: rgba(65,217,139,.4); background: rgba(65,217,139,.08); }
