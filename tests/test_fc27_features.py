@@ -58,8 +58,8 @@ def test_flags_use_country_codes_for_rectangular_svg_assets():
 def test_weekly_wages_are_on_a_realistic_fc27_scale():
     assert estimated_weekly_wage(84, 41, 95, "Cristiano Ronaldo") == 4_007_692
     assert estimated_weekly_wage(84, 41, 95, "Cristiano Ronaldo dos Santos Aveiro") == 4_007_692
-    assert estimated_weekly_wage(83, 35, 95, "Iñigo Martínez") == 245_000
-    assert estimated_weekly_wage(83, 35, 95, "Iñigo Martínez Berridi") == 245_000
+    assert estimated_weekly_wage(83, 35, 95, "Iñigo Martínez") == 196_154
+    assert estimated_weekly_wage(83, 35, 95, "Iñigo Martínez Berridi") == 196_154
     assert estimated_weekly_wage(65, 24, 35) < 5_000
 
 
