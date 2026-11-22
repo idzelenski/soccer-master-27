@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import concurrent.futures
+from difflib import SequenceMatcher
 import hashlib
 import json
 import math
@@ -38,6 +39,28 @@ FIFA_TO_ISO3 = {
     "POR":"PRT","NED":"NLD","GER":"DEU","SUI":"CHE","RSA":"ZAF",
     "CRC":"CRI","URU":"URY","CRO":"HRV","GRE":"GRC","DEN":"DNK",
     "KSA":"SAU","UAE":"ARE",
+}
+POSITION_GROUPS = {
+    "GK": {"GK"},
+    "DF": {"DF","CB","RB","LB","RWB","LWB"},
+    "MF": {"MF","CDM","CM","CAM","RM","LM"},
+    "FW": {"FW","ST","CF","RW","LW"},
+}
+CLUB_ALIASES = {
+    "paris saint germain": {"paris sg","psg"},
+    "atalanta bc": {"atalanta","bergamo calcio"},
+    "bergamo calcio": {"atalanta","atalanta bc"},
+    "inter milan": {"inter","internazionale","lombardia fc"},
+    "lombardia fc": {"inter","inter milan","internazionale"},
+    "ac milan": {"milan","milan fc"},
+    "milan fc": {"ac milan","milan"},
+    "fc barcelona": {"barcelona"},
+    "fc bayern munich": {"bayern","bayern munich"},
+    "tottenham hotspur": {"tottenham","spurs"},
+    "manchester united": {"man utd","man united"},
+    "manchester city": {"man city"},
+    "atletico madrid": {"atletico de madrid","atletico"},
+    "athletic bilbao": {"athletic club","athletic club bilbao"},
 }
 
 
@@ -261,13 +284,39 @@ def match_candidates(records: list[dict[str, Any]]) -> dict[str, list[dict[str, 
     return index
 
 
+def position_group(position):
+    code = (position or "").upper()
+    for group, codes in POSITION_GROUPS.items():
+        if code in codes:
+            return group
+    return ""
+
+
+def club_match_score(left, right):
+    left_key = normalise_name(left)
+    right_key = normalise_name(right)
+    if not left_key or not right_key:
+        return 0
+    if left_key == right_key:
+        return 5
+    for canonical, aliases in CLUB_ALIASES.items():
+        variants = {normalise_name(canonical), *(normalise_name(alias) for alias in aliases)}
+        if left_key in variants and right_key in variants:
+            return 5
+    similarity = SequenceMatcher(None, left_key, right_key).ratio()
+    if similarity >= 0.90:
+        return 4
+    if similarity >= 0.82:
+        return 2
+    return 0
+
+
 def choose_match(name, nationality, club_name, position, index):
     candidates = index.get(normalise_name(name), [])
     if not candidates:
         return None
     nation = alpha3(nationality)
-    club_key = normalise_name(club_name)
-    source_position = (position or "").upper()
+    source_group = position_group(position)
     ranked = []
     for candidate in candidates:
         score = 0
@@ -276,16 +325,21 @@ def choose_match(name, nationality, club_name, position, index):
             if nation != candidate_nation:
                 continue
             score += 10
-        if club_key and normalise_name(candidate["club_name"]) == club_key:
-            score += 4
-        if source_position and source_position == candidate["position"]:
+        candidate_group = position_group(candidate["position"])
+        if source_group and candidate_group:
+            if source_group != candidate_group:
+                continue
+            score += 3
+        score += club_match_score(club_name, candidate["club_name"])
+        if (position or "").upper() == candidate["position"]:
             score += 1
         ranked.append((score, candidate))
     if not ranked:
         return None
-    ranked.sort(key=lambda item: item[0], reverse=True)
+    ranked.sort(key=lambda item: (item[0], item[1]["overall"]), reverse=True)
     if len(ranked) > 1 and ranked[0][0] == ranked[1][0]:
-        return None
+        if ranked[0][1]["overall"] - ranked[1][1]["overall"] < 3:
+            return None
     return ranked[0][1]
 
 
