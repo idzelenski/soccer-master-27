@@ -412,11 +412,11 @@ function renderTactics(players, tactics) {
   const benchIds = new Set(state.tacticBench);
   const bench = state.tacticBench.map(id => {
     const p=byId.get(id);
-    return p ? `<div class="tactic-roster-item"><button class="tactic-player-row bench-player" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button><button class="roster-action" data-release-player="${esc(id)}" title="Переместить в резерв">В резерв</button></div>` : "";
+    return p ? `<div class="tactic-roster-item"><button class="tactic-player-row bench-player" draggable="true" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button><button class="roster-action" data-release-player="${esc(id)}" title="Переместить в резерв">В резерв</button></div>` : "";
   }).join("");
   const reserves = players.filter(p => !state.tacticSlots.includes(String(p.id)) && !benchIds.has(String(p.id)))
     .sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall))
-    .map(p=>`<div class="tactic-roster-item"><button class="tactic-player-row reserve-player" data-player-id="${esc(p.id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · резерв</small></span></button><button class="roster-action" data-promote-player="${esc(p.id)}" title="Добавить в запас">В запас</button></div>`).join("");
+    .map(p=>`<div class="tactic-roster-item"><button class="tactic-player-row reserve-player" draggable="true" data-player-id="${esc(p.id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · резерв</small></span></button><button class="roster-action" data-promote-player="${esc(p.id)}" title="Добавить в запас">В запас</button></div>`).join("");
   const settings = state.tacticSettings;
   const select = (id,label,value,options) => `<label class="tactic-setting"><span>${label}</span><select id="${id}" class="select-input">${options.map(([v,l])=>`<option value="${v}" ${value===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
   const options = {
