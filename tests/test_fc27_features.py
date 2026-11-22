@@ -168,7 +168,9 @@ def test_researched_profiles_are_source_linked_and_not_labelled_as_ea():
     zinkovskiy = get_researched_profile("Anton Zinkovskiy", "FC Spartak Moscow")
     assert zinkovskiy["position"] == "LM"
     assert zinkovskiy["research"]["season"] == "2025/26"
-    assert zinkovskiy["market_value"] is None
+    assert zinkovskiy["market_value"] == 2_200_000
+    assert zinkovskiy["market_value_source"] == "SofaScore"
+    assert zinkovskiy["research"]["sofascore_url"].startswith("https://www.sofascore.com/")
     assert get_researched_profile("An unknown academy player") is None
 
 
