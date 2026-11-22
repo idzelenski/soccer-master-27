@@ -325,7 +325,7 @@ def test_ai_lineup_refresh_excludes_the_managed_club():
 
     source = Path("app/main.py").read_text(encoding="utf-8")
     helper = source.split("def refresh_ai_lineups()", 1)[1].split(
-        "def create_schedule", 1
+        "@app.exception_handler", 1
     )[0]
     assert "c.id<>%s" in helper
     assert "best_lineup(players, formation)" in helper
