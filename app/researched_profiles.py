@@ -28,7 +28,7 @@ def _profile(position, overall, potential, attributes, url, minutes, rating, goa
         "market_value": market_value,
         "market_value_source": "SofaScore" if market_value is not None else "not_available",
         "market_value_as_of": "2026-11-22" if market_value is not None else None,
-        "profile_source": "SM27 researched estimate · FotMob 2026/27 (not EA FC 27)",
+        "profile_source": f"SM27 researched estimate · FotMob {extra.get('season', '2026/27')} (not EA FC 27)",
         "research": {
             "source": "FotMob",
             "season": "2026/27",
@@ -49,7 +49,7 @@ RESEARCHED_PLAYER_PROFILES = {
         "LM", 73, 73, {"PAC": 75, "SHO": 70, "PAS": 70, "DRI": 75, "DEF": 45, "PHY": 62},
         "https://www.fotmob.com/players/785808/anton-zinkovskiy", 1698, 6.54, 3, 2,
         xg=1.44, xa=2.38, shots=32, chances_created=22, successful_dribbles=27,
-        role="Left midfielder / winger; SM27 researched estimate for 2025/26",
+        season="2025/26", role="Left midfielder / winger; SM27 researched estimate",
         market_value=2200000, sofascore_url="https://www.sofascore.com/football/player/anton-zinkovski/848073",
     ),
     "esequielbarco": _profile(
