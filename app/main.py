@@ -802,21 +802,54 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
     for row in rows:
         fixture = dict(row)
         averages = conn.execute(
-            """WITH ranked AS (
-                 SELECT club_id,
-                        GREATEST(1,LEAST(99,overall + ROUND(
-                          (form-50)*0.06 + (morale-70)*0.04 + (sharpness-85)*0.04 - fatigue*0.08
-                        )::int)) AS effective_overall,
+            """WITH candidates AS (
+                 SELECT p.club_id,
+                        GREATEST(1,LEAST(99,p.overall + ROUND(
+                          (p.form-50)*0.06 + (p.morale-70)*0.04
+                          + (p.sharpness-85)*0.04 - p.fatigue*0.08
+                        )::int
+                        + CASE
+                            WHEN cardinality(coalesce(t.starting_xi,ARRAY[]::uuid[]))=11
+                                 AND p.id=ANY(t.starting_xi)
+                            THEN CASE
+                              WHEN role.target_position IS NULL OR p.position=role.target_position
+                                   OR role.target_position=ANY(p.secondary_positions) THEN 0
+                              WHEN p.position='GK' OR role.target_position='GK' THEN -40
+                              WHEN p.position IN ('RB','LB') AND role.target_position IN ('RB','LB','RWB','LWB','CB') THEN
+                                CASE WHEN p.position<>role.target_position THEN -2 ELSE -3 END
+                              WHEN p.position='CB' AND role.target_position IN ('RB','LB','CDM') THEN -3
+                              WHEN p.position IN ('RWB','LWB') AND role.target_position IN ('RB','LB','RM','LM','CB') THEN -3
+                              WHEN p.position IN ('CDM','CM','CAM') AND role.target_position IN ('CDM','CM','CAM','RM','LM') THEN -3
+                              WHEN p.position IN ('RW','LW') AND role.target_position IN ('RW','LW','RM','LM','ST','CF') THEN -3
+                              WHEN p.position IN ('ST','CF') AND role.target_position IN ('ST','CF','CAM','RW','LW') THEN -3
+                              ELSE -7
+                            END
+                            ELSE 0
+                          END
+                        )) AS effective_overall,
+                        (cardinality(coalesce(t.starting_xi,ARRAY[]::uuid[]))=11) AS has_custom_lineup,
+                        (cardinality(coalesce(t.starting_xi,ARRAY[]::uuid[]))=11 AND p.id=ANY(t.starting_xi)) AS in_custom_lineup,
                         row_number() OVER (
-                          PARTITION BY club_id
-                          ORDER BY overall + (form-50)*0.06 + (morale-70)*0.04
-                                   + (sharpness-85)*0.04 - fatigue*0.08 DESC
-                        ) AS position
-                 FROM players
-                 WHERE game_state_id=%s AND club_id IN (%s,%s)
+                          PARTITION BY p.club_id
+                          ORDER BY p.overall + (p.form-50)*0.06 + (p.morale-70)*0.04
+                                   + (p.sharpness-85)*0.04 - p.fatigue*0.08 DESC
+                        ) AS squad_rank
+                 FROM players p
+                 LEFT JOIN tactics t
+                   ON t.game_state_id=p.game_state_id AND t.club_id=p.club_id
+                 LEFT JOIN LATERAL (
+                   SELECT item->>'role' AS target_position
+                   FROM jsonb_array_elements(coalesce(t.style->'slot_roles','[]'::jsonb)) item
+                   WHERE item->>'player_id'=p.id::text
+                   LIMIT 1
+                 ) role ON true
+                 WHERE p.game_state_id=%s AND p.club_id IN (%s,%s)
              )
              SELECT club_id,coalesce(avg(effective_overall),60)::float AS avg_overall
-             FROM ranked WHERE position<=11 GROUP BY club_id""",
+             FROM candidates
+             WHERE (has_custom_lineup AND in_custom_lineup)
+                OR (NOT has_custom_lineup AND squad_rank<=11)
+             GROUP BY club_id""",
             (save["id"], fixture["home_club_id"], fixture["away_club_id"]),
         ).fetchall()
         rating = {str(item["club_id"]): item["avg_overall"] for item in averages}
