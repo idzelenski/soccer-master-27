@@ -650,6 +650,26 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             )
     for team in team_records:
         ensure_demo_roster(conn, game_state_id, team["id"], team["name"], team["reputation"])
+        lineup_rows = conn.execute(
+            """SELECT id,position,secondary_positions,overall
+               FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC,name""",
+            (game_state_id, team["id"]),
+        ).fetchall()
+        starters, bench, roles = best_lineup([dict(row) for row in lineup_rows], "4-3-3")
+        conn.execute(
+            """INSERT INTO tactics (game_state_id,club_id,formation,mentality,style,starting_xi,bench)
+               VALUES (%s,%s,'4-3-3','balanced',%s,%s,%s)
+               ON CONFLICT (game_state_id,club_id) DO NOTHING""",
+            (
+                game_state_id, team["id"],
+                Jsonb({"slot_roles": [
+                    {"player_id": player_id, "role": role}
+                    for player_id, role in zip(starters, roles)
+                ]}),
+                [uuid.UUID(player_id) for player_id in starters],
+                [uuid.UUID(player_id) for player_id in bench],
+            ),
+        )
     selected_game_club = next(row["id"] for row in team_records if row["source_id"] == selected["source_id"])
     conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
     create_schedule(conn, game_state_id, str(tournament["id"]), team_records)

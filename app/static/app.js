@@ -4,6 +4,33 @@ const state = { manager: null, save: null, summary: null, clubs: [], leagues: []
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
+function flagImage(code) {
+  const iso = String(code || '').toLowerCase();
+  return /^[a-z]{2}(?:-[a-z]{3})?$/.test(iso)
+    ? `<span class="fi fi-${iso} national-flag" role="img" aria-label="Флаг ${iso.toUpperCase()}"></span>`
+    : '';
+}
+function stateIcons(kind, value) {
+  const score = Math.max(0, Math.min(100, Number(value ?? (kind === 'sharpness' ? 85 : 70))));
+  const active = Math.max(0, Math.min(5, Math.ceil(score / 20)));
+  const palette = kind === 'sharpness'
+    ? ['#91a4b7','#57a9d8','#42c7c8','#54cf91','#a58bff']
+    : ['#e45d65','#ed9250','#e8c75b','#8fcf70','#45c98a'];
+  const icons = palette.map((color,index) => {
+    const opacity = index < active ? 1 : .2;
+    if (kind === 'sharpness') {
+      return `<svg viewBox="0 0 18 22" aria-hidden="true" style="opacity:${opacity}"><path d="M9 1 16 8 9 21 2 8Z" fill="${color}" stroke="${color}" stroke-width="1.2"/><path d="M9 1 9 21M2 8h14" stroke="#fff" stroke-opacity=".45" stroke-width=".8" fill="none"/></svg>`;
+    }
+    const mouth = ['M5 13q4-3 8 0','M5 13q4-1 8 0','M5 12q4 1 8 0','M5 11q4 3 8 0','M5 10q4 5 8 0'][index];
+    return `<svg viewBox="0 0 20 20" aria-hidden="true" style="opacity:${opacity}"><circle cx="10" cy="10" r="8.5" fill="${color}"/><circle cx="7" cy="7.5" r="1" fill="#18231d"/><circle cx="13" cy="7.5" r="1" fill="#18231d"/><path d="${mouth}" stroke="#18231d" stroke-width="1.3" stroke-linecap="round" fill="none"/></svg>`;
+  }).join('');
+  return `<span class="state-icons ${kind}" title="${kind === 'sharpness' ? 'Тонус' : 'Настрой'}: ${score}/100">${icons}</span>`;
+}
+const TRAINING_POSITIONS = {
+  GK:[], RB:['LB','RWB'], LB:['RB','LWB'], CB:['CDM'], RWB:['RB','RM'], LWB:['LB','LM'],
+  CDM:['CM','CB'], CM:['CDM','CAM'], CAM:['CM','CF'], RM:['RW','CM'], LM:['LW','CM'],
+  RW:['RM','ST'], LW:['LM','ST'], ST:['CF','LW'], CF:['ST','CAM']
+};
 const money = (value) => {
   const n = Number(value || 0);
   if (!n) return '—';
@@ -211,7 +238,7 @@ function renderSquad(players) {
       : 'Нет оценки';
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
       <td><span class="rating">${player.dynamic_overall ?? player.overall}</span></td>
-      <td><span class="player-name">${esc(player.nationality_flag || '🏳️')} ${esc(player.name)}</span>
+      <td><span class="player-name">${flagImage(player.nationality_flag)} ${esc(player.name)}</span>
         ${player.original_data?.generated ? '<div class="player-source-generated">Игровой игрок SM27</div>' : ''}</td>
       <td><span class="position-tag">${esc(player.position)}</span></td>
       <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
@@ -220,15 +247,15 @@ function renderSquad(players) {
       <td class="value" title="${esc(source)}">${valueLabel}${player.market_value ? `<div class="data-source">${esc(source)}</div>` : '<div class="data-source">Игровая оценка отсутствует</div>'}</td>
       <td>${player.contract_end ? new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}) : '—'}</td>
       <td>${money(player.weekly_wage)}<div class="data-source">/ нед.</div></td>
-      <td><span class="mini-meter">${player.form ?? 50}</span></td>
-      <td><span class="mini-meter">${player.morale ?? 70}</span></td>
+      <td>${stateIcons('sharpness',player.sharpness)}</td>
+      <td>${stateIcons('morale',player.morale)}</td>
     </tr>`;
   }).join('');
   return `${pageHead('ПЕРВАЯ КОМАНДА','Состав',`${players.length} игроков · нажми на игрока, чтобы открыть полный профиль`)}
     <section class="panel">
       <div class="panel-head"><h3>Игроки первой команды</h3><span>OVR / POTENTIAL / VALUE</span></div>
       <div class="table-wrap squad-table-wrap"><table class="squad-table">
-        <thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ФОРМА</th><th>НАСТРОЙ</th></tr></thead>
+        <thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ТОНУС</th><th>НАСТРОЙ</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="11">Состав не загружен</td></tr>'}</tbody>
       </table></div>
       <div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Оценки OVR/POT, зарплата, контракт, форма и настрой — игровые параметры SM27. Стоимость Transfermarkt показывается только там, где найдена подтверждённая оценка; остальные суммы будут обозначаться как игровые оценки.</span></div>
@@ -244,6 +271,12 @@ function showPlayerDetails(playerId) {
     ? [['DIV','Отражение'],['HAN','Игра руками'],['KIC','Удар'],['REF','Реакция'],['SPE','Скорость'],['POS','Позиционирование']]
     : [['PAC','Скорость'],['SHO','Удар'],['PAS','Пас'],['DRI','Дриблинг'],['DEF','Защита'],['PHY','Физика']];
   const bars = labels.map(([code,label]) => `<div class="attribute-item"><div><b>${code}</b><span>${label}</span><strong>${stats[code] ?? player.overall}</strong></div><i><span style="width:${stats[code] ?? player.overall}%"></span></i></div>`).join('');
+  const availableTrainingPositions = (TRAINING_POSITIONS[player.position] || []).filter(pos => !(player.secondary_positions || []).includes(pos));
+  const trainingMarkup = player.position_training_target
+    ? `<em>Осваивает ${esc(player.position_training_target)} · ${player.position_training_progress ?? 0}%</em><i class="training-progress"><span style="width:${player.position_training_progress ?? 0}%"></span></i>`
+    : availableTrainingPositions.length
+      ? `<div class="training-control"><select id="position-training-target" class="select-input">${availableTrainingPositions.map(pos=>`<option value="${pos}">${pos}</option>`).join('')}</select><button class="btn-secondary" id="start-position-training">Начать тренировку</button></div><em>Освоение дополнительной позиции требует 20 сыгранных туров</em>`
+      : '<em>Нет доступных дополнительных позиций</em>';
   const modal = document.createElement('div');
   modal.id = 'player-detail-modal';
   modal.className = 'player-modal-backdrop';
@@ -251,20 +284,20 @@ function showPlayerDetails(playerId) {
     <section class="player-modal panel">
       <button class="modal-close" id="close-player-modal" aria-label="Закрыть">×</button>
       <div class="player-modal-head">
-        <div class="player-modal-flag">${esc(player.nationality_flag || '🏳️')}</div>
+        <div class="player-modal-flag">${flagImage(player.nationality_flag)}</div>
         <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>${esc(player.name)}</h2><p>${esc(player.nationality || 'Национальность не указана')} · ${player.age} лет · ${esc(player.position)}</p></div>
         <div class="player-modal-ratings"><b>${player.dynamic_overall ?? player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
       </div>
       <div class="player-modal-grid">
-        <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Нет данных'}</b></div>
+        <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Не освоены'}</b>${trainingMarkup}</div>
         <div class="player-metric"><small>Рыночная стоимость</small><b>${money(player.market_value)}</b><em>${esc(player.profile_source || 'SM27 estimate')}</em></div>
         <div class="player-metric"><small>Контракт до</small><b>${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Игровая оценка, не официальный срок</em></div>
         <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b><em>Игровая оценка SM27</em></div>
       </div>
       <div class="player-state-grid">
-        <div><small>Тонус</small><b>${player.sharpness ?? 85}%</b><i><span style="width:${player.sharpness ?? 85}%"></span></i></div>
+        <div><small>Тонус</small><b>${stateIcons('sharpness',player.sharpness)} ${player.sharpness ?? 85}/100</b></div>
         <div><small>Форма</small><b>${player.form ?? 50}/100</b><i><span style="width:${player.form ?? 50}%"></span></i></div>
-        <div><small>Настрой</small><b>${player.morale ?? 70}/100</b><i><span style="width:${player.morale ?? 70}%"></span></i></div>
+        <div><small>Настрой</small><b>${stateIcons('morale',player.morale)} ${player.morale ?? 70}/100</b></div>
       </div>
       <div class="panel-head"><h3>Характеристики ${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
       <div class="attribute-grid">${bars}</div>
@@ -272,6 +305,21 @@ function showPlayerDetails(playerId) {
     </section>`;
   document.body.appendChild(modal);
   document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());
+  document.getElementById('start-position-training')?.addEventListener('click', async () => {
+    const position = document.getElementById('position-training-target')?.value;
+    const button = document.getElementById('start-position-training');
+    if (!position) return;
+    button.disabled = true;
+    try {
+      await api(`/api/players/${encodeURIComponent(player.id)}/position-training`, {method:'POST',body:JSON.stringify({position})});
+      toast(`Начата тренировка позиции ${position}`);
+      state.squad = await api('/api/squad');
+      showPlayerDetails(player.id);
+    } catch (err) {
+      toast(err.message,true);
+      button.disabled = false;
+    }
+  });
   modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
 }
 
@@ -503,10 +551,19 @@ function setupTacticsInteractions() {
     state.selectedTacticSlot=state.selectedTacticSlot===slot?null:slot; redrawTactics();
   }));
   document.querySelectorAll(".tactic-player-row").forEach(button=>button.addEventListener("click",()=>{
-    if(state.selectedTacticSlot===null){
-      toast("Сначала выбери позицию на поле",true); return;
+    const id=String(button.dataset.playerId);
+    if(state.selectedTacticSlot!==null){
+      swapTacticPlayers(state.selectedTacticSlot,id);
+      return;
     }
-    swapTacticPlayers(state.selectedTacticSlot,button.dataset.playerId);
+    if(state.tacticBench.includes(id)){
+      if(state.tacticBench.length<=5){toast("В запасе должно остаться минимум 5 игроков",true);return;}
+      state.tacticBench=state.tacticBench.filter(playerId=>playerId!==id);
+    }else{
+      if(state.tacticBench.length>=9){toast("В запасе может быть максимум 9 игроков",true);return;}
+      state.tacticBench.push(id);
+    }
+    redrawTactics();
   }));
   document.querySelectorAll("[data-release-player]").forEach(button=>button.addEventListener("click",event=>{
     event.stopPropagation();
@@ -570,15 +627,21 @@ function renderFixtures(rows) {
   for(let day=1;day<=days;day++){
     const key=`${month.getFullYear()}-${String(month.getMonth()+1).padStart(2,"0")}-${String(day).padStart(2,"0")}`;
     const events=byDate.get(key)||[];
-    cells.push(`<button class="calendar-day ${state.selectedCalendarDate===key?"selected":""} ${events.length?"has-event":""}" data-calendar-date="${key}">
-      <b>${day}</b>${events.length?`<span>${events.length} МАТЧ</span>`:""}
+    const match=events[0];
+    const outcome=match?.result || "";
+    const score=match && match.status==="completed"
+      ? `<b class="calendar-cell-score ${outcome}">${match.home_score}:${match.away_score}</b>`
+      : "";
+    cells.push(`<button class="calendar-day ${state.selectedCalendarDate===key?"selected":""} ${match?"has-event":""}" data-calendar-date="${key}" title="${match?esc(match.opponent_name):""}">
+      <b>${day}</b>${match?`<span class="calendar-cell-match">${crest(match.opponent_name,match.opponent_logo)}<small>${esc(match.tournament_name||"Турнир")} · ${esc(match.stage_label||"МАТЧ")}</small></span>${score}`:""}
     </button>`);
   }
   const selected=state.selectedCalendarDate || keyDate(state.save?.game_date || "2026-07-01T12:00:00");
   const selectedRows=byDate.get(selected)||[];
   const selectedContent=selectedRows.length?selectedRows.map(f=>`<div class="calendar-match-row">
-    <small>ТУР ${f.matchday||"—"} · ${f.status==="completed"?"СЫГРАН":"ЗАПЛАНИРОВАН"}</small>
-    <div class="calendar-teams">${crest(f.home_name,f.home_logo)}<b>${esc(f.home_name)}</b><span>${f.status==="completed"?`${f.home_score} : ${f.away_score}`:"— : —"}</span><b>${esc(f.away_name)}</b>${crest(f.away_name,f.away_logo)}</div>
+    <small>${esc(f.tournament_name||"Турнир")} · ${esc(f.stage_label||"МАТЧ")} · ${f.is_home?"ДОМА":"В ГОСТЯХ"}</small>
+    <div class="calendar-teams">${crest(f.home_name,f.home_logo)}<b>${esc(f.home_name)}</b><span class="calendar-score ${f.result||""}">${f.status==="completed"?`${f.home_score} : ${f.away_score}`:"— : —"}</span><b>${esc(f.away_name)}</b>${crest(f.away_name,f.away_logo)}</div>
+    <small>${f.status==="completed"?"МАТЧ СЫГРАН":"ЗАПЛАНИРОВАН"}</small>
   </div>`).join(""):'<div class="empty-state">На выбранную дату матчей нет</div>';
   const weekdays=["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map(d=>`<span>${d}</span>`).join("");
   return `${pageHead("СЕЗОН 2026/27","Календарь","Месячный календарь матчей и событий твоей карьеры.")}
@@ -594,9 +657,18 @@ function renderFixtures(rows) {
 function setupCalendarInteractions() {
   document.getElementById("calendar-prev")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()-1,1);renderCurrent();});
   document.getElementById("calendar-next")?.addEventListener("click",()=>{state.calendarMonth=new Date(state.calendarMonth.getFullYear(),state.calendarMonth.getMonth()+1,1);renderCurrent();});
-  document.querySelectorAll("[data-calendar-date]").forEach(button=>button.addEventListener("click",()=>{
-    state.selectedCalendarDate=button.dataset.calendarDate;renderCurrent();
-  }));
+  document.querySelectorAll("[data-calendar-date]").forEach(button=>{
+    button.addEventListener("click",()=>{
+      state.selectedCalendarDate=button.dataset.calendarDate;renderCurrent();
+    });
+    button.addEventListener("contextmenu",event=>{
+      event.preventDefault();
+      const target=new Date(button.dataset.calendarDate+"T12:00:00");
+      state.calendarMonth=new Date(target.getFullYear(),target.getMonth(),1);
+      state.selectedCalendarDate=button.dataset.calendarDate;
+      renderCurrent();
+    });
+  });
 }
 
 function renderTable(rows) {

@@ -11,9 +11,9 @@ from app.main import (
 
 
 def test_source_position_groups_are_expanded_to_specific_roles():
-    assert normalise_player_position("DF", "player-1") in {"CB", "RB", "LB", "RWB", "LWB"}
-    assert normalise_player_position("MF", "player-2") in {"CM", "CDM", "CAM", "RM", "LM"}
-    assert normalise_player_position("FW", "player-3") in {"ST", "CF", "RW", "LW"}
+    assert normalise_player_position("DF", "player-1") == "CB"
+    assert normalise_player_position("MF", "player-2") == "CM"
+    assert normalise_player_position("FW", "player-3") == "ST"
     assert normalise_player_position("MF", "stable-id") == normalise_player_position("MF", "stable-id")
 
 
@@ -29,14 +29,17 @@ def test_player_attributes_are_position_appropriate_and_bounded():
 def test_market_value_wage_and_contract_estimates_are_valid():
     value = estimated_market_value(79, 87, 22)
     assert value >= 25_000
-    assert estimated_weekly_wage(value) >= 250
+    assert estimated_weekly_wage(84, 30, 85, "Cristiano Ronaldo") == 53_000
+    assert estimated_weekly_wage(84, 30, 85) > estimated_weekly_wage(65, 19, 45)
     assert estimated_contract_end(22, "player-22").year >= 2028
 
 
 def test_nationality_flags_are_resolved_for_common_and_iso_codes():
-    assert flag_for_nationality("Brazil") == "🇧🇷"
-    assert flag_for_nationality("Russia") == "🇷🇺"
-    assert flag_for_nationality("URY") == "🇺🇾"
+    assert flag_for_nationality("Brazil") == "br"
+    assert flag_for_nationality("Russia") == "ru"
+    assert flag_for_nationality("URY") == "uy"
+    assert flag_for_nationality("England") == "gb-eng"
+    assert flag_for_nationality("Unknown country") == ""
 
 
 def test_position_penalties_follow_requested_distance_rules():

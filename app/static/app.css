@@ -348,3 +348,27 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
 .tactic-roster-item .tactic-player-row { flex: 1 1 auto; min-width: 0; }
 .roster-action { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: rgba(255,255,255,.04); color: var(--muted); font-size: 8px; font-weight: 800; }
 .roster-action:hover { color: var(--green-bright); border-color: rgba(65,217,139,.4); background: rgba(65,217,139,.08); }
+
+
+/* Rectangular national flags and FC-style player state indicators */
+.national-flag { display:inline-block; width:24px; height:18px; background-size:cover !important; background-position:center; background-repeat:no-repeat; vertical-align:-4px; border-radius:2px; box-shadow:0 0 0 1px rgba(255,255,255,.16); margin-right:5px; }
+.player-modal-flag .national-flag { width:42px; height:31px; margin:0; }
+.state-icons { display:inline-flex; align-items:center; gap:2px; vertical-align:middle; }
+.state-icons svg { width:14px; height:17px; display:block; }
+.state-icons.morale svg { width:15px; height:15px; }
+.player-state-grid .state-icons svg { width:19px; height:22px; }
+.calendar-day { position:relative; }
+.calendar-cell-match { display:flex; align-items:center; gap:4px; min-width:0; width:100%; }
+.calendar-cell-match .crest { width:20px; height:20px; flex:0 0 20px; border-radius:4px; font-size:7px; }
+.calendar-cell-match small { min-width:0; overflow:hidden; color:var(--muted); font-size:7px; line-height:1.2; text-overflow:ellipsis; }
+.calendar-cell-score { justify-self:end; font-size:10px; font-weight:900; font-variant-numeric:tabular-nums; }
+.calendar-cell-score.win,.calendar-score.win { color:#54d98c !important; }
+.calendar-cell-score.draw,.calendar-score.draw { color:#f0c85a !important; }
+.calendar-cell-score.loss,.calendar-score.loss { color:#f06b75 !important; }
+.calendar-score { font-weight:900; font-variant-numeric:tabular-nums; }
+.calendar-match-row > small { display:block; margin-top:5px; color:var(--muted); font-size:8px; }
+@media (max-width:760px) {
+  .national-flag { width:21px; height:16px; }
+  .calendar-cell-match .crest { width:16px; height:16px; flex-basis:16px; }
+  .calendar-cell-match small { font-size:6px; }
+}

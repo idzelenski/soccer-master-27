@@ -31,12 +31,12 @@ def expected_goals(
 ) -> tuple[float, float]:
     # Club reputation is derived from the FIFA-style 0.5–5.0 star tier;
     # average squad OVR has the larger weight, so individual quality still matters.
-    home_strength = (home_reputation * 0.35 + home_overall * 0.65) / 100
-    away_strength = (away_reputation * 0.35 + away_overall * 0.65) / 100
-    difference = clamp(home_strength - away_strength, -0.65, 0.65)
-    # Exponential conversion gives strong sides a meaningful edge without removing upsets.
-    home_xg = clamp(1.42 * math.exp(difference * 1.35) + home_advantage, 0.18, 3.4)
-    away_xg = clamp(1.18 * math.exp(-difference * 1.35), 0.15, 3.1)
+    home_strength = (home_reputation * 0.60 + home_overall * 0.40) / 100
+    away_strength = (away_reputation * 0.60 + away_overall * 0.40) / 100
+    difference = clamp(home_strength - away_strength, -0.70, 0.70)
+    # Reputation protects elite clubs from implausible collapses while retaining match variance.
+    home_xg = clamp(1.42 * math.exp(difference * 1.55) + home_advantage, 0.18, 3.6)
+    away_xg = clamp(1.18 * math.exp(-difference * 1.55), 0.12, 3.1)
     return round(home_xg, 2), round(away_xg, 2)
 
 

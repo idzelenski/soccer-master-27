@@ -55,4 +55,4 @@ def test_stronger_team_wins_more_often_over_a_large_sample():
     for seed in range(500):
         result = simulate_score(100, 37, 86, 52, seed=seed)
         outcomes.append(result["home_score"] > result["away_score"])
-    assert sum(outcomes) / len(outcomes) >= 0.60
+    assert sum(outcomes) / len(outcomes) >= 0.78
