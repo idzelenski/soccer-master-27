@@ -378,190 +378,172 @@ function optimiseLineup(players, formation) {
   }
   return {starters,remaining};
 }
-function ensureTacticState(players, tactics) {
-  const formation = tactics.formation || "4-3-3";
-  const existing = new Map(players.map(player => [String(player.id),player]));
-  let starters = (tactics.starting_xi || []).map(id => existing.get(String(id))).filter(Boolean);
-  let rest = players.filter(p => !starters.some(s => String(s.id)===String(p.id)));
-  if (starters.length !== 11) {
-    const optimized = optimiseLineup(players,formation);
-    starters = optimized.starters;
-    rest = optimized.remaining;
-  }
-  state.tacticFormation = formation;
-  state.tacticSlots = starters.slice(0,11).map(p => String(p.id));
-  const savedBench = (tactics.bench || []).map(id => String(id)).filter(id => existing.has(id) && !state.tacticSlots.includes(id));
-  state.tacticBench = savedBench.slice(0,9);
-  const fillBench = rest.filter(p => !state.tacticBench.includes(String(p.id))).sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall));
-  while(state.tacticBench.length<7 && fillBench.length) state.tacticBench.push(String(fillBench.shift().id));
-  state.tacticSettings = {
-    build_up: "balanced", chance_creation: "balanced", pressing: "on_mistake",
-    defensive_approach: "balanced", width: 50, depth: 55, tempo: "balanced",
-    focus: "balanced", player_roles: {}, ...(tactics.style || {})
-  };
-  state.tacticSettings.player_roles ||= {};
-  if (state.selectedTacticSlot === undefined) state.selectedTacticSlot = null;
+function ensureTacticState(players,tactics) {
+  const formation=tactics.formation||'4-3-3';
+  const existing=new Map(players.map(player=>[String(player.id),player]));
+  let starters=(tactics.starting_xi||[]).map(id=>existing.get(String(id))).filter(Boolean);
+  let rest=players.filter(p=>!starters.some(s=>String(s.id)===String(p.id)));
+  if(starters.length!==11){const optimized=optimiseLineup(players,formation);starters=optimized.starters;rest=optimized.remaining;}
+  state.tacticFormation=formation;
+  state.tacticSlots=starters.slice(0,11).map(p=>String(p.id));
+  const savedBench=(tactics.bench||[]).map(String).filter(id=>existing.has(id)&&!state.tacticSlots.includes(id));
+  state.tacticBench=savedBench.slice(0,9);
+  const fillBench=rest.filter(p=>!state.tacticBench.includes(String(p.id))).sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall));
+  while(state.tacticBench.length<7&&fillBench.length)state.tacticBench.push(String(fillBench.shift().id));
+  state.tacticSettings={build_up:'balanced',chance_creation:'balanced',pressing:'on_mistake',defensive_approach:'balanced',width:50,depth:55,tempo:'balanced',focus:'balanced',player_roles:{},...(tactics.style||{})};
+  state.tacticSettings.player_roles||={};
+  state.selectedTacticSlot=null;
+  state.selectedTacticPlayerId=null;
+  state.tacticReserveOrder=[];
 }
 function redrawTactics() {
-  const tactics = {formation: state.tacticFormation, mentality: 'balanced', style: state.tacticSettings, starting_xi: state.tacticSlots, bench: state.tacticBench};
-  shell(renderTactics(state.squad, tactics), 'Тактика');
+  const tactics={formation:state.tacticFormation,mentality:'balanced',style:state.tacticSettings,starting_xi:state.tacticSlots,bench:state.tacticBench};
+  shell(renderTactics(state.squad,tactics),'Тактика');
   setupTacticsInteractions();
 }
-function playerTag(player, slotIndex = null) {
-  if (!player) return "";
-  return `<div class="pitch-player-card" draggable="true" data-player-id="${esc(player.id)}" ${slotIndex !== null ? `data-pitch-slot="${slotIndex}"` : ""}>
-    <b>${player.overall}</b><small>${esc(player.name.split(" ").slice(-1)[0])}</small>
-  </div>`;
+function playerTag(player,slotIndex=null) {
+  if(!player)return '';
+  return '<div class="pitch-player-card" draggable="true" data-player-id="'+esc(player.id)+'" '+(slotIndex!==null?'data-pitch-slot="'+slotIndex+'"':'')+'><b>'+(player.dynamic_overall??player.overall)+'</b><small>'+esc(player.name.split(' ').slice(-1)[0])+'</small></div>';
 }
-function renderTactics(players, tactics) {
-  const formation = tactics.formation || "4-3-3";
-  const slots = formationSlots(formation);
-  const byId = new Map(players.map(player => [String(player.id),player]));
-  const pitchPlayers = slots.map((slot,index) => {
-    const player = byId.get(state.tacticSlots[index]);
-    const selected = state.selectedTacticSlot === index;
-    const rating = player ? (player.dynamic_overall ?? player.overall) + positionPenalty(player,slot.role) : null;
-    return `<button class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
-      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? esc(player.name.split(" ").slice(-1)[0]) : "Выбрать"}</em>
-    </button>`;
-  }).join("");
-  const benchIds = new Set(state.tacticBench);
-  const bench = state.tacticBench.map(id => {
-    const p=byId.get(id);
-    return p ? `<div class="tactic-roster-item"><button class="tactic-player-row bench-player" draggable="true" data-player-id="${esc(id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · запас</small></span></button><button class="roster-action" data-release-player="${esc(id)}" title="Переместить в резерв">В резерв</button></div>` : "";
-  }).join("");
-  const reserves = players.filter(p => !state.tacticSlots.includes(String(p.id)) && !benchIds.has(String(p.id)))
-    .sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall))
-    .map(p=>`<div class="tactic-roster-item"><button class="tactic-player-row reserve-player" draggable="true" data-player-id="${esc(p.id)}"><b>${p.dynamic_overall ?? p.overall}</b><span>${esc(p.name)}<small>${esc(p.position)} · резерв</small></span></button><button class="roster-action" data-promote-player="${esc(p.id)}" title="Добавить в запас">В запас</button></div>`).join("");
-  const settings = state.tacticSettings;
-  const select = (id,label,value,options) => `<label class="tactic-setting"><span>${label}</span><select id="${id}" class="select-input">${options.map(([v,l])=>`<option value="${v}" ${value===v?"selected":""}>${l}</option>`).join("")}</select></label>`;
-  const options = {
-    balanced:"Сбалансированно", short:"Короткий пас", direct:"Вертикальный пас", fast:"Быстрый выход",
-    possession:"Контроль мяча", counter:"Контратака", high:"Высокий прессинг", mid:"Средний блок",
-    low:"Низкий блок", aggressive:"Агрессивно", conservative:"Осторожно", wide:"Через фланги",
-    centre:"Через центр", on_mistake:"Прессинг после потери", heavy:"Постоянный прессинг"
-  };
-  return `${pageHead("ПЛАН НА МАТЧ","Тактика","Выбери схему, расставь футболистов и настрой поведение команды.")}
-    <div class="tactic-toolbar panel">
-      <label>СХЕМА<select id="formation" class="select-input">${FORMATIONS.map(f=>`<option value="${esc(f)}" ${formation===f?"selected":""}>${esc(f)}</option>`).join("")}</select></label>
-      <span class="lineup-counter">${state.tacticSlots.filter(Boolean).length}/11 В ОСНОВЕ</span>
-      <span class="lineup-counter">${state.tacticBench.length}/9 В ЗАПАСЕ</span>
-      <button id="auto-lineup" class="btn-secondary">Лучший состав</button>
-      <button id="save-tactics" class="btn-primary">Сохранить</button>
-    </div>
-    <div class="tactic-layout tactic-layout-full">
-      <section class="panel tactic-board-panel">
-        <div class="panel-head"><h3>Тактическое поле</h3><span>Нажми на двух игроков, чтобы поменять местами · можно перетаскивать</span></div>
-        <div class="pitch pitch-football" id="tactic-pitch"><div class="pitch-line"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-circle"></div>${pitchPlayers}</div>
-        <div class="catalog-note"><span>ⓘ</span><span>ОВР на поле учитывает позиционный штраф. Родная и дополнительная позиция не снижают рейтинг. Позиция вратаря и полевого игрока — штраф 40.</span></div>
-        <div class="squad-bench-block"><div class="panel-head"><h3>Запас</h3><span>от 5 до 9 игроков</span></div><div class="tactic-roster-grid" id="tactic-bench">${bench || '<p class="empty-state">Скамейка пуста</p>'}</div></div>
-        <div class="squad-bench-block"><div class="panel-head"><h3>Резерв</h3><span>Остальные футболисты</span></div><div class="tactic-roster-grid reserves-list" id="tactic-reserves">${reserves || '<p class="empty-state">В резерве пока нет игроков</p>'}</div></div>
-      </section>
-      <aside class="panel tactic-controls tactic-settings-panel">
-        <div class="panel-head"><h3>Тактика команды</h3><span>Установки на матч</span></div>
-        ${select("build-up","Построение атаки",settings.build_up,[["balanced","Сбалансированно"],["short","Короткий пас"],["direct","Вертикальные передачи"],["fast","Быстрый выход"],["possession","Контроль мяча"]])}
-        ${select("chance-creation","Создание моментов",settings.chance_creation,[["balanced","Сбалансированно"],["wide","Через фланги"],["centre","Через центр"],["direct","Забросы за спину"],["patient","Терпеливое владение"]])}
-        ${select("pressing","Прессинг",settings.pressing,[["on_mistake","После потери"],["heavy","Постоянный прессинг"],["mid","Средний блок"],["low","Низкий блок"]])}
-        ${select("defensive-approach","Оборонительная линия",settings.defensive_approach,[["balanced","Сбалансированно"],["aggressive","Высокая линия"],["conservative","Низкий блок"],["offside","Искусственный офсайд"]])}
-        ${select("tempo","Темп",settings.tempo,[["balanced","Обычный"],["slow","Медленный"],["fast","Высокий"]])}
-        ${select("focus","Акцент команды",settings.focus,[["balanced","Баланс"],["attack","Атака"],["defence","Оборона"],["left","Левый фланг"],["right","Правый фланг"],["centre","Центр поля"]])}
-        <label class="tactic-setting"><span>Ширина атаки <b id="width-value">${settings.width}</b></span><input type="range" id="tactic-width" min="1" max="100" value="${settings.width}"></label>
-        <label class="tactic-setting"><span>Высота линии <b id="depth-value">${settings.depth}</b></span><input type="range" id="tactic-depth" min="1" max="100" value="${settings.depth}"></label>
-        <div class="panel-head"><h3>Роли игроков</h3><span>Указания футболистам</span></div>
-        <div class="player-role-list">${state.tacticSlots.map((id,index)=>{const p=byId.get(id);return p?`<label class="tactic-setting"><span>${esc(p.name)}</span><select data-player-role="${esc(id)}" class="select-input">${[["balanced","Сбалансированно"],["attack","Подключаться в атаку"],["stay","Оставаться сзади"],["free","Свободная роль"],["press","Активный прессинг"]].map(([v,l])=>`<option value="${v}" ${(settings.player_roles[id]||"balanced")===v?"selected":""}>${l}</option>`).join("")}</select></label>`: ""}).join("")}</div>
-      </aside>
-    </div>`;
+function renderTactics(players,tactics) {
+  const formation=tactics.formation||'4-3-3';
+  const slots=formationSlots(formation);
+  const byId=new Map(players.map(player=>[String(player.id),player]));
+  const pitchPlayers=slots.map((slot,index)=>{
+    const player=byId.get(state.tacticSlots[index]);
+    const selected=player&&state.selectedTacticPlayerId===String(player.id);
+    const rating=player?(player.dynamic_overall??player.overall)+positionPenalty(player,slot.role):null;
+    return '<button class="pitch-player '+(selected?'selected-player ':'')+(player?'':'empty')+'" style="left:'+slot.left+'%;top:'+slot.top+'%" data-pitch-slot="'+index+'" data-drop-slot="'+index+'" draggable="'+Boolean(player)+'" '+(player?'data-player-id="'+esc(player.id)+'"':'')+'>'+
+      '<strong>'+(player?rating:'+')+'</strong><small>'+esc(slot.role)+'</small><em>'+(player?esc(player.name.split(' ').slice(-1)[0]):'Пусто')+'</em></button>';
+  }).join('');
+  const benchIds=new Set(state.tacticBench.map(String));
+  let reservePlayers=players.filter(p=>!state.tacticSlots.includes(String(p.id))&&!benchIds.has(String(p.id)));
+  if(state.tacticReserveOrder.length){
+    const order=new Map(state.tacticReserveOrder.map((id,index)=>[id,index]));
+    reservePlayers.sort((a,b)=>(order.get(String(a.id))??9999)-(order.get(String(b.id))??9999)||(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall));
+  }else reservePlayers.sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall));
+  const bench=state.tacticBench.map(id=>{
+    const p=byId.get(String(id));if(!p)return '';
+    const selected=state.selectedTacticPlayerId===String(id);
+    return '<div class="tactic-roster-item"><button class="tactic-player-row bench-player '+(selected?'selected-player':'')+'" draggable="true" data-player-id="'+esc(id)+'"><b>'+(p.dynamic_overall??p.overall)+'</b><span>'+esc(p.name)+'<small>'+esc(p.position)+' · запас</small></span></button><button class="roster-action" data-release-player="'+esc(id)+'" title="Переместить в резерв">В резерв</button></div>';
+  }).join('');
+  const reserves=reservePlayers.map(p=>{
+    const selected=state.selectedTacticPlayerId===String(p.id);
+    return '<div class="tactic-roster-item"><button class="tactic-player-row reserve-player '+(selected?'selected-player':'')+'" draggable="true" data-player-id="'+esc(p.id)+'"><b>'+(p.dynamic_overall??p.overall)+'</b><span>'+esc(p.name)+'<small>'+esc(p.position)+' · резерв</small></span></button><button class="roster-action" data-promote-player="'+esc(p.id)+'" title="Добавить в запас">В запас</button></div>';
+  }).join('');
+  const settings=state.tacticSettings;
+  const select=(id,label,value,options)=>'<label class="tactic-setting"><span>'+label+'</span><select id="'+id+'" class="select-input">'+options.map(([v,l])=>'<option value="'+v+'" '+(value===v?'selected':'')+'>'+l+'</option>').join('')+'</select></label>';
+  return pageHead('ПЛАН НА МАТЧ','Тактика','Выбери схему, расставь футболистов и настрой поведение команды.')+
+    '<div class="tactic-toolbar panel"><label>СХЕМА<select id="formation" class="select-input">'+FORMATIONS.map(f=>'<option value="'+esc(f)+'" '+(formation===f?'selected':'')+'>'+esc(f)+'</option>').join('')+'</select></label>'+
+    '<span class="lineup-counter">'+state.tacticSlots.filter(Boolean).length+'/11 В ОСНОВЕ</span><span class="lineup-counter">'+state.tacticBench.length+'/9 В ЗАПАСЕ</span>'+
+    '<button id="auto-lineup" class="btn-secondary">Лучший состав</button><button id="save-tactics" class="btn-primary">Сохранить</button></div>'+
+    '<div class="tactic-layout tactic-layout-full"><section class="panel tactic-board-panel">'+
+    '<div class="panel-head"><h3>Тактическое поле</h3><span>Выбери любого игрока, затем другого — они поменяются местами между полем, запасом и резервом.</span></div>'+
+    '<div class="pitch pitch-football" id="tactic-pitch"><div class="pitch-line"></div><div class="pitch-box pitch-box-top"></div><div class="pitch-box pitch-box-bottom"></div><div class="pitch-circle"></div>'+pitchPlayers+'</div>'+
+    '<div class="catalog-note"><span>ⓘ</span><span>ОВР на поле учитывает позиционный штраф. Родная и изученная позиция не снижают рейтинг. Вратарь на любой полевой позиции получает штраф 40.</span></div>'+
+    '<div class="squad-bench-block"><div class="panel-head"><h3>Запас</h3><span>от 5 до 9 игроков</span></div><div class="tactic-roster-grid" id="tactic-bench">'+(bench||'<p class="empty-state">Скамейка пуста</p>')+'</div></div>'+
+    '<div class="squad-bench-block"><div class="panel-head"><h3>Резерв</h3><span>Остальные футболисты</span></div><div class="tactic-roster-grid reserves-list" id="tactic-reserves">'+(reserves||'<p class="empty-state">В резерве пока нет игроков</p>')+'</div></div></section>'+
+    '<aside class="panel tactic-controls tactic-settings-panel"><div class="panel-head"><h3>Тактика команды</h3><span>Установки на матч</span></div>'+
+    select('build-up','Построение атаки',settings.build_up,[['balanced','Сбалансированно'],['short','Короткий пас'],['direct','Вертикальные передачи'],['fast','Быстрый выход'],['possession','Контроль мяча']])+
+    select('chance-creation','Создание моментов',settings.chance_creation,[['balanced','Сбалансированно'],['wide','Через фланги'],['centre','Через центр'],['direct','Забросы за спину'],['patience','Терпеливое владение']])+
+    select('pressing','Прессинг',settings.pressing,[['on_mistake','После потери'],['high','Высокий'],['mid','Средний блок'],['low','Низкий блок'],['heavy','Постоянный']])+
+    select('defensive-approach','Оборона',settings.defensive_approach,[['balanced','Сбалансированно'],['aggressive','Агрессивно'],['conservative','Сдержанно'],['high','Высокая линия'],['low','Глубокая линия']])+
+    select('tempo','Темп',settings.tempo,[['slow','Низкий'],['balanced','Средний'],['fast','Высокий']])+
+    select('focus','Фокус',settings.focus,[['balanced','Сбалансированный'],['left','Левый фланг'],['right','Правый фланг'],['centre','Центр']])+
+    '<label class="tactic-setting"><span>Ширина <b id="width-value">'+(settings.width??50)+'</b></span><input id="tactic-width" type="range" min="0" max="100" value="'+(settings.width??50)+'"></label>'+
+    '<label class="tactic-setting"><span>Высота обороны <b id="depth-value">'+(settings.depth??55)+'</b></span><input id="tactic-depth" type="range" min="0" max="100" value="'+(settings.depth??55)+'"></label></aside></div>';
 }
-function swapTacticPlayers(slotIndex, playerId) {
-  const id=String(playerId);
-  const current=state.tacticSlots[slotIndex];
-  const fromSlot=state.tacticSlots.indexOf(id);
+function reservePlayerIds() {
+  return state.squad.filter(p=>!state.tacticSlots.includes(String(p.id))&&!state.tacticBench.includes(String(p.id)))
+    .sort((a,b)=>(b.dynamic_overall??b.overall)-(a.dynamic_overall??a.overall)).map(p=>String(p.id));
+}
+function moveTacticPlayerToSlot(playerId,slotIndex) {
+  const id=String(playerId),target=state.tacticSlots[slotIndex];
+  if(!id||slotIndex<0||slotIndex>=11)return;
+  const fromSlot=state.tacticSlots.indexOf(id),fromBench=state.tacticBench.indexOf(id);
   if(fromSlot>=0){
-    state.tacticSlots[slotIndex]=id;
-    state.tacticSlots[fromSlot]=current || null;
+    if(target){const targetSlot=state.tacticSlots.indexOf(String(target));state.tacticSlots[targetSlot]=id;state.tacticSlots[fromSlot]=target;}
+    else{state.tacticSlots[slotIndex]=id;state.tacticSlots[fromSlot]=null;}
   }else{
     state.tacticSlots[slotIndex]=id;
-    state.tacticBench=state.tacticBench.filter(x=>x!==id);
-    if(current && state.tacticBench.length<9 && !state.tacticBench.includes(current)) state.tacticBench.push(current);
+    state.tacticBench=state.tacticBench.filter(x=>String(x)!==id);
+    if(target&&fromBench>=0)state.tacticBench[fromBench]=String(target);
+    else if(target&&state.tacticBench.length<9&&state.tacticBench.length<7)state.tacticBench.push(String(target));
   }
-  state.selectedTacticSlot=null;
-  redrawTactics();
+  state.selectedTacticPlayerId=null;state.selectedTacticSlot=null;redrawTactics();
 }
+function swapTacticRosterPlayers(firstId,secondId) {
+  const a=String(firstId),b=String(secondId);
+  if(!a||!b||a===b){state.selectedTacticPlayerId=null;redrawTactics();return;}
+  const aSlot=state.tacticSlots.indexOf(a),bSlot=state.tacticSlots.indexOf(b);
+  const aBench=state.tacticBench.indexOf(a),bBench=state.tacticBench.indexOf(b);
+  if(aSlot>=0&&bSlot>=0){[state.tacticSlots[aSlot],state.tacticSlots[bSlot]]=[state.tacticSlots[bSlot],state.tacticSlots[aSlot]];}
+  else if(aSlot>=0&&bBench>=0){state.tacticSlots[aSlot]=b;state.tacticBench[bBench]=a;}
+  else if(bSlot>=0&&aBench>=0){state.tacticSlots[bSlot]=a;state.tacticBench[aBench]=b;}
+  else if(aBench>=0&&bBench>=0){[state.tacticBench[aBench],state.tacticBench[bBench]]=[state.tacticBench[bBench],state.tacticBench[aBench]];}
+  else if(aSlot>=0){state.tacticSlots[aSlot]=b;}
+  else if(bSlot>=0){state.tacticSlots[bSlot]=a;}
+  else if(aBench>=0){state.tacticBench[aBench]=b;}
+  else if(bBench>=0){state.tacticBench[bBench]=a;}
+  else{
+    const order=state.tacticReserveOrder.length?state.tacticReserveOrder:reservePlayerIds();
+    const ia=order.indexOf(a),ib=order.indexOf(b);
+    if(ia>=0&&ib>=0)[order[ia],order[ib]]=[order[ib],order[ia]];
+    state.tacticReserveOrder=order;
+  }
+  state.selectedTacticPlayerId=null;state.selectedTacticSlot=null;redrawTactics();
+}
+function selectTacticPlayer(playerId) {
+  const id=String(playerId);
+  if(!state.selectedTacticPlayerId){state.selectedTacticPlayerId=id;redrawTactics();return;}
+  swapTacticRosterPlayers(state.selectedTacticPlayerId,id);
+}
+function swapTacticPlayers(slotIndex,playerId) { moveTacticPlayerToSlot(playerId,slotIndex); }
 function setupTacticsInteractions() {
-  document.getElementById("formation")?.addEventListener("change",event=>{
+  document.getElementById('formation')?.addEventListener('change',event=>{
     const result=optimiseLineup(state.squad,event.target.value);
-    state.tacticSlots=result.starters.map(p=>String(p.id));
-    state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
-    state.tacticFormation=event.target.value;
-    redrawTactics();
+    state.tacticSlots=result.starters.map(p=>String(p.id));state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
+    state.tacticFormation=event.target.value;state.selectedTacticPlayerId=null;redrawTactics();
   });
-  document.getElementById("auto-lineup")?.addEventListener("click",()=>{
-    const formation=document.getElementById("formation").value;
-    const result=optimiseLineup(state.squad,formation);
-    state.tacticSlots=result.starters.map(p=>String(p.id));
-    state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
-    state.tacticFormation=formation;
-    redrawTactics();
+  document.getElementById('auto-lineup')?.addEventListener('click',()=>{
+    const formation=document.getElementById('formation').value,result=optimiseLineup(state.squad,formation);
+    state.tacticSlots=result.starters.map(p=>String(p.id));state.tacticBench=result.remaining.slice(0,7).map(p=>String(p.id));
+    state.tacticFormation=formation;state.selectedTacticPlayerId=null;redrawTactics();
   });
-  document.querySelectorAll("[data-pitch-slot]").forEach(button=>button.addEventListener("click",()=>{
-    const slot=Number(button.dataset.pitchSlot);
-    if(state.selectedTacticSlot!==null && state.selectedTacticSlot!==slot){
-      const a=state.tacticSlots[state.selectedTacticSlot], b=state.tacticSlots[slot];
-      state.tacticSlots[slot]=a; state.tacticSlots[state.selectedTacticSlot]=b;
-      state.selectedTacticSlot=null; redrawTactics(); return;
-    }
-    state.selectedTacticSlot=state.selectedTacticSlot===slot?null:slot; redrawTactics();
+  document.querySelectorAll('[data-pitch-slot]').forEach(button=>button.addEventListener('click',()=>{
+    const slot=Number(button.dataset.pitchSlot),id=state.tacticSlots[slot];
+    if(!id&&state.selectedTacticPlayerId){moveTacticPlayerToSlot(state.selectedTacticPlayerId,slot);return;}
+    if(id)selectTacticPlayer(id);
   }));
-  document.querySelectorAll(".tactic-player-row").forEach(button=>button.addEventListener("click",()=>{
-    if(state.selectedTacticSlot===null){
-      toast("Сначала выбери позицию на поле",true); return;
-    }
-    swapTacticPlayers(state.selectedTacticSlot,button.dataset.playerId);
-  }));
-  document.querySelectorAll("[data-release-player]").forEach(button=>button.addEventListener("click",event=>{
+  document.querySelectorAll('.tactic-player-row').forEach(button=>button.addEventListener('click',()=>selectTacticPlayer(button.dataset.playerId)));
+  document.querySelectorAll('[data-release-player]').forEach(button=>button.addEventListener('click',event=>{
     event.stopPropagation();
-    if(state.tacticBench.length<=5){toast("В запасе должно остаться минимум 5 игроков",true);return;}
-    state.tacticBench=state.tacticBench.filter(id=>id!==button.dataset.releasePlayer);
-    redrawTactics();
+    if(state.tacticBench.length<=5){toast('В запасе должно остаться минимум 5 игроков',true);return;}
+    state.tacticBench=state.tacticBench.filter(id=>String(id)!==String(button.dataset.releasePlayer));redrawTactics();
   }));
-  document.querySelectorAll("[data-promote-player]").forEach(button=>button.addEventListener("click",event=>{
+  document.querySelectorAll('[data-promote-player]').forEach(button=>button.addEventListener('click',event=>{
     event.stopPropagation();
-    if(state.tacticBench.length>=9){toast("В запасе может быть максимум 9 игроков",true);return;}
-    state.tacticBench.push(button.dataset.promotePlayer);
-    redrawTactics();
+    if(state.tacticBench.length>=9){toast('В запасе может быть максимум 9 игроков',true);return;}
+    state.tacticBench.push(String(button.dataset.promotePlayer));redrawTactics();
   }));
-  const pitch=document.getElementById("tactic-pitch");
-  pitch?.querySelectorAll("[data-pitch-slot]").forEach(slot=>{
-    slot.addEventListener("dragstart",event=>{event.dataTransfer.setData("text/player-id",state.tacticSlots[Number(slot.dataset.pitchSlot)]||"");});
+  const pitch=document.getElementById('tactic-pitch');
+  document.querySelectorAll('[data-player-id]').forEach(node=>node.addEventListener('dragstart',event=>event.dataTransfer.setData('text/player-id',node.dataset.playerId)));
+  pitch?.querySelectorAll('[data-pitch-slot]').forEach(slot=>{
+    slot.addEventListener('dragover',event=>event.preventDefault());
+    slot.addEventListener('drop',event=>{event.preventDefault();const id=event.dataTransfer.getData('text/player-id');if(id)moveTacticPlayerToSlot(id,Number(slot.dataset.dropSlot));});
   });
-  document.querySelectorAll("[data-player-id]").forEach(node=>{
-    node.addEventListener("dragstart",event=>event.dataTransfer.setData("text/player-id",node.dataset.playerId));
-  });
-  pitch?.querySelectorAll("[data-drop-slot]").forEach(slot=>{
-    slot.addEventListener("dragover",event=>event.preventDefault());
-    slot.addEventListener("drop",event=>{
-      event.preventDefault();
-      const id=event.dataTransfer.getData("text/player-id");
-      if(id) swapTacticPlayers(Number(slot.dataset.dropSlot),id);
-    });
-  });
-  ["build-up","chance-creation","pressing","defensive-approach","tempo","focus"].forEach(id=>{
-    document.getElementById(id)?.addEventListener("change",event=>{
-      const key=id.replace(/-([a-z])/g,(_,c)=>c.toUpperCase()).replace(/^buildUp$/,"build_up").replace(/^chanceCreation$/,"chance_creation").replace(/^defensiveApproach$/,"defensive_approach");
+  ['build-up','chance-creation','pressing','defensive-approach','tempo','focus'].forEach(id=>{
+    document.getElementById(id)?.addEventListener('change',event=>{
+      const key=id.replace(/-([a-z])/g,(_,c)=>c.toUpperCase()).replace(/^buildUp$/,'build_up').replace(/^chanceCreation$/,'chance_creation').replace(/^defensiveApproach$/,'defensive_approach');
       state.tacticSettings[key]=event.target.value;
     });
   });
-  document.getElementById("tactic-width")?.addEventListener("input",event=>{
-    state.tacticSettings.width=Number(event.target.value);document.getElementById("width-value").textContent=event.target.value;
-  });
-  document.getElementById("tactic-depth")?.addEventListener("input",event=>{
-    state.tacticSettings.depth=Number(event.target.value);document.getElementById("depth-value").textContent=event.target.value;
-  });
-  document.querySelectorAll("[data-player-role]").forEach(node=>node.addEventListener("change",event=>{
-    state.tacticSettings.player_roles[event.target.dataset.playerRole]=event.target.value;
-  }));
-  document.getElementById("save-tactics")?.addEventListener("click",saveTactics);
+  document.getElementById('tactic-width')?.addEventListener('input',event=>{state.tacticSettings.width=Number(event.target.value);document.getElementById('width-value').textContent=event.target.value;});
+  document.getElementById('tactic-depth')?.addEventListener('input',event=>{state.tacticSettings.depth=Number(event.target.value);document.getElementById('depth-value').textContent=event.target.value;});
+  document.querySelectorAll('[data-player-role]').forEach(node=>node.addEventListener('change',event=>{state.tacticSettings.player_roles[event.target.dataset.playerRole]=event.target.value;}));
+  document.getElementById('save-tactics')?.addEventListener('click',saveTactics);
 }
+
 function renderFixtures(rows) {
   if(!rows.length) return `${pageHead("РАСПИСАНИЕ","Календарь","Календарь сезона 2026/27.")}<section class="panel"><div class="empty-state">Матчей пока нет</div></section>`;
   if(!state.calendarMonth){
