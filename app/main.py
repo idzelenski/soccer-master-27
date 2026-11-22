@@ -425,7 +425,15 @@ def catalog_leagues(conn: Connection = Depends(db_dep)) -> list:
            FROM sm27_club_pool GROUP BY league_code, league_name, league_level
            ORDER BY league_level, league_name"""
     ).fetchall()
-    return serialise([dict(row) for row in rows])
+    result = []
+    for row in rows:
+        player = dict(row)
+        if not player.get("nationality_flag"):
+            player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
+        if not player.get("secondary_positions"):
+            player["secondary_positions"] = list(SECONDARY_POSITIONS.get(player.get("position"), ()))
+        result.append(player)
+    return serialise(result)
 
 
 @app.get("/api/catalog/clubs")
@@ -525,7 +533,8 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             position = normalise_player_position(player["position"], source_id)
             secondary = list(SECONDARY_POSITIONS.get(position, ()))
             overall = overall_from_market_value(
-                int(player["market_value_eur"] or 0), age, int(team_records[-1]["reputation"])
+                int(player["market_value_eur"] or 0), age, int(team_records[-1]["reputation"]),
+                int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
             )
             potential = potential_from_overall(
                 overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
