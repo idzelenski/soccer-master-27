@@ -433,7 +433,6 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
         match=choose_match(row["name"],row["nationality"],row["club_name"],row["position"],index)
         age=int(row["age"] or 24)
         reputation=int(row["reputation"] or 50)
-        seed=int(hashlib.sha1(str(row["id"]).encode()).hexdigest()[:8],16)
         if match:
             matched+=1
             overall=int(match["overall"])
@@ -441,26 +440,30 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
             attributes=dict(match["attributes"] or {}) or fallback_attributes(overall,position)
             fc_id=match["ea_player_id"]
             profile_source=f"EA SPORTS FC 27 official ratings database · {FC27_SNAPSHOT.strftime('%d.%m.%Y')}"
-            market_source=row["market_value_source"] or "not_available"
-            if market_source == "SofaScore":
-                market_value=int(row["market_value"] or 0)
-            else:
-                market_value=0
-                market_source="not_available"
             potential=max(overall,int(row["potential"] or overall))
+            market_source=row["market_value_source"] or "not_available"
+            market_value=int(row["market_value"] or 0) if market_source=="SofaScore" else 0
+            if market_source!="SofaScore":
+                market_source="not_available"
+            source_url=row["source_url"]
+            original=dict(row["original_data"] or {})
+            original.pop("research",None)
+            rating_source="EA SPORTS FC 27 official ratings"
         else:
             fallback+=1
+            researched=get_researched_profile(row["name"],row["club_name"])
             market_source=row["market_value_source"] or "not_available"
-            market_value=int(row["market_value"] or 0) if market_source == "SofaScore" else 0
-            if market_source != "SofaScore":
+            market_value=int(row["market_value"] or 0) if market_source=="SofaScore" else 0
+            if market_source!="SofaScore":
                 market_source="not_available"
-            researched = get_researched_profile(row["name"])
             if researched:
                 overall=int(researched["overall"])
                 position=researched["position"]
                 attributes=dict(researched["attributes"])
                 potential=max(overall,int(researched["potential"]))
                 profile_source=researched["profile_source"]
+                source_url=researched["source_url"]
+                rating_source="FotMob 2026/27 researched estimate"
             else:
                 if market_value>0:
                     score=60+15*math.log10(max(market_value,25_000)/1_000_000)
@@ -475,21 +478,14 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
                 attributes=fallback_attributes(overall,position)
                 potential=max(overall,int(row["potential"] or overall))
                 profile_source="SM27 model estimate · no EA FC 27 player match"
-            fc_id=None
-            if match:
-                potential=max(overall,int(row["potential"] or overall))
                 source_url=row["source_url"]
-                original=dict(row["original_data"] or {})
-                original.pop("research",None)
-                rating_source="EA FC 27 official ratings API"
+                rating_source="SM27 model estimate"
+            fc_id=None
+            original=dict(row["original_data"] or {})
+            if researched:
+                original["research"]=researched["research"]
             else:
-                if not researched:
-                    potential=max(overall,int(row["potential"] or overall))
-                source_url=researched["source_url"] if researched else row["source_url"]
-                original=dict(row["original_data"] or {})
-                if researched:
-                    original["research"]=researched["research"]
-                rating_source="FotMob 2026/27 researched estimate" if researched else "SM27 model estimate"
+                original.pop("research",None)
         wage=estimated_weekly_wage(overall,age,reputation,row["name"])
         original.update({
             "rating_source":rating_source,
@@ -509,7 +505,6 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
         """,updates)
     print(f"Updated career player rows: {matched} FC 27 matches, {fallback} SM27 estimates")
     return matched,fallback
-
 
 def main(database_url: str | None = None) -> None:
     database_url = database_url or os.environ.get("DATABASE_URL")
