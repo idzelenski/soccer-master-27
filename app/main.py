@@ -1,0 +1,569 @@
+from __future__ import annotations
+
+import hashlib
+import random
+import re
+import uuid
+from contextlib import asynccontextmanager
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+from typing import Any
+
+from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from psycopg import Connection, errors
+from psycopg.types.json import Jsonb
+
+from app.auth import (
+    clear_session,
+    current_manager,
+    hash_password,
+    issue_session,
+    verify_password,
+)
+from app.config import settings
+from app.db import close_pool, connection, migrate
+from app.engine import overall_from_market_value, potential_from_overall, round_robin, simulate_score
+from app.schemas import CreateSaveIn, LoginIn, RegisterIn, TacticIn
+
+STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    if settings.database_url:
+        with connection() as conn:
+            migrate(conn)
+    yield
+    close_pool()
+
+
+app = FastAPI(title="Soccer Master 27 API", version="0.1.0", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+
+def db_dep():
+    with connection() as conn:
+        yield conn
+
+
+def manager_dep(request: Request, conn: Connection = Depends(db_dep)) -> dict:
+    return current_manager(request, conn)
+
+
+def serialise(row: Any) -> Any:
+    if isinstance(row, dict):
+        return {key: serialise(value) for key, value in row.items()}
+    if isinstance(row, (date, datetime)):
+        return row.isoformat()
+    if isinstance(row, uuid.UUID):
+        return str(row)
+    if isinstance(row, list):
+        return [serialise(item) for item in row]
+    return row
+
+
+
+def require_save(conn: Connection, manager_id: str) -> dict:
+    row = conn.execute(
+        """SELECT gs.id, gs.game_date, gs.season, gs.save_name, gs.managed_club_id,
+                  c.name AS club_name, c.league, c.country, c.logo_url, c.reputation,
+                  m.manager_name
+           FROM game_states gs
+           JOIN managers m ON m.id = gs.manager_id
+           LEFT JOIN clubs c ON c.id = gs.managed_club_id
+           WHERE gs.manager_id = %s AND gs.status = 'active'
+           ORDER BY gs.updated_at DESC LIMIT 1""",
+        (manager_id,),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Сохранение не найдено. Выберите клуб.")
+    return dict(row)
+
+
+def make_club(conn: Connection, game_state_id: str, pool_row: dict) -> str:
+    reputation = int(max(24, min(98, 82 - (int(pool_row["league_level"] or 1) - 1) * 10)))
+    capacity = pool_row.get("stadium_capacity") or 20000
+    budget = int(max(350_000, min(220_000_000, (reputation**2) * 22_000)))
+    row = conn.execute(
+        """INSERT INTO clubs (
+             game_state_id, external_id, name, short_name, country, league, original_league,
+             continent, star_rating, budget, stadium_name, stadium_capacity, logo_url,
+             primary_color, secondary_color, reputation
+           ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (game_state_id, external_id) DO UPDATE SET name = EXCLUDED.name
+           RETURNING id""",
+        (
+            game_state_id,
+            pool_row["source_id"],
+            pool_row["club_name"],
+            (pool_row["club_name"] or "SM27")[:20],
+            pool_row.get("country") or "—",
+            pool_row.get("league_name") or "Лига",
+            pool_row.get("league_name") or "Лига",
+            pool_row.get("continent") or "UEFA",
+            round(reputation / 20, 1),
+            budget,
+            pool_row.get("stadium"),
+            capacity,
+            pool_row.get("logo_url"),
+            (pool_row.get("colors_hex") or "").split(" | ")[0] or "#16A36A",
+            (pool_row.get("colors_hex") or "").split(" | ")[1] if " | " in (pool_row.get("colors_hex") or "") else "#102B22",
+            reputation,
+        ),
+    ).fetchone()
+    return str(row["id"])
+
+
+def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_name: str, reputation: int) -> None:
+    existing = conn.execute(
+        "SELECT count(*) AS n FROM players WHERE game_state_id=%s AND club_id=%s",
+        (game_state_id, club_id),
+    ).fetchone()["n"]
+    # Complete incomplete source squads with clearly marked fictional placeholders.
+    positions = ["GK", "GK", "DF", "DF", "DF", "DF", "DF", "DF", "MF", "MF", "MF", "MF", "MF", "MF", "FW", "FW", "FW", "FW"]
+    if existing >= len(positions):
+        return
+    for index, position in enumerate(positions[existing:], start=existing + 1):
+        overall = max(42, min(78, reputation - 4 + (index % 7)))
+        conn.execute(
+            """INSERT INTO players (game_state_id, club_id, external_id, name, age, position,
+                       overall, potential, market_value, weekly_wage, original_data, source_name)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s,0,0,%s,'SM27 generated roster')""",
+            (
+                game_state_id,
+                club_id,
+                f"generated:{club_id}:{index}",
+                f"Игрок академии {index:02d}",
+                18 + (index % 12),
+                position,
+                overall,
+                min(88, overall + 8),
+                Jsonb({"generated": True, "note": "Fictional game placeholder, not a real player"}),
+            ),
+        )
+
+
+def create_schedule(conn: Connection, game_state_id: str, tournament_id: str, teams: list[dict]) -> None:
+    ids = [str(team["id"]) for team in teams]
+    rounds = round_robin(ids)
+    start = date(2026, 8, 15)
+    for round_index, fixtures in enumerate(rounds):
+        match_date = datetime.combine(start + timedelta(days=7 * round_index), datetime.min.time()).replace(
+            tzinfo=timezone.utc
+        ) + timedelta(hours=14)
+        for home_id, away_id in fixtures:
+            conn.execute(
+                """INSERT INTO fixtures (game_state_id, tournament_id, season, match_date,
+                           matchday, home_club_id, away_club_id, status)
+                   VALUES (%s,%s,'2026/27',%s,%s,%s,%s,'scheduled')
+                   ON CONFLICT (game_state_id,tournament_id,season,match_date,home_club_id,away_club_id)
+                   DO NOTHING""",
+                (game_state_id, tournament_id, match_date, round_index + 1, home_id, away_id),
+            )
+
+
+@app.get("/")
+def index() -> FileResponse:
+    return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/api/health")
+def health() -> dict:
+    if not settings.database_url:
+        return {"status": "degraded", "database": "not_configured", "app": "SM27"}
+    try:
+        with connection() as conn:
+            conn.execute("SELECT 1").fetchone()
+        return {"status": "ok", "database": "connected", "app": "SM27"}
+    except Exception as exc:  # pragma: no cover - platform health response
+        return {"status": "error", "database": "unavailable", "detail": type(exc).__name__}
+
+
+@app.post("/api/auth/register")
+def register(body: RegisterIn, response: Response, conn: Connection = Depends(db_dep)) -> dict:
+    if len(body.password) < 8 or not re.search(r"[A-Za-zА-Яа-я]", body.password) or not re.search(r"\d", body.password):
+        raise HTTPException(status_code=422, detail="Пароль должен содержать буквы и хотя бы одну цифру")
+    try:
+        manager = conn.execute(
+            """INSERT INTO managers (manager_name, auth_subject, password_hash)
+               VALUES (%s,%s,%s) RETURNING id, manager_name, auth_subject""",
+            (body.name.strip(), f"sm27:{body.email}", hash_password(body.password)),
+        ).fetchone()
+    except errors.UniqueViolation:
+        raise HTTPException(status_code=409, detail="Аккаунт с таким email уже существует") from None
+    issue_session(conn, str(manager["id"]), response)
+    return {"manager": {"id": str(manager["id"]), "name": manager["manager_name"], "email": body.email}}
+
+
+@app.post("/api/auth/login")
+def login(body: LoginIn, response: Response, conn: Connection = Depends(db_dep)) -> dict:
+    manager = conn.execute(
+        "SELECT id, manager_name, auth_subject, password_hash FROM managers WHERE auth_subject=%s",
+        (f"sm27:{body.email}",),
+    ).fetchone()
+    if not manager or not verify_password(body.password, manager.get("password_hash")):
+        raise HTTPException(status_code=401, detail="Неверный email или пароль")
+    issue_session(conn, str(manager["id"]), response)
+    return {"manager": {"id": str(manager["id"]), "name": manager["manager_name"], "email": body.email}}
+
+
+@app.post("/api/auth/logout")
+def logout(request: Request, response: Response, conn: Connection = Depends(db_dep)) -> dict:
+    clear_session(conn, request, response)
+    return {"ok": True}
+
+
+@app.get("/api/me")
+def me(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    save = conn.execute(
+        "SELECT id, save_name, season, game_date FROM game_states WHERE manager_id=%s AND status='active' ORDER BY updated_at DESC LIMIT 1",
+        (manager["id"],),
+    ).fetchone()
+    return {
+        "manager": {"id": str(manager["id"]), "name": manager["manager_name"], "email": manager["auth_subject"].removeprefix("sm27:")},
+        "save": serialise(dict(save)) if save else None,
+    }
+
+
+@app.get("/api/catalog/summary")
+def catalog_summary(conn: Connection = Depends(db_dep)) -> dict:
+    counts = conn.execute(
+        """SELECT (SELECT count(*) FROM sm27_club_pool) AS clubs,
+                  (SELECT count(*) FROM world_player_catalog) AS players,
+                  (SELECT count(DISTINCT league_code) FROM sm27_club_pool) AS leagues,
+                  (SELECT max(source_snapshot) FROM sm27_club_pool) AS snapshot"""
+    ).fetchone()
+    return serialise(dict(counts))
+
+
+@app.get("/api/catalog/leagues")
+def catalog_leagues(conn: Connection = Depends(db_dep)) -> list:
+    rows = conn.execute(
+        """SELECT league_code AS code, league_name AS name, country, league_level,
+                  count(*)::int AS clubs, count(*) FILTER (WHERE has_squad)::int AS clubs_with_squads
+           FROM sm27_club_pool GROUP BY league_code, league_name, country, league_level
+           ORDER BY league_level, league_name"""
+    ).fetchall()
+    return serialise([dict(row) for row in rows])
+
+
+@app.get("/api/catalog/clubs")
+def catalog_clubs(
+    q: str = "", league: str | None = None, country: str | None = None,
+    limit: int = 100, offset: int = 0, conn: Connection = Depends(db_dep)
+) -> dict:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+    clauses = ["TRUE"]
+    params: list[Any] = []
+    if q.strip():
+        clauses.append("(club_name ILIKE %s OR country ILIKE %s OR league_name ILIKE %s)")
+        term = f"%{q.strip()}%"
+        params.extend([term, term, term])
+    if league:
+        clauses.append("league_code=%s")
+        params.append(league)
+    if country:
+        clauses.append("country_iso=%s")
+        params.append(country.upper())
+    where = " AND ".join(clauses)
+    rows = conn.execute(
+        f"""SELECT source_id, club_name, country, country_iso, league_name, league_code,
+                   league_level, division, city, stadium, stadium_capacity, colors_hex,
+                   logo_url, logo_license, has_squad, squad_count, sort_rank
+            FROM sm27_club_pool WHERE {where}
+            ORDER BY sort_rank, club_name LIMIT %s OFFSET %s""",
+        (*params, limit, offset),
+    ).fetchall()
+    total = conn.execute(f"SELECT count(*) AS n FROM sm27_club_pool WHERE {where}", params).fetchone()["n"]
+    return {"items": serialise([dict(row) for row in rows]), "total": total, "limit": limit, "offset": offset}
+
+
+@app.post("/api/saves")
+def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    active = conn.execute(
+        "SELECT id FROM game_states WHERE manager_id=%s AND status='active' LIMIT 1", (manager["id"],)
+    ).fetchone()
+    if active:
+        raise HTTPException(status_code=409, detail="У вас уже есть активное сохранение. Завершите его перед созданием нового.")
+    selected = conn.execute("SELECT * FROM sm27_club_pool WHERE source_id=%s", (body.club_source_id,)).fetchone()
+    if not selected:
+        raise HTTPException(status_code=404, detail="Клуб не найден в игровом каталоге")
+    selected = dict(selected)
+    league_code = selected["league_code"]
+    teams_rows = conn.execute(
+        "SELECT * FROM sm27_club_pool WHERE league_code=%s ORDER BY sort_rank, club_name LIMIT 24",
+        (league_code,),
+    ).fetchall()
+    teams = [dict(row) for row in teams_rows]
+    if len(teams) < 6:
+        teams_rows = conn.execute(
+            "SELECT * FROM sm27_club_pool WHERE country_iso=%s AND league_level=%s ORDER BY sort_rank, club_name LIMIT 20",
+            (selected.get("country_iso"), selected.get("league_level")),
+        ).fetchall()
+        teams = [dict(row) for row in teams_rows]
+    if selected["source_id"] not in {team["source_id"] for team in teams}:
+        teams.append(selected)
+    tournament_code = f"SM27-{league_code}"[:64]
+    tournament = conn.execute(
+        """INSERT INTO tournaments (code,name,country,continent,tournament_type,tier,format,active)
+           VALUES (%s,%s,%s,%s,'league',%s,%s,true)
+           ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, country=EXCLUDED.country,
+             continent=EXCLUDED.continent, tier=EXCLUDED.tier, format=EXCLUDED.format
+           RETURNING id""",
+        (tournament_code, selected.get("league_name") or "SM27 League", selected.get("country"),
+         selected.get("continent") or "UEFA", selected.get("league_level") or 1,
+         Jsonb({"points_win": 3, "points_draw": 1, "season": "2026/27"})),
+    ).fetchone()
+    game_state = conn.execute(
+        """INSERT INTO game_states (manager_id,save_slot,game_date,season,difficulty,status,save_name,game_settings)
+           VALUES (%s,(SELECT coalesce(max(save_slot),0)+1 FROM game_states WHERE manager_id=%s),DATE '2026-07-01','2026/27','normal','active',%s,%s) RETURNING id""",
+        (manager["id"], manager["id"], body.save_name.strip(), Jsonb({"source_snapshot": selected["source_snapshot"].isoformat()})),
+    ).fetchone()
+    game_state_id = str(game_state["id"])
+    team_records: list[dict] = []
+    for pool_row in teams:
+        club_id = make_club(conn, game_state_id, pool_row)
+        team_records.append({"id": club_id, "source_id": pool_row["source_id"], "name": pool_row["club_name"], "reputation": int(82 - (int(pool_row["league_level"] or 1) - 1) * 10)})
+        conn.execute(
+            """INSERT INTO club_tournaments (game_state_id,tournament_id,club_id,season)
+               VALUES (%s,%s,%s,'2026/27') ON CONFLICT DO NOTHING""",
+            (game_state_id, tournament["id"], club_id),
+        )
+        player_rows = conn.execute(
+            """SELECT source_id,name,date_of_birth,nationality,position,market_value_eur,market_value_as_of,raw_data
+               FROM world_player_catalog WHERE club_source_id=%s ORDER BY market_value_eur DESC LIMIT 30""",
+            (pool_row["source_id"],),
+        ).fetchall()
+        for player in player_rows:
+            dob = player["date_of_birth"]
+            age = max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425))) if dob else 24
+            overall = overall_from_market_value(int(player["market_value_eur"] or 0), age, int(team_records[-1]["reputation"]))
+            potential = potential_from_overall(overall, age, int(hashlib.sha1(str(player["source_id"]).encode()).hexdigest()[:8], 16))
+            raw = dict(player["raw_data"] or {})
+            raw.update({"market_value_as_of": player["market_value_as_of"].isoformat() if player["market_value_as_of"] else None,
+                        "game_rating_type": "SM27 estimate", "generated": False})
+            conn.execute(
+                """INSERT INTO players (game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
+                           overall,potential,market_value,attributes,original_data,source_name,data_verified_at)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (game_state_id,external_id) DO NOTHING""",
+                (game_state_id, club_id, player["source_id"], player["name"], player["nationality"], dob, age,
+                 player["position"] or "MF", overall, potential, int(player["market_value_eur"] or 0),
+                 Jsonb({"pace": overall, "shooting": overall, "passing": overall, "defending": overall, "physical": overall}),
+                 Jsonb(raw), "OpenFootballBase / Transfermarkt", player["market_value_as_of"]),
+            )
+    selected_game_club = next(row["id"] for row in team_records if row["source_id"] == selected["source_id"])
+    conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
+    ensure_demo_roster(conn, game_state_id, selected_game_club, selected["club_name"], 70)
+    create_schedule(conn, game_state_id, str(tournament["id"]), team_records)
+    return {"ok": True, "save_id": game_state_id, "club": selected["club_name"], "league": selected.get("league_name"), "teams": len(team_records)}
+
+
+@app.get("/api/dashboard")
+def dashboard(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    game_state_id = str(save["id"])
+    club_id = str(save["managed_club_id"])
+    next_match = conn.execute(
+        """SELECT f.id,f.match_date,f.matchday,f.status,h.name AS home_name,a.name AS away_name,
+                  f.home_score,f.away_score,(f.home_club_id=%s) AS is_home
+           FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
+           WHERE f.game_state_id=%s AND f.status='scheduled'
+             AND (f.home_club_id=%s OR f.away_club_id=%s)
+           ORDER BY f.match_date LIMIT 1""",
+        (club_id, game_state_id, club_id, club_id),
+    ).fetchone()
+    standings = conn.execute(
+        """SELECT c.id,c.name,c.logo_url,ct.played,ct.won,ct.drawn,ct.lost,ct.goals_for,
+                  ct.goals_against,ct.goal_difference,ct.points
+           FROM club_tournaments ct JOIN clubs c ON c.id=ct.club_id
+           WHERE ct.game_state_id=%s AND ct.tournament_id=(
+             SELECT tournament_id FROM club_tournaments WHERE game_state_id=%s AND club_id=%s LIMIT 1)
+           ORDER BY ct.points DESC, coalesce(ct.goal_difference,0) DESC, ct.goals_for DESC, c.name LIMIT 30""",
+        (game_state_id, game_state_id, club_id),
+    ).fetchall()
+    squad = conn.execute(
+        "SELECT count(*) AS players, coalesce(round(avg(overall)),0)::int AS avg_overall, coalesce(sum(market_value),0)::bigint AS squad_value FROM players WHERE game_state_id=%s AND club_id=%s",
+        (game_state_id, club_id),
+    ).fetchone()
+    my_position = next((index + 1 for index, row in enumerate(standings) if str(row["id"]) == club_id), None)
+    return serialise({
+        "save": save,
+        "next_match": dict(next_match) if next_match else None,
+        "standings": [dict(row) for row in standings],
+        "my_position": my_position,
+        "squad": dict(squad),
+    })
+
+
+@app.get("/api/squad")
+def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
+    save = require_save(conn, str(manager["id"]))
+    rows = conn.execute(
+        """SELECT id,name,age,position,overall,potential,market_value,weekly_wage,fatigue,
+                  injury_until,original_data FROM players
+           WHERE game_state_id=%s AND club_id=%s
+           ORDER BY CASE position WHEN 'GK' THEN 0 WHEN 'DF' THEN 1 WHEN 'MF' THEN 2 ELSE 3 END, overall DESC, name""",
+        (save["id"], save["managed_club_id"]),
+    ).fetchall()
+    return serialise([dict(row) for row in rows])
+
+
+@app.get("/api/tactics")
+def get_tactics(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    tactic = conn.execute(
+        "SELECT formation,mentality,style,starting_xi,bench FROM tactics WHERE game_state_id=%s AND club_id=%s",
+        (save["id"], save["managed_club_id"]),
+    ).fetchone()
+    return serialise(dict(tactic) if tactic else {"formation": "4-3-3", "mentality": "balanced", "style": {}, "starting_xi": [], "bench": []})
+
+
+@app.put("/api/tactics")
+def update_tactics(body: TacticIn, manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    valid_ids = {
+        str(row["id"]) for row in conn.execute(
+            "SELECT id FROM players WHERE game_state_id=%s AND club_id=%s", (save["id"], save["managed_club_id"])
+        ).fetchall()
+    }
+    if any(player_id not in valid_ids for player_id in body.starting_xi + body.bench):
+        raise HTTPException(status_code=422, detail="В тактике можно выбрать только игроков своего клуба")
+    conn.execute(
+        """INSERT INTO tactics (game_state_id,club_id,formation,mentality,style,starting_xi,bench)
+           VALUES (%s,%s,%s,%s,%s,%s,%s)
+           ON CONFLICT (game_state_id,club_id) DO UPDATE SET formation=EXCLUDED.formation,
+             mentality=EXCLUDED.mentality,style=EXCLUDED.style,starting_xi=EXCLUDED.starting_xi,
+             bench=EXCLUDED.bench,updated_at=now()""",
+        (save["id"], save["managed_club_id"], body.formation, body.mentality, Jsonb(body.style),
+         [uuid.UUID(player_id) for player_id in body.starting_xi], [uuid.UUID(player_id) for player_id in body.bench]),
+    )
+    return {"ok": True}
+
+
+@app.get("/api/fixtures")
+def fixtures(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep), limit: int = 40) -> list:
+    save = require_save(conn, str(manager["id"]))
+    limit = max(1, min(limit, 100))
+    rows = conn.execute(
+        """SELECT f.id,f.match_date,f.matchday,f.status,f.home_score,f.away_score,
+                  h.name AS home_name,a.name AS away_name,h.logo_url AS home_logo,a.logo_url AS away_logo
+           FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
+           WHERE f.game_state_id=%s ORDER BY f.match_date LIMIT %s""",
+        (save["id"], limit),
+    ).fetchall()
+    return serialise([dict(row) for row in rows])
+
+
+def update_table(conn: Connection, fixture: dict) -> None:
+    home_score, away_score = fixture["home_score"], fixture["away_score"]
+    for club_id, scored, conceded in [
+        (fixture["home_club_id"], home_score, away_score),
+        (fixture["away_club_id"], away_score, home_score),
+    ]:
+        won = int(scored > conceded)
+        drawn = int(scored == conceded)
+        lost = int(scored < conceded)
+        points = won * 3 + drawn
+        conn.execute(
+            """UPDATE club_tournaments SET played=played+1,won=won+%s,drawn=drawn+%s,lost=lost+%s,
+                       goals_for=goals_for+%s,goals_against=goals_against+%s
+               WHERE game_state_id=%s AND club_id=%s""",
+            (won, drawn, lost, scored, conceded, fixture["game_state_id"], club_id),
+        )
+        conn.execute(
+            "UPDATE club_tournaments SET points=points+%s WHERE game_state_id=%s AND club_id=%s",
+            (points, fixture["game_state_id"], club_id),
+        )
+
+
+def add_goal_events(conn: Connection, fixture: dict, result: dict) -> None:
+    for club_id, count in ((fixture["home_club_id"], result["home_score"]), (fixture["away_club_id"], result["away_score"])):
+        players = conn.execute(
+            "SELECT id FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC LIMIT 16",
+            (fixture["game_state_id"], club_id),
+        ).fetchall()
+        ids = [str(row["id"]) for row in players]
+        for _ in range(count):
+            minute = random.randint(3, 90)
+            scorer = random.choice(ids) if ids else None
+            conn.execute(
+                "INSERT INTO match_events (fixture_id,minute,event_type,club_id,player_id,detail) VALUES (%s,%s,'goal',%s,%s,%s)",
+                (fixture["id"], minute, club_id, scorer, Jsonb({"simulated": True})),
+            )
+
+
+@app.post("/api/game/advance")
+def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    next_date = conn.execute(
+        "SELECT match_date::date AS match_date FROM fixtures WHERE game_state_id=%s AND status='scheduled' ORDER BY match_date LIMIT 1",
+        (save["id"],),
+    ).fetchone()
+    if not next_date:
+        raise HTTPException(status_code=409, detail="Все матчи сезона сыграны")
+    match_date = next_date["match_date"]
+    rows = conn.execute(
+        """SELECT f.*,h.name AS home_name,a.name AS away_name,h.reputation AS home_rep,a.reputation AS away_rep
+           FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
+           WHERE f.game_state_id=%s AND f.status='scheduled' AND f.match_date::date=%s ORDER BY f.id""",
+        (save["id"], match_date),
+    ).fetchall()
+    completed = []
+    for row in rows:
+        fixture = dict(row)
+        averages = conn.execute(
+            "SELECT club_id,coalesce(avg(overall),60)::float AS avg_overall FROM players WHERE game_state_id=%s AND club_id IN (%s,%s) GROUP BY club_id",
+            (save["id"], fixture["home_club_id"], fixture["away_club_id"]),
+        ).fetchall()
+        rating = {str(item["club_id"]): item["avg_overall"] for item in averages}
+        seed = int(hashlib.sha256(f"{fixture['id']}:{match_date}".encode()).hexdigest()[:8], 16)
+        result = simulate_score(
+            fixture["home_rep"], fixture["away_rep"],
+            rating.get(str(fixture["home_club_id"]), 60), rating.get(str(fixture["away_club_id"]), 60), seed,
+        )
+        conn.execute(
+            """UPDATE fixtures SET status='completed',home_score=%s,away_score=%s,home_xg=%s,away_xg=%s,
+                       home_possession=%s,away_possession=%s,home_shots=%s,away_shots=%s,
+                       home_shots_on_target=%s,away_shots_on_target=%s,simulated_at=now()
+               WHERE id=%s""",
+            (result["home_score"], result["away_score"], result["home_xg"], result["away_xg"],
+             result["home_possession"], result["away_possession"], result["home_shots"], result["away_shots"],
+             result["home_shots_on_target"], result["away_shots_on_target"], fixture["id"]),
+        )
+        fixture.update(result)
+        update_table(conn, fixture)
+        add_goal_events(conn, fixture, result)
+        completed.append({"home": fixture["home_name"], "away": fixture["away_name"], "home_score": result["home_score"], "away_score": result["away_score"]})
+    conn.execute(
+        "UPDATE game_states SET game_date=%s,simulation_cursor=%s,last_simulated_at=now(),last_autosave_at=now(),updated_at=now() WHERE id=%s",
+        (match_date, match_date, save["id"]),
+    )
+    return {"ok": True, "matchday_date": match_date.isoformat(), "matches_simulated": len(completed), "results": completed}
+
+
+@app.get("/api/standings")
+def standings(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
+    save = require_save(conn, str(manager["id"]))
+    rows = conn.execute(
+        """SELECT c.name,c.logo_url,ct.played,ct.won,ct.drawn,ct.lost,ct.goals_for,ct.goals_against,
+                  ct.goal_difference,ct.points
+           FROM club_tournaments ct JOIN clubs c ON c.id=ct.club_id
+           WHERE ct.game_state_id=%s ORDER BY ct.points DESC,coalesce(ct.goal_difference,0) DESC,ct.goals_for DESC,c.name""",
+        (save["id"],),
+    ).fetchall()
+    return serialise([dict(row) for row in rows])
+
+
+@app.get("/api/data-status")
+def data_status(conn: Connection = Depends(db_dep)) -> dict:
+    counts = conn.execute(
+        """SELECT (SELECT count(*) FROM sm27_club_pool) AS clubs,
+                  (SELECT count(*) FROM world_player_catalog) AS players,
+                  (SELECT count(*) FROM sm27_club_pool WHERE has_squad) AS clubs_with_squads,
+                  (SELECT max(source_snapshot) FROM sm27_club_pool) AS snapshot"""
+    ).fetchone()
+    return serialise({"status": "ready" if counts["clubs"] >= 100 else "needs_import", **dict(counts)})
