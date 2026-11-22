@@ -224,3 +224,47 @@ def test_generic_server_error_does_not_claim_career_data_was_saved():
     source = Path("app/static/app.js").read_text(encoding="utf-8")
     assert "Данные сохранены" not in source
     assert "Результат действия не подтверждён" in source
+
+
+def test_fc27_matching_accepts_wide_roles_and_requires_the_correct_club():
+    from scripts.import_fc27_ratings import choose_match
+
+    index = {
+        "salemaldawsari": [
+            {"ea_player_id": 10, "nationality_code": "SAU", "position": "LM",
+             "club_name": "Al Hilal", "overall": 80},
+        ],
+        "crysenciosummerville": [
+            {"ea_player_id": 11, "nationality_code": "NLD", "position": "LM",
+             "club_name": "Al Hilal", "overall": 78},
+        ],
+        "gabrielmartinelli": [
+            {"ea_player_id": 12, "nationality_code": "BRA", "position": "LW",
+             "club_name": "Arsenal", "overall": 80},
+        ],
+    }
+    assert choose_match("Salem Al-Dawsari", "KSA", "Al Hilal SFC", "FW", index)["ea_player_id"] == 10
+    assert choose_match("Crysencio Summerville", "NED", "Al Hilal SFC", "FW", index)["ea_player_id"] == 11
+    assert choose_match("Gabriel Martinelli", "BRA", "Al Hilal SFC", "FW", index) is None
+
+
+def test_best_lineup_uses_global_role_assignment_for_wingers():
+    from app.main import best_lineup
+
+    players = [
+        {"id": "gk", "position": "GK", "overall": 70},
+        {"id": "lb", "position": "LB", "overall": 70},
+        {"id": "cb1", "position": "CB", "overall": 70},
+        {"id": "cb2", "position": "CB", "overall": 69},
+        {"id": "rb", "position": "RB", "overall": 70},
+        {"id": "cdm", "position": "CDM", "overall": 70},
+        {"id": "cm", "position": "CM", "overall": 70},
+        {"id": "cam", "position": "CAM", "overall": 70},
+        {"id": "true-lw", "position": "LW", "overall": 80},
+        {"id": "st", "position": "ST", "overall": 70},
+        {"id": "elite-rw", "position": "RW", "overall": 90},
+    ]
+    starters, _, roles = best_lineup(players, "4-3-3")
+    by_role = dict(zip(roles, starters))
+    assert by_role["LW"] == "true-lw"
+    assert by_role["RW"] == "elite-rw"
