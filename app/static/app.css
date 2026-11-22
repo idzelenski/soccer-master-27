@@ -348,3 +348,44 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
 .tactic-roster-item .tactic-player-row { flex: 1 1 auto; min-width: 0; }
 .roster-action { flex: 0 0 auto; border: 1px solid var(--line); border-radius: 8px; padding: 7px 8px; background: rgba(255,255,255,.04); color: var(--muted); font-size: 8px; font-weight: 800; }
 .roster-action:hover { color: var(--green-bright); border-color: rgba(65,217,139,.4); background: rgba(65,217,139,.08); }
+
+
+/* SM27 player data, condition icons, roster interaction and match calendar */
+.player-flag{display:inline-block;width:22px;height:16px;aspect-ratio:4/3;object-fit:cover;vertical-align:-3px;border-radius:3px;border:1px solid rgba(255,255,255,.16);box-shadow:0 1px 3px rgba(0,0,0,.22);flex:0 0 auto}
+.player-flag.flag-empty{background:linear-gradient(135deg,#23372e,#14241d);border-color:rgba(255,255,255,.12)}
+.player-modal-flag .player-flag{width:36px;height:27px;border-radius:4px}
+.condition-gems{display:inline-flex;align-items:center;gap:2px;vertical-align:middle;white-space:nowrap}
+.condition-gems svg{width:12px;height:16px;opacity:.28;filter:drop-shadow(0 1px 1px rgba(0,0,0,.25))}
+.condition-gems svg.active{opacity:1}
+.mood-face{display:inline-flex;vertical-align:middle;align-items:center}
+.mood-face svg{width:21px;height:21px;display:block;filter:drop-shadow(0 1px 2px rgba(0,0,0,.22))}
+.squad-legend{display:flex;align-items:center;gap:20px;margin-top:12px;color:var(--muted);font-size:11px}
+.squad-legend>span{display:inline-flex;align-items:center;gap:7px}
+.player-name{display:inline-flex;align-items:center;gap:7px}
+.source-official{color:#71dca0!important}.source-estimate{color:#b6a071!important}
+.player-state-grid-visual>div{display:flex;align-items:center;gap:8px;min-height:48px}
+.player-state-grid-visual>div>small{min-width:52px}
+.player-state-grid-visual>div>b{margin-left:auto}
+.position-training{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.9fr);gap:14px;align-items:center;margin:16px 0;padding:14px;border:1px solid var(--line);border-radius:14px;background:rgba(255,255,255,.025)}
+.position-training>div:first-child{display:grid;gap:4px}.position-training small{color:var(--muted);font-size:11px}
+.position-training form{display:flex;align-items:center;gap:8px}.position-training form .select-input{min-width:70px;max-width:110px}
+.training-progress{display:grid;gap:7px}.training-progress span{font-size:12px;color:var(--text)}.training-progress i{height:7px;border-radius:10px;background:#1a3026;overflow:hidden}.training-progress i b{display:block;height:100%;border-radius:10px;background:var(--accent)}
+.training-complete{color:var(--muted)}
+.attribute-details{margin-top:12px;border-top:1px solid var(--line);padding-top:12px}.attribute-details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:700}.attribute-details-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:12px}.attribute-detail{display:flex;justify-content:space-between;gap:8px;padding:7px 9px;border-radius:8px;background:rgba(255,255,255,.035);font-size:11px;text-transform:capitalize}.attribute-detail span{color:var(--muted)}
+.tactic-player-row.selected-player,.pitch-player.selected-player{outline:2px solid var(--accent);outline-offset:2px;box-shadow:0 0 0 4px rgba(65,217,139,.16)}
+.pitch-player.selected-player{z-index:5;transform:translate(-50%,-50%) scale(1.06)}
+.tactic-player-row{cursor:grab}.tactic-player-row:active{cursor:grabbing}
+.calendar-day{min-height:86px;align-content:start;gap:5px;overflow:hidden}
+.calendar-day-events{display:grid;gap:4px;width:100%;min-width:0}
+.calendar-day-match{display:flex;align-items:center;justify-content:center;gap:4px;min-width:0;font-size:9px;line-height:1.05}
+.calendar-day-crest .crest{width:17px;height:17px;min-width:17px;border-radius:5px}
+.calendar-day-score{font-size:9px;font-weight:900;white-space:nowrap;padding:2px 4px;border-radius:4px;background:rgba(255,255,255,.06)}
+.score-win{color:#69df99!important;background:rgba(65,217,139,.13)!important}
+.score-draw{color:#f2ca68!important;background:rgba(242,202,104,.13)!important}
+.score-loss{color:#ff8087!important;background:rgba(255,114,126,.13)!important}
+.calendar-more{font-size:9px;color:var(--muted)}
+.calendar-match-row{padding:12px 0;border-bottom:1px solid var(--line)}
+.calendar-match-meta{display:flex;align-items:center;gap:8px;margin-bottom:10px;flex-wrap:wrap}.calendar-match-meta span{color:var(--muted);font-size:10px}.calendar-match-meta b{font-size:10px;color:var(--text)}.calendar-match-meta em{margin-left:auto;font-style:normal;font-size:10px;color:var(--accent)}
+.calendar-match-opponent{display:flex;align-items:center;gap:10px}.calendar-match-opponent>div{display:grid;gap:3px;min-width:0;flex:1}.calendar-match-opponent>div b{font-size:12px}.calendar-match-opponent>div small{font-size:10px;color:var(--muted)}.calendar-match-opponent .crest{width:34px;height:34px;min-width:34px}.calendar-match-score{font-size:15px;font-weight:900;white-space:nowrap;padding:6px 8px;border-radius:7px;background:rgba(255,255,255,.05)}
+.calendar-legend{display:flex;align-items:center;gap:9px;flex-wrap:wrap;margin-top:14px;color:var(--muted);font-size:10px}.score-legend{width:8px;height:8px;border-radius:50%;display:inline-block}.score-legend.win{background:#69df99}.score-legend.draw{background:#f2ca68}.score-legend.loss{background:#ff8087}
+@media(max-width:760px){.position-training{grid-template-columns:1fr}.position-training form{flex-wrap:wrap}.attribute-details-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.calendar-day{min-height:68px;padding:6px 3px}.calendar-day-match{gap:2px}.calendar-day-crest .crest{width:14px;height:14px;min-width:14px}.calendar-day-score{font-size:8px;padding:2px}.squad-legend{gap:12px}}
