@@ -145,6 +145,9 @@ ALIASES = {
 }
 
 
-def get_researched_profile(name: str | None):
+def get_researched_profile(name: str | None, club_name: str | None = None):
     key = _key(name or "")
-    return RESEARCHED_PLAYER_PROFILES.get(ALIASES.get(key, key))
+    profile = RESEARCHED_PLAYER_PROFILES.get(ALIASES.get(key, key))
+    if profile and club_name and "spartakmoscow" not in _key(club_name):
+        return None
+    return profile

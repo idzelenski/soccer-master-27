@@ -477,19 +477,19 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
                 profile_source="SM27 model estimate · no EA FC 27 player match"
             fc_id=None
             if match:
-            potential=max(overall,int(row["potential"] or overall))
-            source_url=row["source_url"]
-            original=dict(row["original_data"] or {})
-            original.pop("research",None)
-            rating_source="EA FC 27 official ratings API"
-        else:
-            if not researched:
                 potential=max(overall,int(row["potential"] or overall))
-            source_url=researched["source_url"] if researched else row["source_url"]
-            original=dict(row["original_data"] or {})
-            if researched:
-                original["research"]=researched["research"]
-            rating_source="FotMob 2026/27 researched estimate" if researched else "SM27 model estimate"
+                source_url=row["source_url"]
+                original=dict(row["original_data"] or {})
+                original.pop("research",None)
+                rating_source="EA FC 27 official ratings API"
+            else:
+                if not researched:
+                    potential=max(overall,int(row["potential"] or overall))
+                source_url=researched["source_url"] if researched else row["source_url"]
+                original=dict(row["original_data"] or {})
+                if researched:
+                    original["research"]=researched["research"]
+                rating_source="FotMob 2026/27 researched estimate" if researched else "SM27 model estimate"
         wage=estimated_weekly_wage(overall,age,reputation,row["name"])
         original.update({
             "rating_source":rating_source,

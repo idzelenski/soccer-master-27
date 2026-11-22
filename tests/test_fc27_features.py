@@ -154,7 +154,7 @@ def test_fc27_matching_uses_position_groups_and_rejects_wrong_clubs():
 def test_researched_profiles_are_source_linked_and_not_labelled_as_ea():
     from app.researched_profiles import get_researched_profile
 
-    profile = get_researched_profile("Esequiel Barco")
+    profile = get_researched_profile("Esequiel Barco", "FC Spartak Moscow")
     assert profile is not None
     assert profile["overall"] == 80
     assert profile["position"] == "CAM"
@@ -162,4 +162,5 @@ def test_researched_profiles_are_source_linked_and_not_labelled_as_ea():
     assert profile["research"]["source"] == "FotMob"
     assert profile["research"]["season"] == "2026/27"
     assert profile["source_url"].startswith("https://www.fotmob.com/players/")
+    assert get_researched_profile("Esequiel Barco", "Arsenal") is None
     assert get_researched_profile("An unknown academy player") is None

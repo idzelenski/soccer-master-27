@@ -654,7 +654,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             age = max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425))) if dob else 24
             source_id = str(player["source_id"])
             fc27_id = player.get("fc27_player_id")
-            researched = get_researched_profile(player["name"]) if not fc27_id else None
+            researched = get_researched_profile(player["name"], pool_row["club_name"]) if not fc27_id else None
             position = researched["position"] if researched else normalise_player_position(
                 player.get("fc27_position") or player["position"], source_id
             )
