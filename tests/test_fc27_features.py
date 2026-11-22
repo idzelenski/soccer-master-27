@@ -83,6 +83,7 @@ def test_fc27_import_matches_full_and_short_player_names():
             "nationality_code": "ESP",
             "club_name": "Arsenal",
             "position": "CDM",
+            "overall": 87,
         },
         {
             "ea_player_id": 263578,
@@ -92,6 +93,7 @@ def test_fc27_import_matches_full_and_short_player_names():
             "nationality_code": "ESP",
             "club_name": "FC Barcelona",
             "position": "LB",
+            "overall": 84,
         },
         {
             "ea_player_id": 277179,
@@ -101,6 +103,7 @@ def test_fc27_import_matches_full_and_short_player_names():
             "nationality_code": "ESP",
             "club_name": "FC Barcelona",
             "position": "CAM",
+            "overall": 80,
         },
         {
             "ea_player_id": 231936,
@@ -110,6 +113,7 @@ def test_fc27_import_matches_full_and_short_player_names():
             "nationality_code": "ENG",
             "club_name": "Arsenal",
             "position": "RB",
+            "overall": 83,
         },
     ]
     index = match_candidates(records)
@@ -117,3 +121,27 @@ def test_fc27_import_matches_full_and_short_player_names():
     assert choose_match("Alejandro Balde", "ESP", "FC Barcelona", "RWB", index)["ea_player_id"] == 263578
     assert choose_match("Fermín López", "ESP", "FC Barcelona", "CAM", index)["ea_player_id"] == 277179
     assert choose_match("Ben White", "ENG", "Arsenal", "RB", index)["ea_player_id"] == 231936
+
+
+def test_fc27_matching_uses_position_groups_and_rejects_wrong_clubs():
+    from scripts.import_fc27_ratings import choose_match
+
+    index = {
+        "vitinha": [
+            {"ea_player_id": 1, "nationality_code": "PRT", "position": "CM", "club_name": "Paris SG", "overall": 90},
+            {"ea_player_id": 2, "nationality_code": "PRT", "position": "ST", "club_name": "Genoa", "overall": 75},
+        ],
+        "marquinhos": [
+            {"ea_player_id": 3, "nationality_code": "BRA", "position": "CB", "club_name": "Paris SG", "overall": 87},
+            {"ea_player_id": 4, "nationality_code": "BRA", "position": "LM", "club_name": "APOEL FC", "overall": 71},
+            {"ea_player_id": 5, "nationality_code": "BRA", "position": "ST", "club_name": "Cruzeiro", "overall": 70},
+        ],
+        "ederson": [
+            {"ea_player_id": 6, "nationality_code": "BRA", "position": "GK", "club_name": "Fenerbahçe", "overall": 82},
+            {"ea_player_id": 7, "nationality_code": "BRA", "position": "CM", "club_name": "Bergamo Calcio", "overall": 82},
+        ],
+    }
+    assert choose_match("Vitinha", "Portugal", "Paris Saint-Germain", "MF", index)["ea_player_id"] == 1
+    assert choose_match("Marquinhos", "BRA", "Paris Saint-Germain", "DF", index)["ea_player_id"] == 3
+    assert choose_match("Marquinhos", "BRA", "FC Spartak Moscow", "MF", index) is None
+    assert choose_match("Ederson", "BRA", "Fenerbahçe Istanbul", "GK", index)["ea_player_id"] == 6

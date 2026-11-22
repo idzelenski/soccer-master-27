@@ -312,6 +312,8 @@ def club_match_score(left, right):
         return 0
     if left_key == right_key:
         return 5
+    if min(len(left_key), len(right_key)) >= 5 and (left_key.startswith(right_key) or right_key.startswith(left_key)):
+        return 3
     for canonical, aliases in CLUB_ALIASES.items():
         variants = {normalise_name(canonical), *(normalise_name(alias) for alias in aliases)}
         if left_key in variants and right_key in variants:
