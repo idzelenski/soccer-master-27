@@ -95,7 +95,7 @@ function renderClubSelection() {
   const clubCards = state.clubs.map((club) => `
     <button class="club-card" data-club="${esc(club.source_id)}">
       ${crest(club.club_name, club.logo_url)}
-      <span><b>${esc(club.club_name)}</b><small>${esc(club.country || '—')} · ${esc(club.league_name || 'Лига')}</small><em>${club.has_squad ? `Состав: ${club.squad_count} игроков` : 'Игровой состав будет сформирован'}</em></span>
+      <span><b>${esc(club.club_name)} <i class="club-star-rating">${club.fifa_stars ? Number(club.fifa_stars).toFixed(1) + ' ★' : ''}</i></b><small>${esc(club.country || '—')} · ${esc(club.league_name || 'Лига')}</small><em>${club.has_squad ? `Состав: ${club.squad_count} игроков` : 'Игровой состав будет сформирован'}</em></span>
     </button>`).join('');
   const leagueOptions = ['<option value="">Все лиги</option>', ...state.leagues.map((league) => `<option value="${esc(league.code)}" ${state.league===league.code?'selected':''}>${esc(league.name)} · ${league.clubs}</option>`)].join('');
   app.innerHTML = `<main class="onboard">
@@ -163,7 +163,10 @@ function shell(content, title = 'Обзор') {
       <div class="sidebar-brand"><div class="brand-icon">SM</div><div><strong>SOCCER MASTER 27</strong><small>FOOTBALL MANAGER</small></div></div>
       <div class="nav-label">МЕНЕДЖМЕНТ</div>
       <nav class="nav-list">${navItems().map(([id,icon,label])=>`<button class="nav-item ${state.tab===id?'active':''}" data-nav="${id}"><span class="nav-ico">${icon}</span>${label}</button>`).join('')}</nav>
-      <div class="nav-label">АККАУНТ</div><nav class="nav-list"><button class="nav-item" id="logout"><span class="nav-ico">↪</span>Выйти</button></nav>
+      <div class="nav-label">АККАУНТ</div><nav class="nav-list">
+        <button class="nav-item" id="restart-career"><span class="nav-ico">↻</span>Новая карьера</button>
+        <button class="nav-item" id="logout"><span class="nav-ico">↪</span>Выйти</button>
+      </nav>
       <div class="sidebar-bottom"><div class="club-mini">${crest(club,state.save?.logo_url)}<span><b>${esc(club)}</b><small>${esc(state.save?.league || 'Сезон 2026/27')}</small></span></div></div>
     </aside>
     <main class="main-area">
@@ -173,6 +176,17 @@ function shell(content, title = 'Обзор') {
   </div>`;
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => { state.tab = button.dataset.nav; renderCurrent(); }));
   document.getElementById('logout').addEventListener('click', logout);
+  document.getElementById('restart-career').addEventListener('click', restartCareer);
+}
+async function restartCareer() {
+  if (!window.confirm('Начать новую карьеру? Текущее сохранение будет архивировано. Все игровые параметры новой карьеры создадутся заново.')) return;
+  const button=document.getElementById('restart-career'); if(button) button.disabled=true;
+  try {
+    await api('/api/saves/restart',{method:'POST',body:'{}'});
+    state.save=null;state.tab='home';state.tactics=null;state.squad=[];state.fixtures=[];
+    await loadClubPage();
+    toast('Карьера завершена. Выбери новый клуб.');
+  } catch(err){toast(err.message,true);if(button)button.disabled=false;}
 }
 function renderHome(data) {
   const save = data.save;
@@ -571,13 +585,13 @@ async function renderCurrent() {
       document.querySelectorAll('[data-nav="table"]').forEach((button) => button.addEventListener('click',()=>{state.tab='table';renderCurrent();}));
     } else if (state.tab === 'squad') {
       const players = await api('/api/squad'); state.squad = players; shell(renderSquad(players), 'Состав');
+      document.querySelectorAll('[data-player-details]').forEach(row => row.addEventListener('click', () => showPlayerDetails(row.dataset.playerDetails)));
     } else if (state.tab === 'tactics') {
-      const [players,tactics] = await Promise.all([api('/api/squad'),api('/api/tactics')]); state.squad=players;state.tactics=tactics; shell(renderTactics(players,tactics),'Тактика');
-      const checks = () => { const checked = [...document.querySelectorAll('.xi-check:checked')]; document.querySelectorAll('.xi-check:not(:checked)').forEach(el=>el.disabled=checked.length>=11); };
-      document.querySelectorAll('.xi-check').forEach(el=>el.addEventListener('change',checks));
-      document.getElementById('save-tactics').addEventListener('click',saveTactics);
+      const [players,tactics] = await Promise.all([api('/api/squad'),api('/api/tactics')]);
+      state.squad=players; state.tactics=tactics; ensureTacticState(players,tactics);
+      shell(renderTactics(players,tactics),'Тактика'); setupTacticsInteractions();
     } else if (state.tab === 'fixtures') {
-      const rows = await api('/api/fixtures?limit=80'); state.fixtures=rows; shell(renderFixtures(rows),'Календарь');
+      const rows = await api('/api/fixtures?limit=400'); state.fixtures=rows; shell(renderFixtures(rows),'Календарь'); setupCalendarInteractions();
     } else if (state.tab === 'table') {
       const rows = await api('/api/standings'); shell(renderTable(rows),'Таблица');
     }
@@ -587,11 +601,17 @@ async function renderCurrent() {
   }
 }
 async function saveTactics() {
-  const starting_xi = [...document.querySelectorAll('.xi-check:checked')].map(el=>el.value);
+  const starting_xi = state.tacticSlots.filter(Boolean);
+  const bench = state.tacticBench.filter(id => !starting_xi.includes(id)).slice(0,9);
+  if (starting_xi.length !== 11) { toast('На поле должно быть 11 игроков',true); return; }
+  if (bench.length < 5) { toast('В запасе должно быть минимум 5 игроков',true); return; }
+  const button=document.getElementById('save-tactics'); if(button){button.disabled=true;button.textContent='Сохраняем…';}
   try {
-    await api('/api/tactics',{method:'PUT',body:JSON.stringify({formation:document.getElementById('formation').value,mentality:document.getElementById('mentality').value,starting_xi,bench:[]})});
+    const formation=document.getElementById('formation').value;
+    const style={...state.tacticSettings,slot_roles:formationSlots(formation).map((slot,index)=>({player_id:starting_xi[index],role:slot.role}))};
+    await api('/api/tactics',{method:'PUT',body:JSON.stringify({formation,mentality:'balanced',style,starting_xi,bench})});
     toast('Тактика сохранена'); await renderCurrent();
-  } catch(err){toast(err.message,true);}
+  } catch(err){toast(err.message,true);if(button){button.disabled=false;button.textContent='Сохранить';}}
 }
 async function advanceGame() {
   const button = document.getElementById('advance-game'); if(button){button.disabled=true;button.textContent='Симулируем матчи…';}
