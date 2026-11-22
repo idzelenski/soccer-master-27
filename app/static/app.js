@@ -238,7 +238,7 @@ function renderSquad(players) {
       '<td>'+money(player.weekly_wage)+'<div class="data-source">/ нед.</div><div class="data-source">'+esc(player.wage_source||'SM27 estimate')+'</div></td>'+
       '<td>'+conditionGems(player.sharpness)+'</td><td>'+moodFace(player.morale)+'</td></tr>';
   }).join('');
-  return pageHead('ПЕРВАЯ КОМАНДА','Состав',players.length+' игроков · выбери футболиста, чтобы открыть профиль')+
+  return pageHead('ПЕРВАЯ КОМАНДА','Состав',players.length+' игроков · выбери футболиста, чтобы открыть профиль','<button id="sync-player-data" class="btn-secondary">Синхронизировать FC 27 / Sofascore</button>')+
     '<section class="panel"><div class="panel-head"><h3>Игроки первой команды</h3><span>OVR / POTENTIAL / VALUE</span></div>'+
     '<div class="table-wrap squad-table-wrap"><table class="squad-table"><thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ТОНУС</th><th>НАСТРОЙ</th></tr></thead><tbody>'+(rows||'<tr><td colspan="11">Состав не загружен</td></tr>')+'</tbody></table></div>'+
     '<div class="squad-legend"><span>'+conditionGems(100)+' Тонус</span><span>'+moodFace(100)+' Настрой</span></div>'+
@@ -611,6 +611,16 @@ async function renderCurrent() {
     } else if (state.tab === 'squad') {
       const players = await api('/api/squad'); state.squad = players; shell(renderSquad(players), 'Состав');
       document.querySelectorAll('[data-player-details]').forEach(row => row.addEventListener('click', () => showPlayerDetails(row.dataset.playerDetails)));
+      document.getElementById('sync-player-data')?.addEventListener('click', async event => {
+        const button=event.currentTarget;button.disabled=true;button.textContent='Синхронизация...';
+        try {
+          const result=await api('/api/squad/sync-player-data',{method:'POST'});
+          toast('Обновлено FC 27: '+result.fc27_matched+' · Sofascore: '+result.sofascore_matched+' · без совпадения: '+result.unmatched);
+          await renderCurrent();
+        } catch(error) {
+          button.disabled=false;button.textContent='Повторить синхронизацию';toast(error.message,true);
+        }
+      });
     } else if (state.tab === 'tactics') {
       const [players,tactics] = await Promise.all([api('/api/squad'),api('/api/tactics')]);
       state.squad=players; state.tactics=tactics; ensureTacticState(players,tactics);
