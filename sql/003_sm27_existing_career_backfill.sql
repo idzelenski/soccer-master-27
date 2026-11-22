@@ -1,5 +1,5 @@
 -- Upgrade already-created careers to SM27 player and club profile rules.
--- Idempotent: only legacy/gap fields are filled; existing sourced market values are preserved.
+-- Idempotent: only legacy/gap fields are filled, and existing sourced market values are preserved.
 
 WITH base AS (
   SELECT p.*,
