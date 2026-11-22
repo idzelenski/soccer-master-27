@@ -651,7 +651,15 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                     overall DESC, name""",
         (save["id"], save["managed_club_id"]),
     ).fetchall()
-    return serialise([dict(row) for row in rows])
+    result = []
+    for row in rows:
+        player = dict(row)
+        if not player.get("nationality_flag"):
+            player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
+        if not player.get("secondary_positions"):
+            player["secondary_positions"] = list(SECONDARY_POSITIONS.get(player.get("position"), ()))
+        result.append(player)
+    return serialise(result)
 
 
 @app.get("/api/tactics")
