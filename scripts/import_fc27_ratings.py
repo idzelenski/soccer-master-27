@@ -346,7 +346,7 @@ def choose_match(name, nationality, club_name, position, index):
                 continue
             score += 3
         club_score = club_match_score(club_name, candidate["club_name"])
-        if len(candidates) > 1 and club_score == 0:
+        if len(candidates) > 1 and club_score < 3:
             continue
         score += club_score
         if (position or "").upper() == candidate["position"]:
