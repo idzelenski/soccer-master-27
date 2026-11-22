@@ -34,12 +34,10 @@ async function api(url, options = {}) {
   }
   return data;
 }
-function crest(name, logo) {
+function crest(name, logo, size = 'normal') {
   const fallback = esc(initials(name));
-  if (logo && String(logo).startsWith('https://')) {
-    return `<div class="crest"><span>${fallback}</span><img src="${esc(logo)}" alt="Эмблема ${esc(name)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.remove()"></div>`;
-  }
-  return `<div class="crest">${fallback}</div>`;
+  const safeLogo = typeof logo === 'string' && /^https:\/\//i.test(logo) ? logo : '';
+  return `<span class="crest ${size === 'large' ? 'crest-large' : ''}" role="img" aria-label="Эмблема ${esc(name)}"><span class="crest-fallback">${fallback}</span>${safeLogo ? `<img src="${esc(safeLogo)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true;this.previousElementSibling.hidden=false">` : ''}</span>`;
 }
 function pageHead(kicker, title, description, action = '') {
   return `<div class="page-head"><div><div class="eyebrow">${esc(kicker)}</div><h1>${esc(title)}</h1><p>${esc(description || '')}</p></div>${action}</div>`;
@@ -85,7 +83,7 @@ function renderAuth(mode = 'login', error = '') {
 }
 async function loadClubPage() {
   const [summary, leagues, clubsPage] = await Promise.all([
-    api('/api/catalog/summary'), api('/api/catalog/leagues'), api('/api/catalog/clubs?limit=200')
+    api('/api/catalog/summary'), api('/api/catalog/leagues'), api('/api/catalog/clubs?limit=200&sort=alphabetical')
   ]);
   state.summary = summary; state.leagues = leagues; state.clubs = clubsPage.items;
   state.clubTotal = clubsPage.total; state.clubOffset = clubsPage.items.length;
@@ -115,7 +113,7 @@ function renderClubSelection() {
 let searchTimer;
 function debounce(fn, delay) { return (...args) => { clearTimeout(searchTimer); searchTimer = setTimeout(() => fn(...args), delay); }; }
 async function refreshClubList() {
-  const query = new URLSearchParams({limit:'200',q:state.search,league:state.league});
+  const query = new URLSearchParams({limit:'200',q:state.search,league:state.league,sort:'alphabetical'});
   try {
     query.set('offset','0');
     const data = await api(`/api/catalog/clubs?${query.toString()}`); state.clubs = data.items; state.clubTotal = data.total; state.clubOffset = data.items.length;
@@ -136,7 +134,7 @@ async function loadMoreClubs() {
   const button = document.getElementById('load-more-clubs'); if (!button) return;
   button.disabled = true; button.textContent = 'Загружаем…';
   try {
-    const query = new URLSearchParams({limit:'200',offset:String(state.clubOffset),q:state.search,league:state.league});
+    const query = new URLSearchParams({limit:'200',offset:String(state.clubOffset),q:state.search,league:state.league,sort:'alphabetical'});
     const data = await api(`/api/catalog/clubs?${query.toString()}`);
     state.clubs.push(...data.items); state.clubOffset += data.items.length; state.clubTotal = data.total;
     const node = document.getElementById('club-grid');
@@ -193,10 +191,10 @@ function renderHome(data) {
   const match = data.next_match;
   const matchCard = match ? `<section class="panel hero-match">
     <div class="match-top"><span class="live-tag">СЛЕДУЮЩИЙ МАТЧ · ТУР ${esc(match.matchday||'—')}</span><span class="match-date">${dateLabel(match.match_date)}</span></div>
-    <div class="match-teams"><div class="match-team"><div class="match-crest">${esc(initials(match.home_name))}</div><b>${esc(match.home_name)}</b><small>${match.is_home?'Хозяева':'Гости'}</small></div><div class="vs">VS</div><div class="match-team"><div class="match-crest">${esc(initials(match.away_name))}</div><b>${esc(match.away_name)}</b><small>${match.is_home?'Гости':'Хозяева'}</small></div></div>
+    <div class="match-teams"><div class="match-team">${crest(match.home_name, match.home_logo, 'large')}<b>${esc(match.home_name)}</b><small>${match.is_home?'Хозяева':'Гости'}</small></div><div class="vs">VS</div><div class="match-team">${crest(match.away_name, match.away_logo, 'large')}<b>${esc(match.away_name)}</b><small>${match.is_home?'Гости':'Хозяева'}</small></div></div>
     <div class="match-bottom"><small>Время продолжить сезон</small><button class="btn-primary" id="advance-game">Сыграть тур →</button></div>
   </section>` : `<section class="panel hero-match"><div class="match-top"><span class="live-tag">СЕЗОН</span><span class="match-date">2026 / 27</span></div><div class="empty-state"><strong>Матчи сезона завершены</strong>Новая глава начнётся со следующего сезона.</div></section>`;
-  const standingRows = data.standings.slice(0,6).map((row,index) => `<tr class="${row.name===save.club_name?'me-row':''}"><td>${index+1}</td><td><div class="team-cell"><span class="team-dot">${esc(initials(row.name))}</span>${esc(row.name)}</div></td><td>${row.played}</td><td>${row.goal_difference || 0}</td><td><b>${row.points}</b></td></tr>`).join('');
+  const standingRows = data.standings.slice(0,6).map((row,index) => `<tr class="${row.name===save.club_name?'me-row':''}"><td>${index+1}</td><td><div class="team-cell">${crest(row.name, row.logo_url)}${esc(row.name)}</div></td><td>${row.played}</td><td>${row.goal_difference || 0}</td><td><b>${row.points}</b></td></tr>`).join('');
   return `${pageHead('ЦЕНТР УПРАВЛЕНИЯ', 'Добро пожаловать, '+(state.manager?.name || 'тренер'), `${esc(save.club_name)} · ${esc(save.league)} · ${dateLabel(save.game_date)}`)}
     <div class="grid-main"><div>${matchCard}<div class="stats-strip">
       <div class="stat-card"><span>МЕСТО В ЛИГЕ</span><b>${data.my_position || '—'}<small style="font-size:11px;color:var(--muted)"> / ${data.standings.length}</small></b><small>Текущая позиция</small></div>
@@ -572,7 +570,7 @@ function renderFixtures(rows) {
   const selectedRows=byDate.get(selected)||[];
   const selectedContent=selectedRows.length?selectedRows.map(f=>`<div class="calendar-match-row">
     <small>ТУР ${f.matchday||"—"} · ${f.status==="completed"?"СЫГРАН":"ЗАПЛАНИРОВАН"}</small>
-    <b>${esc(f.home_name)} <span>${f.status==="completed"?`${f.home_score} : ${f.away_score}`:"— : —"}</span> ${esc(f.away_name)}</b>
+    <div class="calendar-teams">${crest(f.home_name,f.home_logo)}<b>${esc(f.home_name)}</b><span>${f.status==="completed"?`${f.home_score} : ${f.away_score}`:"— : —"}</span><b>${esc(f.away_name)}</b>${crest(f.away_name,f.away_logo)}</div>
   </div>`).join(""):'<div class="empty-state">На выбранную дату матчей нет</div>';
   const weekdays=["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map(d=>`<span>${d}</span>`).join("");
   return `${pageHead("СЕЗОН 2026/27","Календарь","Месячный календарь матчей и событий твоей карьеры.")}
@@ -595,7 +593,7 @@ function setupCalendarInteractions() {
 
 function renderTable(rows) {
   return `${pageHead('ЧЕМПИОНАТ','Турнирная таблица','Каждый сыгранный тур обновляет положение команд.')}
-    <section class="panel"><div class="panel-head"><h3>${esc(state.save?.league || 'Лига')}</h3><span>СЕЗОН 2026 / 27</span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead><tbody>${rows.map((r,i)=>`<tr class="${r.name===state.save?.club_name?'me-row':''}"><td>${i+1}</td><td><div class="team-cell"><span class="team-dot">${esc(initials(r.name))}</span>${esc(r.name)}</div></td><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference||0}</td><td><b>${r.points}</b></td></tr>`).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div></section>`;
+    <section class="panel"><div class="panel-head"><h3>${esc(state.save?.league || 'Лига')}</h3><span>СЕЗОН 2026 / 27</span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead><tbody>${rows.map((r,i)=>`<tr class="${r.name===state.save?.club_name?'me-row':''}"><td>${i+1}</td><td><div class="team-cell">${crest(r.name, r.logo_url)}${esc(r.name)}</div></td><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference||0}</td><td><b>${r.points}</b></td></tr>`).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div></section>`;
 }
 async function renderCurrent() {
   try {
