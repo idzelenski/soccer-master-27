@@ -351,15 +351,22 @@ def index() -> FileResponse:
 
 
 @app.get("/api/health")
-def health() -> dict:
+def health() -> dict | JSONResponse:
     if not settings.database_url:
-        return {"status": "degraded", "database": "not_configured", "app": "SM27"}
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "database": "not_configured", "app": "SM27"},
+        )
     try:
         with connection() as conn:
             conn.execute("SELECT 1").fetchone()
         return {"status": "ok", "database": "connected", "app": "SM27"}
     except Exception as exc:  # pragma: no cover - platform health response
-        return {"status": "error", "database": "unavailable", "detail": type(exc).__name__}
+        LOGGER.warning("Health check could not reach Neon: %s", type(exc).__name__)
+        return JSONResponse(
+            status_code=503,
+            content={"status": "degraded", "database": "unavailable", "detail": type(exc).__name__},
+        )
 
 
 @app.post("/api/auth/register")
@@ -427,15 +434,7 @@ def catalog_leagues(conn: Connection = Depends(db_dep)) -> list:
            FROM sm27_club_pool GROUP BY league_code, league_name, league_level
            ORDER BY league_level, league_name"""
     ).fetchall()
-    result = []
-    for row in rows:
-        player = dict(row)
-        if not player.get("nationality_flag"):
-            player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
-        if not player.get("secondary_positions"):
-            player["secondary_positions"] = list(SECONDARY_POSITIONS.get(player.get("position"), ()))
-        result.append(player)
-    return serialise(result)
+    return serialise([dict(row) for row in rows])
 
 
 @app.get("/api/catalog/clubs")
