@@ -10,7 +10,7 @@ import unicodedata
 
 
 def _key(value: str) -> str:
-    text = (value or "").replace("Đ", "D").replace("đ", "d")
+    text = (value or "").replace("Đ", "Dj").replace("đ", "dj")
     text = unicodedata.normalize("NFKD", text)
     text = "".join(char for char in text if not unicodedata.combining(char))
     return re.sub(r"[^a-z0-9]", "", text.casefold())
