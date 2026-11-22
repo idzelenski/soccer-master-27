@@ -13,6 +13,7 @@ WITH base AS (
   FROM players p
   JOIN game_states gs ON gs.id=p.game_state_id
   WHERE gs.status='active'
+    AND p.original_data->>'generated' IS DISTINCT FROM 'true'
 ), valued AS (
   SELECT *,
     CASE WHEN market_value>0 THEN market_value ELSE
@@ -49,7 +50,6 @@ WITH base AS (
 UPDATE players p SET
   position=e.new_position,
   secondary_positions=coalesce(p.secondary_positions, ARRAY[]::text[]),
-  market_value=CASE WHEN p.market_value<=0 THEN e.estimated_value ELSE p.market_value END,
   weekly_wage=CASE WHEN p.weekly_wage<=0
     THEN greatest(250,least(1500000,round(e.estimated_value*0.00154/100)*100))::bigint
     ELSE p.weekly_wage END,
@@ -82,7 +82,7 @@ UPDATE players p SET
 FROM enriched e
 WHERE p.id=e.id
   AND (p.position IN ('DF','MF','FW')
-       OR p.market_value<=0 OR p.weekly_wage<=0 OR p.contract_end IS NULL
+       OR p.weekly_wage<=0 OR p.contract_end IS NULL
        OR NOT (p.attributes ? 'PAC' OR p.attributes ? 'DIV'));
 
 UPDATE clubs c
@@ -92,4 +92,7 @@ SET star_rating=p.fifa_stars,
     updated_at=now()
 FROM sm27_club_pool p
 WHERE c.external_id=p.source_id
-  AND c.game_state_id IN (SELECT id FROM game_states WHERE status='active');
+  AND c.game_state_id IN (SELECT id FROM game_states WHERE status='active')
+  AND (c.star_rating IS DISTINCT FROM p.fifa_stars
+       OR c.reputation IS DISTINCT FROM p.team_strength
+       OR c.logo_url IS DISTINCT FROM p.logo_url);
