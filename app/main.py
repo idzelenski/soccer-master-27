@@ -670,7 +670,7 @@ def update_tactics(body: TacticIn, manager: dict = Depends(manager_dep), conn: C
 @app.get("/api/fixtures")
 def fixtures(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep), limit: int = 40) -> list:
     save = require_save(conn, str(manager["id"]))
-    limit = max(1, min(limit, 100))
+    limit = max(1, min(limit, 400))
     rows = conn.execute(
         """SELECT f.id,f.match_date,f.matchday,f.status,f.home_score,f.away_score,
                   h.name AS home_name,a.name AS away_name,h.logo_url AS home_logo,a.logo_url AS away_logo
