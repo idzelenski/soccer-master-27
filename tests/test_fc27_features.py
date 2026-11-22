@@ -77,6 +77,7 @@ def test_fc27_import_matches_full_and_short_player_names():
     records = [
         {
             "ea_player_id": 248148,
+            "overall": 84,
             "name_key": "zubimendi",
             "first_name": "Martín",
             "last_name": "Zubimendi Ibáñez",
@@ -87,6 +88,7 @@ def test_fc27_import_matches_full_and_short_player_names():
         },
         {
             "ea_player_id": 263578,
+            "overall": 82,
             "name_key": "balde",
             "first_name": "Alejandro",
             "last_name": "Balde Martínez",
@@ -97,6 +99,7 @@ def test_fc27_import_matches_full_and_short_player_names():
         },
         {
             "ea_player_id": 277179,
+            "overall": 85,
             "name_key": "fermin",
             "first_name": "Fermín",
             "last_name": "López Marín",
@@ -107,6 +110,7 @@ def test_fc27_import_matches_full_and_short_player_names():
         },
         {
             "ea_player_id": 231936,
+            "overall": 81,
             "name_key": "benjaminwhite",
             "first_name": "Benjamin",
             "last_name": "White",
