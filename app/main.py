@@ -700,6 +700,9 @@ def catalog_clubs(
 
 @app.post("/api/saves")
 def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    # Serialize career creation for this manager. Without the row lock, simultaneous
+    # requests can both calculate the same next save_slot before either transaction commits.
+    conn.execute("SELECT id FROM managers WHERE id=%s FOR UPDATE", (manager["id"],)).fetchone()
     active = conn.execute(
         "SELECT id FROM game_states WHERE manager_id=%s AND status='active' LIMIT 1", (manager["id"],)
     ).fetchone()
@@ -868,6 +871,8 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
 @app.post("/api/saves/restart")
 def restart_save(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
     """Delete all career-scoped data for this manager so a new save starts from the immutable baseline."""
+    # Keep reset and creation mutually exclusive for the same manager.
+    conn.execute("SELECT id FROM managers WHERE id=%s FOR UPDATE", (manager["id"],)).fetchone()
     result = conn.execute(
         "DELETE FROM game_states WHERE manager_id=%s RETURNING id",
         (manager["id"],),
