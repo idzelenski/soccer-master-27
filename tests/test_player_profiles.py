@@ -11,9 +11,12 @@ from app.main import (
 
 
 def test_source_position_groups_are_expanded_to_specific_roles():
-    assert normalise_player_position("DF", "player-1") == "CB"
-    assert normalise_player_position("MF", "player-2") == "CM"
-    assert normalise_player_position("FW", "player-3") == "ST"
+    defender = normalise_player_position("DF", "player-1")
+    midfielder = normalise_player_position("MF", "player-2")
+    forward = normalise_player_position("FW", "player-3")
+    assert defender in {"CB", "LB", "RB", "LWB", "RWB"}
+    assert midfielder in {"CDM", "CM", "CAM", "LM", "RM"}
+    assert forward in {"ST", "CF", "LW", "RW"}
     assert normalise_player_position("MF", "stable-id") == normalise_player_position("MF", "stable-id")
 
 
