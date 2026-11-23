@@ -1177,24 +1177,48 @@ def simulate_matchday(conn: Connection, save: dict, match_date: date) -> tuple[l
                               WHEN role.target_position IS NULL OR p.position=role.target_position
                                    OR role.target_position=ANY(p.secondary_positions) THEN 0
                               WHEN p.position='GK' OR role.target_position='GK' THEN -40
-                              WHEN p.position IN ('RB','LB') AND role.target_position IN ('RB','LB','RWB','LWB','CB') THEN
-                                CASE WHEN p.position<>role.target_position THEN -2 ELSE -3 END
-                              WHEN p.position='CB' AND role.target_position IN ('RB','LB','CDM') THEN -3
-                              WHEN p.position IN ('RWB','LWB') AND role.target_position IN ('RB','LB','RM','LM','CB') THEN -3
-                              WHEN p.position IN ('CDM','CM','CAM') AND role.target_position IN ('CDM','CM','CAM','RM','LM') THEN -3
-                              WHEN p.position='CAM' AND role.target_position IN ('CF','ST') THEN
-                                CASE WHEN role.target_position='CF' THEN -3 ELSE -5 END
-                              WHEN p.position IN ('RM','LM') AND role.target_position IN ('RW','LW','CM','RB','LB','ST') THEN
-                                CASE
-                                  WHEN (p.position='RM' AND role.target_position='RW')
-                                    OR (p.position='LM' AND role.target_position='LW') THEN -2
-                                  WHEN role.target_position='CM' THEN -3
-                                  WHEN (p.position='RM' AND role.target_position='RB')
-                                    OR (p.position='LM' AND role.target_position='LB') THEN -5
-                                  ELSE -7
-                                END
-                              WHEN p.position IN ('RW','LW') AND role.target_position IN ('RW','LW','RM','LM','ST','CF') THEN -3
-                              WHEN p.position IN ('ST','CF') AND role.target_position IN ('ST','CF','CAM','RW','LW') THEN -3
+                              WHEN p.position='RB' THEN CASE role.target_position
+                                WHEN 'LB' THEN -2 WHEN 'RWB' THEN -2 WHEN 'LWB' THEN -5
+                                WHEN 'CB' THEN -3 WHEN 'RM' THEN -5 WHEN 'CDM' THEN -7 ELSE -7 END
+                              WHEN p.position='LB' THEN CASE role.target_position
+                                WHEN 'RB' THEN -2 WHEN 'LWB' THEN -2 WHEN 'RWB' THEN -5
+                                WHEN 'CB' THEN -3 WHEN 'LM' THEN -5 WHEN 'CDM' THEN -7 ELSE -7 END
+                              WHEN p.position='CB' THEN CASE role.target_position
+                                WHEN 'LB' THEN -3 WHEN 'RB' THEN -3 WHEN 'CDM' THEN -3
+                                WHEN 'RWB' THEN -5 WHEN 'LWB' THEN -5 WHEN 'CM' THEN -7 ELSE -7 END
+                              WHEN p.position='CDM' THEN CASE role.target_position
+                                WHEN 'CM' THEN -2 WHEN 'CB' THEN -3 WHEN 'CAM' THEN -5
+                                WHEN 'RM' THEN -7 WHEN 'LM' THEN -7 ELSE -7 END
+                              WHEN p.position='CM' THEN CASE role.target_position
+                                WHEN 'CDM' THEN -2 WHEN 'CAM' THEN -2 WHEN 'RM' THEN -3
+                                WHEN 'LM' THEN -3 WHEN 'CB' THEN -7 WHEN 'ST' THEN -10 ELSE -7 END
+                              WHEN p.position='CAM' THEN CASE role.target_position
+                                WHEN 'CM' THEN -2 WHEN 'CF' THEN -3 WHEN 'ST' THEN -5
+                                WHEN 'RM' THEN -5 WHEN 'LM' THEN -5 ELSE -7 END
+                              WHEN p.position='RM' THEN CASE role.target_position
+                                WHEN 'RW' THEN -2 WHEN 'CM' THEN -3 WHEN 'RB' THEN -5
+                                WHEN 'ST' THEN -7 WHEN 'LM' THEN -7 ELSE -7 END
+                              WHEN p.position='LM' THEN CASE role.target_position
+                                WHEN 'LW' THEN -2 WHEN 'CM' THEN -3 WHEN 'LB' THEN -5
+                                WHEN 'ST' THEN -7 WHEN 'RM' THEN -7 ELSE -7 END
+                              WHEN p.position='RW' THEN CASE role.target_position
+                                WHEN 'RM' THEN -2 WHEN 'ST' THEN -3 WHEN 'CF' THEN -5
+                                WHEN 'LW' THEN -7 WHEN 'RB' THEN -7 ELSE -7 END
+                              WHEN p.position='LW' THEN CASE role.target_position
+                                WHEN 'LM' THEN -2 WHEN 'ST' THEN -3 WHEN 'CF' THEN -5
+                                WHEN 'RW' THEN -7 WHEN 'LB' THEN -7 ELSE -7 END
+                              WHEN p.position='ST' THEN CASE role.target_position
+                                WHEN 'CF' THEN -2 WHEN 'CAM' THEN -5 WHEN 'RW' THEN -7
+                                WHEN 'LW' THEN -7 WHEN 'CM' THEN -10 ELSE -7 END
+                              WHEN p.position='CF' THEN CASE role.target_position
+                                WHEN 'ST' THEN -2 WHEN 'CAM' THEN -3 WHEN 'RW' THEN -5
+                                WHEN 'LW' THEN -5 WHEN 'CM' THEN -7 ELSE -7 END
+                              WHEN p.position='RWB' THEN CASE role.target_position
+                                WHEN 'RB' THEN -2 WHEN 'RM' THEN -3 WHEN 'LB' THEN -5
+                                WHEN 'CB' THEN -5 ELSE -7 END
+                              WHEN p.position='LWB' THEN CASE role.target_position
+                                WHEN 'LB' THEN -2 WHEN 'LM' THEN -3 WHEN 'RB' THEN -5
+                                WHEN 'CB' THEN -5 ELSE -7 END
                               ELSE -7
                             END
                             ELSE 0
