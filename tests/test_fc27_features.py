@@ -395,8 +395,8 @@ def test_match_simulation_sql_mirrors_all_position_penalty_rules():
     for mapping in (
         "WHEN 'LW' THEN -2", "WHEN 'RW' THEN -2",
         "WHEN 'RM' THEN -2", "WHEN 'LM' THEN -2",
-        "WHEN 'CAM' THEN -5", "WHEN 'CF' THEN -2",
-        "WHEN 'ST' THEN -2", "WHEN 'CM' THEN -10",
+        "WHEN 'CF' THEN -2", "WHEN 'ST' THEN -2",
+        "WHEN 'ST' THEN -5", "WHEN 'CM' THEN -10",
         "WHEN 'RWB' THEN -5", "WHEN 'LWB' THEN -5",
     ):
         assert mapping in advance
