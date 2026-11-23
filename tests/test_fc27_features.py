@@ -375,11 +375,11 @@ def test_match_simulation_uses_the_same_wide_role_penalties_as_lineup_selection(
     advance = source.split('def simulate_matchday(', 1)[1].split(
         '@app.post("/api/game/advance")', 1
     )[0]
-    assert "p.position IN ('RM','LM')" in advance
-    assert "role.target_position='RW'" in advance
-    assert "role.target_position='LW'" in advance
-    assert "role.target_position='CM' THEN -3" in advance
-    assert "role.target_position='CF' THEN -3 ELSE -5" in advance
+    assert "WHEN p.position='RM' THEN CASE role.target_position" in advance
+    assert "WHEN p.position='LM' THEN CASE role.target_position" in advance
+    assert "WHEN 'RW' THEN -2" in advance
+    assert "WHEN 'LW' THEN -2" in advance
+    assert "WHEN 'CM' THEN -3" in advance
 
 
 def test_match_simulation_sql_mirrors_all_position_penalty_rules():
