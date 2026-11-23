@@ -1182,6 +1182,17 @@ def simulate_matchday(conn: Connection, save: dict, match_date: date) -> tuple[l
                               WHEN p.position='CB' AND role.target_position IN ('RB','LB','CDM') THEN -3
                               WHEN p.position IN ('RWB','LWB') AND role.target_position IN ('RB','LB','RM','LM','CB') THEN -3
                               WHEN p.position IN ('CDM','CM','CAM') AND role.target_position IN ('CDM','CM','CAM','RM','LM') THEN -3
+                              WHEN p.position='CAM' AND role.target_position IN ('CF','ST') THEN
+                                CASE WHEN role.target_position='CF' THEN -3 ELSE -5 END
+                              WHEN p.position IN ('RM','LM') AND role.target_position IN ('RW','LW','CM','RB','LB','ST') THEN
+                                CASE
+                                  WHEN (p.position='RM' AND role.target_position='RW')
+                                    OR (p.position='LM' AND role.target_position='LW') THEN -2
+                                  WHEN role.target_position='CM' THEN -3
+                                  WHEN (p.position='RM' AND role.target_position='RB')
+                                    OR (p.position='LM' AND role.target_position='LB') THEN -5
+                                  ELSE -7
+                                END
                               WHEN p.position IN ('RW','LW') AND role.target_position IN ('RW','LW','RM','LM','ST','CF') THEN -3
                               WHEN p.position IN ('ST','CF') AND role.target_position IN ('ST','CF','CAM','RW','LW') THEN -3
                               ELSE -7
