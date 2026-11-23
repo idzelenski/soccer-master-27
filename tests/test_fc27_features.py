@@ -366,3 +366,17 @@ def test_importer_expands_broad_source_roles_into_real_wide_positions():
     assert {"LM", "RM", "CM", "CDM", "CAM"}.issubset(midfielders)
     assert {"LB", "RB", "CB"}.issubset(defenders)
 
+
+
+def test_match_simulation_uses_the_same_wide_role_penalties_as_lineup_selection():
+    from pathlib import Path
+
+    source = Path("app/main.py").read_text(encoding="utf-8")
+    advance = source.split('def simulate_matchday(', 1)[1].split(
+        '@app.post("/api/game/advance")', 1
+    )[0]
+    assert "p.position IN ('RM','LM')" in advance
+    assert "role.target_position='RW'" in advance
+    assert "role.target_position='LW'" in advance
+    assert "role.target_position='CM' THEN -3" in advance
+    assert "role.target_position='CF' THEN -3 ELSE -5" in advance
