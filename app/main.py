@@ -158,18 +158,27 @@ def flag_for_nationality(value: str | None) -> str:
 
 
 def normalise_player_position(position: str | None, source_id: str = "") -> str:
-    """Map broad source positions to a sensible primary role without gifting alternatives."""
+    """Keep exact positions; expand only broad source roles into stable SM27 estimates."""
     value = (position or "").strip().upper()
     if value in POSITION_CODES:
         return value
     if value in {"GK", "GOALKEEPER", "G"}:
         return "GK"
-    if value in {"DF", "DEFENDER", "DEFENCE", "D"}:
-        return "CB"
-    if value in {"FW", "FORWARD", "ATTACKER", "STRIKER", "F"}:
-        return "ST"
-    if value in {"MF", "MIDFIELDER", "MIDFIELD", "M"}:
-        return "CM"
+    broad_roles = {
+        "DF": ("CB", "CB", "CB", "LB", "RB", "LWB", "RWB"),
+        "MF": ("CM", "CM", "CM", "CDM", "CAM", "LM", "RM"),
+        "FW": ("ST", "ST", "ST", "CF", "LW", "RW"),
+    }
+    group = {
+        "DEFENDER": "DF", "DEFENCE": "DF", "D": "DF",
+        "MIDFIELDER": "MF", "MIDFIELD": "MF", "M": "MF",
+        "FORWARD": "FW", "ATTACKER": "FW", "STRIKER": "FW", "F": "FW",
+    }.get(value, value)
+    choices = broad_roles.get(group)
+    if choices:
+        key = source_id or value
+        seed = int(hashlib.sha1(key.encode("utf-8")).hexdigest()[:8], 16)
+        return choices[seed % len(choices)]
     return "CM"
 
 

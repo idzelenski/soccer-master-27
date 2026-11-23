@@ -37,10 +37,16 @@ def test_all_fc27_formations_produce_eleven_distinct_starters():
         assert len(roles) == 11, formation
 
 
-def test_player_positions_are_not_randomly_promoted_to_secondary_positions():
-    assert normalise_player_position("DF") == "CB"
-    assert normalise_player_position("MF") == "CM"
-    assert normalise_player_position("FW") == "ST"
+def test_broad_source_positions_get_stable_primary_roles_without_secondary_positions():
+    assert normalise_player_position("DF", "player-1") == normalise_player_position("DF", "player-1")
+    assert normalise_player_position("MF", "player-2") == normalise_player_position("MF", "player-2")
+    assert normalise_player_position("FW", "player-3") == normalise_player_position("FW", "player-3")
+    defenders = {normalise_player_position("DF", f"defender-{i}") for i in range(120)}
+    midfielders = {normalise_player_position("MF", f"midfielder-{i}") for i in range(120)}
+    forwards = {normalise_player_position("FW", f"forward-{i}") for i in range(120)}
+    assert {"CB", "LB", "RB"}.issubset(defenders)
+    assert {"CDM", "CM", "CAM", "LM", "RM"}.issubset(midfielders)
+    assert {"ST", "CF", "LW", "RW"}.issubset(forwards)
     assert SECONDARY_POSITIONS["GK"] == ()
     assert position_penalty("RB", [], "RB") == 0
     assert position_penalty("RB", [], "RWB") == -2
@@ -226,7 +232,7 @@ def test_generic_server_error_does_not_claim_career_data_was_saved():
     assert "Результат действия не подтверждён" in source
 
 
-def test_fc27_matching_accepts_wide_roles_and_requires_the_correct_club():
+def test_fc27_matching_supports_new_transfers_and_rejects_ambiguous_wrong_clubs():
     from scripts.import_fc27_ratings import choose_match
 
     index = {
@@ -236,16 +242,23 @@ def test_fc27_matching_accepts_wide_roles_and_requires_the_correct_club():
         ],
         "crysenciosummerville": [
             {"ea_player_id": 11, "nationality_code": "NLD", "position": "LM",
-             "club_name": "Al Hilal", "overall": 78},
+             "club_name": "West Ham United", "overall": 78},
         ],
         "gabrielmartinelli": [
             {"ea_player_id": 12, "nationality_code": "BRA", "position": "LW",
              "club_name": "Arsenal", "overall": 80},
         ],
+        "marquinhos": [
+            {"ea_player_id": 13, "nationality_code": "BRA", "position": "CB",
+             "club_name": "Paris SG", "overall": 87},
+            {"ea_player_id": 14, "nationality_code": "BRA", "position": "CB",
+             "club_name": "APOEL FC", "overall": 71},
+        ],
     }
     assert choose_match("Salem Al-Dawsari", "KSA", "Al Hilal SFC", "FW", index)["ea_player_id"] == 10
     assert choose_match("Crysencio Summerville", "NED", "Al Hilal SFC", "FW", index)["ea_player_id"] == 11
-    assert choose_match("Gabriel Martinelli", "BRA", "Al Hilal SFC", "FW", index) is None
+    assert choose_match("Gabriel Martinelli", "BRA", "Al Hilal SFC", "FW", index)["ea_player_id"] == 12
+    assert choose_match("Marquinhos", "BRA", "FC Spartak Moscow", "DF", index) is None
 
 
 def test_best_lineup_uses_global_role_assignment_for_wingers():
@@ -313,7 +326,10 @@ def test_tabs_use_session_cache_and_player_lists_swap_without_move_buttons():
 
     source = Path("app/static/app.js").read_text(encoding="utf-8")
     assert "tabCache: {}" in source
-    assert "state.tabCache[tab]" in source
+    assert "tabLoads: {}" in source
+    assert "function loadTabData" in source
+    assert "function preloadCareerTabs" in source
+    assert "loadTabData('tactics'" in source
     assert "function locateTacticPlayer" in source
     assert "function swapRosterPlayers" in source
     assert 'data-release-player' not in source
@@ -329,3 +345,24 @@ def test_ai_lineup_refresh_excludes_the_managed_club():
     )[0]
     assert "c.id<>%s" in helper
     assert "best_lineup(players, formation)" in helper
+
+def test_importer_expands_broad_source_roles_into_real_wide_positions():
+    from scripts.import_fc27_ratings import estimated_primary_position
+
+    assert estimated_primary_position("FW", "player-7") == estimated_primary_position("FW", "player-7")
+    forwards = {
+        estimated_primary_position("FW", f"forward-{index}")
+        for index in range(120)
+    }
+    midfielders = {
+        estimated_primary_position("MF", f"midfielder-{index}")
+        for index in range(120)
+    }
+    defenders = {
+        estimated_primary_position("DF", f"defender-{index}")
+        for index in range(120)
+    }
+    assert {"LW", "RW", "ST", "CF"}.issubset(forwards)
+    assert {"LM", "RM", "CM", "CDM", "CAM"}.issubset(midfielders)
+    assert {"LB", "RB", "CB"}.issubset(defenders)
+

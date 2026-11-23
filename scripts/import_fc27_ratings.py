@@ -319,6 +319,27 @@ def position_group(position):
             return group
     return ""
 
+def estimated_primary_position(position: str | None, source_id: str) -> str:
+    """Deterministically expand DF/MF/FW into one plausible role without adding secondary positions."""
+    code = (position or "").strip().upper()
+    if code in POSITION_CODES:
+        return code
+    roles = {
+        "DF": ("CB", "CB", "CB", "LB", "RB", "LWB", "RWB"),
+        "MF": ("CM", "CM", "CM", "CDM", "CAM", "LM", "RM"),
+        "FW": ("ST", "ST", "ST", "CF", "LW", "RW"),
+    }
+    group = {
+        "DEFENDER": "DF", "DEFENCE": "DF", "D": "DF",
+        "MIDFIELDER": "MF", "MIDFIELD": "MF", "M": "MF",
+        "FORWARD": "FW", "ATTACKER": "FW", "STRIKER": "FW", "F": "FW",
+    }.get(code, code)
+    choices = roles.get(group)
+    if not choices:
+        return "CM"
+    seed = int(hashlib.sha1((source_id or code).encode("utf-8")).hexdigest()[:8], 16)
+    return choices[seed % len(choices)]
+
 
 def club_match_score(left, right):
     left_key = normalise_name(left)
@@ -366,7 +387,7 @@ def choose_match(name, nationality, club_name, position, index):
             score += 2 if wide_role_match else 3
         club_score = club_match_score(club_name, candidate["club_name"])
         # Never attach a player to a different club, even when the name is unique.
-        if club_score < 3:
+        if club_score < 3 and len(candidates) > 1:
             continue
         score += club_score
         if (position or "").upper() == candidate["position"]:
@@ -436,10 +457,12 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
     index=match_candidates(records)
     update_world_player_matches(conn,index)
     rows=conn.execute("""
-        SELECT p.id,p.name,p.nationality,p.age,p.position,p.market_value,p.market_value_source,
-               p.potential,p.original_data,p.attributes,p.profile_source,p.source_url,
-               p.fc27_player_id,c.reputation,c.name AS club_name
-        FROM players p JOIN clubs c ON c.id=p.club_id
+        SELECT p.id,p.external_id,wp.position AS source_position,p.name,p.nationality,p.age,p.position,
+               p.market_value,p.market_value_source,p.potential,p.original_data,p.attributes,
+               p.profile_source,p.source_url,p.fc27_player_id,c.reputation,c.name AS club_name
+        FROM players p
+        JOIN clubs c ON c.id=p.club_id
+        LEFT JOIN world_player_catalog wp ON wp.source_id=p.external_id
         WHERE p.original_data->>'generated' IS DISTINCT FROM 'true'
     """).fetchall()
     updates=[]
@@ -489,10 +512,17 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
                     overall=max(35,min(90,round(score+age_adjust)))
                 else:
                     overall=max(35,min(84,round(42+reputation*0.29+(3 if age<=24 else 0))))
-                position=row["position"] if row["position"] in POSITION_CODES else (
-                    "GK" if row["position"] in {"GK","G"} else "CB" if row["position"]=="DF"
-                    else "ST" if row["position"]=="FW" else "CM"
-                )
+                source_position = row.get("source_position")
+                if source_position in {"DF", "MF", "FW"}:
+                    position = estimated_primary_position(
+                        source_position, str(row.get("external_id") or row["id"])
+                    )
+                elif row["position"] in POSITION_CODES:
+                    position = row["position"]
+                else:
+                    position = estimated_primary_position(
+                        source_position or row["position"], str(row.get("external_id") or row["id"])
+                    )
                 attributes=fallback_attributes(overall,position)
                 potential=max(overall,int(row["potential"] or overall))
                 profile_source="SM27 model estimate · no EA FC 27 player match"
@@ -502,8 +532,14 @@ def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]
             original=dict(row["original_data"] or {})
             if researched:
                 original["research"]=researched["research"]
+                original["position_source"]="FotMob researched player profile"
             else:
                 original.pop("research",None)
+                original["position_source"] = (
+                    "SM27 deterministic estimate from OpenFootballBase broad role"
+                    if row.get("source_position") in {"DF", "MF", "FW"}
+                    else "Existing SM27 primary-position estimate"
+                )
         wage=estimated_weekly_wage(overall,age,reputation,row["name"])
         if not match and researched:
             original["market_value_as_of"]=researched.get("market_value_as_of")

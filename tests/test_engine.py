@@ -71,3 +71,14 @@ def test_strong_xi_is_favoured_even_when_catalog_reputation_is_flat():
         result = simulate_score(65, 65, 80, 65, seed=seed)
         outcomes.append(result["home_score"] > result["away_score"])
     assert sum(outcomes) / len(outcomes) >= 0.58
+
+
+
+def test_ten_point_starting_xi_gap_is_meaningful_when_reputation_is_equal():
+    equal = expected_goals(65, 65, 70, 70)
+    strong_at_home = expected_goals(65, 65, 80, 70)
+    strong_away = expected_goals(65, 65, 70, 80)
+    assert strong_at_home[0] >= equal[0] + 0.20
+    assert strong_at_home[1] < equal[1] - 0.10
+    assert strong_away[0] < equal[0] - 0.10
+    assert strong_away[1] >= equal[1] + 0.15

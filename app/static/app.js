@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
-const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {} };
+const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {}, tabLoads: {}, cacheEpoch: 0, preloadStarted: false };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
@@ -51,8 +51,46 @@ async function api(url, options = {}) {
       : (data.detail || `Не удалось выполнить запрос (${response.status}).`);
     throw new Error(message);
   }
-  if ((options.method || 'GET').toUpperCase() !== 'GET') state.tabCache = {};
+  if ((options.method || 'GET').toUpperCase() !== 'GET') {
+    state.cacheEpoch += 1;
+    state.tabCache = {};
+    state.tabLoads = {};
+    state.preloadStarted = false;
+  }
   return data;
+}
+function loadTabData(key, loader) {
+  if (Object.prototype.hasOwnProperty.call(state.tabCache, key)) {
+    return Promise.resolve(state.tabCache[key]);
+  }
+  if (state.tabLoads[key]) return state.tabLoads[key];
+  const epoch = state.cacheEpoch;
+  const pending = Promise.resolve().then(loader).then(data => {
+    if (epoch === state.cacheEpoch) state.tabCache[key] = data;
+    return data;
+  }).finally(() => {
+    if (state.tabLoads[key] === pending) delete state.tabLoads[key];
+  });
+  state.tabLoads[key] = pending;
+  return pending;
+}
+async function preloadCareerTabs() {
+  if (state.preloadStarted || !state.save) return;
+  state.preloadStarted = true;
+  const tasks = [
+    loadTabData('squad', () => api('/api/squad')).then(players => { state.squad = players; }),
+    loadTabData('tactics', async () => {
+      const [players, tactics] = await Promise.all([
+        loadTabData('squad', () => api('/api/squad')),
+        api('/api/tactics')
+      ]);
+      return {players, tactics};
+    }).then(data => { state.tactics = data.tactics; }),
+    loadTabData('fixtures', () => api('/api/fixtures?limit=400')).then(rows => { state.fixtures = rows; }),
+    loadTabData('table', () => api('/api/standings'))
+  ];
+  const results = await Promise.allSettled(tasks);
+  if (results.some(result => result.status === 'rejected')) state.preloadStarted = false;
 }
 function flagIcon(code, label = 'Флаг страны') {
   const src = flagAssetUrl(code);
@@ -907,47 +945,49 @@ async function renderCurrent() {
   const tab = state.tab;
   const titles = {home:'Обзор',squad:'Состав',tactics:'Тактика',fixtures:'Календарь',table:'Таблица'};
   const title = titles[tab] || 'SM27';
-  const cached = state.tabCache[tab];
+  const cached = Object.prototype.hasOwnProperty.call(state.tabCache, tab);
   if (!cached) {
     shell(pageHead('ЦЕНТР УПРАВЛЕНИЯ', 'Загружаем ' + title.toLowerCase(), 'Получаем данные карьеры…') +
-      '<section class="panel"><div class="empty-state"><strong>Загрузка…</strong>Первый запрос может разбудить бесплатную базу данных.</div></section>', title);
+      '<section class="panel"><div class="empty-state"><strong>Загрузка…</strong>Загружаем данные карьеры…</div></section>', title);
   }
   try {
     if (tab === 'home') {
-      const data = cached || await api('/api/dashboard');
-      state.tabCache.home = data;
+      const data = await loadTabData('home', () => api('/api/dashboard'));
       state.save = data.save;
       shell(renderHome(data), 'Обзор');
       document.getElementById('advance-game')?.addEventListener('click', advanceGame);
       document.querySelectorAll('[data-nav="table"]').forEach(button => button.addEventListener('click',()=>{state.tab='table';renderCurrent();}));
     } else if (tab === 'squad') {
-      const players = cached || await api('/api/squad');
-      state.tabCache.squad = players;
+      const players = await loadTabData('squad', () => api('/api/squad'));
       state.squad = players;
       shell(renderSquad(players), 'Состав');
       document.querySelectorAll('[data-player-details]').forEach(row => row.addEventListener('click', () => showPlayerDetails(row.dataset.playerDetails)));
     } else if (tab === 'tactics') {
-      const data = cached || await Promise.all([api('/api/squad'),api('/api/tactics')]).then(([players,tactics])=>({players,tactics}));
-      state.tabCache.tactics = data;
+      const data = await loadTabData('tactics', async () => {
+        const [players, tactics] = await Promise.all([
+          loadTabData('squad', () => api('/api/squad')),
+          api('/api/tactics')
+        ]);
+        return {players, tactics};
+      });
       state.squad = data.players;
       state.tactics = data.tactics;
-      ensureTacticState(data.players,data.tactics);
-      shell(renderTactics(data.players,data.tactics),'Тактика');
+      ensureTacticState(data.players, data.tactics);
+      shell(renderTactics(data.players, data.tactics), 'Тактика');
       setupTacticsInteractions();
     } else if (tab === 'fixtures') {
-      const rows = cached || await api('/api/fixtures?limit=400');
-      state.tabCache.fixtures = rows;
+      const rows = await loadTabData('fixtures', () => api('/api/fixtures?limit=400'));
       state.fixtures = rows;
-      shell(renderFixtures(rows),'Календарь');
+      shell(renderFixtures(rows), 'Календарь');
       setupCalendarInteractions();
     } else if (tab === 'table') {
-      const rows = cached || await api('/api/standings');
-      state.tabCache.table = rows;
-      shell(renderTable(rows),'Таблица');
+      const rows = await loadTabData('table', () => api('/api/standings'));
+      shell(renderTable(rows), 'Таблица');
     }
+    if (state.save && !state.preloadStarted) void preloadCareerTabs();
   } catch (err) {
-    if (err.message.includes('Сохранение не найдено')) { state.save=null; state.tabCache={}; await loadClubPage(); }
-    else toast(err.message,true);
+    if (err.message.includes('Сохранение не найдено')) { state.save = null; state.cacheEpoch += 1; state.tabCache = {}; await loadClubPage(); }
+    else toast(err.message, true);
   }
 }
 async function saveTactics() {
