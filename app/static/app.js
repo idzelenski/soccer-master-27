@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
-const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {}, tabLoads: {}, cacheEpoch: 0, preloadStarted: false };
+const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {}, tabLoads: {}, cacheEpoch: 0, preloadStarted: false, creatingSave: false };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
@@ -247,9 +247,48 @@ async function loadMoreClubs() {
   } catch(err) { button.disabled=false; button.textContent='Повторить'; toast(err.message,true); }
 }
 async function selectClub(sourceId) {
-  const button = document.querySelector(`[data-club="${CSS.escape(sourceId)}"]`); if (button) button.disabled = true;
-  try { await api('/api/saves', {method:'POST',body:JSON.stringify({club_source_id:sourceId,save_name:'Моя карьера'})}); toast('Карьера создана!'); await start(); }
-  catch (err) { toast(err.message, true); if (button) button.disabled = false; }
+  if (state.creatingSave) return;
+  state.creatingSave = true;
+  const controls = () => document.querySelectorAll('[data-club], #load-more-clubs, #club-search, #league-filter');
+  controls().forEach((control) => { control.disabled = true; });
+  const button = document.querySelector(`[data-club="${CSS.escape(sourceId)}"]`);
+  if (button) button.setAttribute('aria-busy', 'true');
+  try {
+    await api('/api/saves', {
+      method: 'POST',
+      body: JSON.stringify({club_source_id:sourceId,save_name:'Моя карьера'})
+    });
+    toast('Карьера создана!');
+    await start();
+  } catch (err) {
+    // A request can fail after the database transaction has committed.
+    // Reconcile with /api/me before asking the user to retry or showing a false failure.
+    let openedExistingSave = false;
+    try {
+      const me = await api('/api/me');
+      state.manager = me.manager;
+      if (me.save) {
+        state.save = me.save;
+        state.tab = 'home';
+        state.cacheEpoch += 1;
+        state.tabCache = {};
+        state.tabLoads = {};
+        state.preloadStarted = false;
+        toast('Карьера уже создана — открываем её.');
+        await renderCurrent();
+        openedExistingSave = true;
+      }
+    } catch (_) {
+      // Keep the original request error if the reconciliation request also fails.
+    }
+    if (!openedExistingSave) {
+      toast(err.message, true);
+      controls().forEach((control) => { control.disabled = false; });
+    }
+  } finally {
+    if (button) button.removeAttribute('aria-busy');
+    state.creatingSave = false;
+  }
 }
 function navItems() {
   return [
