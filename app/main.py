@@ -1917,6 +1917,43 @@ def _record_match_detail(
                    WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND player_id=ANY(%s)""",
                 (save["id"], fixture["tournament_id"], fixture["season"], suspended_at_start),
             )
+            conn.execute(
+                """UPDATE player_competition_discipline d
+                   SET suspension_return_date=(
+                       SELECT f.match_date::date
+                       FROM fixtures f JOIN players p ON p.id=d.player_id
+                       WHERE f.game_state_id=d.game_state_id AND f.tournament_id=d.tournament_id
+                         AND f.season=d.season AND f.status='scheduled'
+                         AND f.match_date::date>%s
+                         AND (f.home_club_id=p.club_id OR f.away_club_id=p.club_id)
+                       ORDER BY f.match_date OFFSET d.suspension_matches LIMIT 1
+                   )
+                   WHERE d.game_state_id=%s AND d.tournament_id=%s AND d.season=%s
+                     AND d.player_id=ANY(%s) AND d.suspension_matches>0""",
+                (match_date,save["id"],fixture["tournament_id"],fixture["season"],suspended_at_start),
+            )
+            conn.execute(
+                """UPDATE players p SET suspension_reason=active.suspension_reason,
+                           suspension_return_date=active.suspension_return_date
+                   FROM (
+                       SELECT DISTINCT ON (game_state_id,player_id) game_state_id,player_id,
+                              suspension_reason,suspension_return_date
+                       FROM player_competition_discipline
+                       WHERE game_state_id=%s AND player_id=ANY(%s) AND suspension_matches>0
+                       ORDER BY game_state_id,player_id,updated_at DESC
+                   ) active
+                   WHERE p.game_state_id=active.game_state_id AND p.id=active.player_id""",
+                (save["id"],suspended_at_start),
+            )
+            conn.execute(
+                """UPDATE players p SET suspension_reason=NULL,suspension_return_date=NULL
+                   WHERE p.game_state_id=%s AND p.id=ANY(%s)
+                     AND NOT EXISTS (
+                       SELECT 1 FROM player_competition_discipline d
+                       WHERE d.game_state_id=p.game_state_id AND d.player_id=p.id AND d.suspension_matches>0
+                     )""",
+                (save["id"],suspended_at_start),
+            )
 
     # Accumulate cards with one batched read, avoiding per-player database round trips.
     discipline_changes: dict[str, dict[str, int]] = {}
