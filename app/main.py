@@ -1374,7 +1374,21 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                   p.potential,p.market_value,p.market_value_source,p.weekly_wage,p.contract_end,
                   p.fatigue,p.form,p.morale,p.sharpness,p.position_training_target,
                   p.position_training_progress,p.fc27_player_id,p.injury_type,p.injury_until,
-                  p.suspension_matches,p.suspension_reason,p.suspension_return_date,
+                  p.suspension_matches,p.suspension_reason,
+                  COALESCE(
+                    p.suspension_return_date,
+                    (
+                      SELECT f.match_date::date
+                      FROM fixtures f
+                      WHERE f.game_state_id=p.game_state_id
+                        AND f.status='scheduled'
+                        AND f.match_date::date>%s
+                        AND (f.home_club_id=p.club_id OR f.away_club_id=p.club_id)
+                      ORDER BY f.match_date
+                      OFFSET p.suspension_matches
+                      LIMIT 1
+                    )
+                  ) AS suspension_return_date,
                   p.attributes,p.original_data,p.profile_source,p.source_url,
                   fc.source_url AS fc27_source_url
            FROM players p
@@ -1385,7 +1399,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                      WHEN 'CDM' THEN 2 WHEN 'CM' THEN 2 WHEN 'CAM' THEN 2
                      WHEN 'RM' THEN 3 WHEN 'LM' THEN 3 WHEN 'RW' THEN 4 WHEN 'LW' THEN 4 ELSE 5 END,
                     p.overall DESC, p.name""",
-        (save["id"], save["managed_club_id"]),
+        (save["game_date"], save["id"], save["managed_club_id"]),
     ).fetchall()
     result = []
     game_date = save["game_date"].date() if isinstance(save["game_date"], datetime) else save["game_date"]
