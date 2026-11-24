@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
-const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {}, tabLoads: {}, cacheEpoch: 0, preloadStarted: false, creatingSave: false };
+const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, selectedTournamentId: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {}, tabLoads: {}, cacheEpoch: 0, preloadStarted: false, creatingSave: false };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
@@ -135,7 +135,9 @@ const POSITION_TRAINING_OPTIONS = {
 };
 function marketValueSourceLabel(player) {
   if (player.market_value_source === 'SofaScore') return 'SofaScore';
-  return 'Нет данных SofaScore';
+  if (player.market_value_source === 'Transfermarkt') return 'Transfermarkt';
+  if (player.market_value_source === 'SM27 estimate') return 'Оценка SM27';
+  return 'Источник не указан';
 }
 function crest(name, logo, size = 'normal') {
   const fallback = esc(initials(name));
@@ -253,6 +255,13 @@ async function selectClub(sourceId) {
   controls().forEach((control) => { control.disabled = true; });
   const button = document.querySelector(`[data-club="${CSS.escape(sourceId)}"]`);
   if (button) button.setAttribute('aria-busy', 'true');
+
+  // Give immediate feedback before the server starts creating a full career.
+  const loading = document.createElement('div');
+  loading.className = 'action-loading';
+  loading.innerHTML = '<div class="action-loading-card"><span class="loading-spinner"></span><b>Формируем карьеру</b><small>Загружаем составы, тактику и календарь сезона…</small></div>';
+  document.body.appendChild(loading);
+
   try {
     await api('/api/saves', {
       method: 'POST',
@@ -262,7 +271,6 @@ async function selectClub(sourceId) {
     await start();
   } catch (err) {
     // A request can fail after the database transaction has committed.
-    // Reconcile with /api/me before asking the user to retry or showing a false failure.
     let openedExistingSave = false;
     try {
       const me = await api('/api/me');
@@ -279,13 +287,14 @@ async function selectClub(sourceId) {
         openedExistingSave = true;
       }
     } catch (_) {
-      // Keep the original request error if the reconciliation request also fails.
+      // Keep the original request error if reconciliation also fails.
     }
     if (!openedExistingSave) {
       toast(err.message, true);
       controls().forEach((control) => { control.disabled = false; });
     }
   } finally {
+    loading.remove();
     if (button) button.removeAttribute('aria-busy');
     state.creatingSave = false;
   }
@@ -348,12 +357,20 @@ function renderHome(data) {
 function renderSquad(players) {
   const rows = players.map((player) => {
     const source = marketValueSourceLabel(player);
-    const hasVerifiedValue = Number(player.market_value || 0) > 0
-      && player.market_value_source === 'SofaScore';
-    const valueLabel = hasVerifiedValue ? money(player.market_value) : '—';
+    const hasValue = Number(player.market_value || 0) > 0;
+    const valueLabel = hasValue ? money(player.market_value) : '—';
+    const status = [
+      Number(player.injury_days_remaining || 0) > 0
+        ? `<span class="player-status injury-status">Травма · ${player.injury_days_remaining} дн.</span>`
+        : '',
+      Number(player.suspension_matches || 0) > 0
+        ? `<span class="player-status suspension-status">Дисквалификация · ${player.suspension_matches} матч.</span>`
+        : ''
+    ].filter(Boolean).join('');
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
       <td><span class="rating">${player.overall}</span></td>
       <td><span class="player-name">${flagIcon(player.nationality_flag, player.nationality || 'Флаг страны')} ${esc(player.name)}</span>
+        ${status}
         ${player.original_data?.generated ? '<div class="player-source-generated">Вымышленный игрок SM27</div>' : ''}</td>
       <td><span class="position-tag">${esc(player.position)}</span></td>
       <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
@@ -373,7 +390,7 @@ function renderSquad(players) {
         <thead><tr><th>OVR</th><th>ИГРОК</th><th>ПОЗ.</th><th>ДОП. ПОЗ.</th><th>ВОЗР.</th><th>POT</th><th>РЫНОЧНАЯ СТОИМОСТЬ</th><th>КОНТРАКТ</th><th>ЗАРПЛАТА</th><th>ТОНУС</th><th>НАСТРОЙ</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="11">Состав не загружен</td></tr>'}</tbody>
       </table></div>
-      <div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>OVR и характеристики берутся из базы FC 27 при точном совпадении. Для остальных игроков явно помечаются оценки SM27. Вымышленные игроки академии не получают фиктивную рыночную стоимость. Старая Transfermarkt-оценка не выдаётся за SofaScore.</span></div>
+      <div class="catalog-note" style="margin-top:18px"><span>ⓘ</span><span>Оценка стоимости учитывает источник данных, лигу, возраст, OVR, потенциал и игровые атрибуты. У каждой цены указан источник: SofaScore, Transfermarkt или расчёт SM27.</span></div>
     </section>`;
 }
 function showPlayerDetails(playerId) {
@@ -901,14 +918,14 @@ function renderFixtures(rows) {
       ? String(f.home_score) + " : " + String(f.away_score)
       : "— : —";
     const result = f.result || "scheduled";
-    return '<div class="calendar-match-row calendar-selected-match">' +
+    return '<button type="button" class="calendar-match-row calendar-selected-match" data-fixture-id="' + esc(f.id) + '">' +
       '<div class="calendar-selected-opponent">' + crest(f.opponent_name, f.opponent_logo) +
       '<span><b>' + esc(f.opponent_name) + '</b><small>' + esc(f.tournament_name || "Турнир") +
       '</small></span></div><div class="calendar-match-details"><span>' +
       esc(f.stage_label || "МАТЧ") + '</span><span>' + (f.is_home ? "ДОМА" : "В ГОСТЯХ") +
       '</span></div><strong class="calendar-match-score ' + result + '">' + score +
-      '</strong><small>' + (f.status === "completed" ? "МАТЧ СЫГРАН" : "ЗАПЛАНИРОВАН") +
-      '</small></div>';
+      '</strong><small>' + (f.status === "completed" ? "МАТЧ СЫГРАН · ПОДРОБНОСТИ ↗" : "ЗАПЛАНИРОВАН · ПРЕВЬЮ ↗") +
+      '</small></button>';
   }).join("") : '<div class="empty-state">На выбранную дату матчей нет</div>';
   const weekdays = ["ПН","ВТ","СР","ЧТ","ПТ","СБ","ВС"].map(day => '<span>' + day + '</span>').join("");
   return pageHead("СЕЗОН 2026/27","Календарь","Месячный календарь матчей твоего клуба.") +
@@ -973,13 +990,159 @@ function setupCalendarInteractions() {
       }
     });
   });
+  document.querySelectorAll("[data-fixture-id]").forEach(button => {
+    button.addEventListener("click", () => showMatchDetails(button.dataset.fixtureId));
+  });
 }
 
 
-function renderTable(rows) {
-  return `${pageHead('ЧЕМПИОНАТ','Турнирная таблица','Каждый сыгранный тур обновляет положение команд.')}
-    <section class="panel"><div class="panel-head"><h3>${esc(state.save?.league || 'Лига')}</h3><span>СЕЗОН 2026 / 27</span></div><div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead><tbody>${rows.map((r,i)=>`<tr class="${r.name===state.save?.club_name?'me-row':''}"><td>${i+1}</td><td><div class="team-cell">${crest(r.name, r.logo_url)}${esc(r.name)}</div></td><td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference||0}</td><td><b>${r.points}</b></td></tr>`).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div></section>`;
+function tournamentMark(name, logo) {
+  const safe = typeof logo === 'string' && /^https:\/\//i.test(logo) ? logo : '';
+  return `<span class="tournament-mark"><span>${esc(initials(name))}</span>${safe ? `<img src="${esc(safe)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">` : ''}</span>`;
 }
+function matchStatRow(label, homeValue, awayValue, suffix = '') {
+  const left = Number(homeValue || 0), right = Number(awayValue || 0);
+  const leftWidth = left + right > 0 ? Math.max(4, left / (left + right) * 100) : 50;
+  const rightWidth = 100 - leftWidth;
+  return `<div class="match-stat-row">
+    <b class="home-stat">${esc(homeValue ?? '—')}${suffix}</b>
+    <span class="stat-track"><i style="width:${leftWidth}%"></i><i style="width:${rightWidth}%"></i></span>
+    <span class="stat-name">${esc(label)}</span>
+    <b class="away-stat">${esc(awayValue ?? '—')}${suffix}</b>
+  </div>`;
+}
+async function showMatchDetails(fixtureId) {
+  try {
+    const data = await api('/api/matches/' + encodeURIComponent(fixtureId));
+    document.getElementById('match-detail-modal')?.remove();
+    const fixture = data.fixture || {};
+    const stats = data.stats;
+    const home = stats?.home || {};
+    const away = stats?.away || {};
+    const players = data.players || [];
+    const events = data.events || [];
+    const hasStats = Boolean(data.stats_available);
+    const timelineLabels = {
+      goal: 'ГОЛ',
+      penalty_goal: 'ГОЛ С ПЕНАЛЬТИ',
+      own_goal: 'АВТОГОЛ',
+      yellow_card: 'ЖЁЛТАЯ КАРТОЧКА',
+      red_card: 'КРАСНАЯ КАРТОЧКА',
+      injury: 'ТРАВМА',
+      substitution: 'ЗАМЕНА',
+      penalty_miss: 'НЕЗАБИТЫЙ ПЕНАЛЬТИ',
+      var: 'VAR'
+    };
+    const timeline = events.map(event => {
+      const detail = event.detail || {};
+      const eventTitle = detail.name || detail.injury || detail.reason || timelineLabels[event.event_type] || event.event_type;
+      const assist = event.assist_name ? ' · пас: ' + esc(event.assist_name) : '';
+      const days = detail.days_out ? ' · выбыл на ' + detail.days_out + ' дн.' : '';
+      return `<div class="match-timeline-event event-${esc(event.event_type)}">
+        <b>${Number(event.minute || 0)}'${event.added_time ? '+' + event.added_time : ''}</b>
+        <span><strong>${esc(timelineLabels[event.event_type] || eventTitle)}</strong>
+        <small>${esc(event.player_name || event.club_name || '')}${assist}${days}</small></span>
+        <em>${esc(event.club_name || '')}</em>
+      </div>`;
+    }).join('');
+    const playerRows = players.map(player => `<tr class="${player.is_mvp ? 'mvp-row' : ''}">
+      <td>${player.is_mvp ? '<b class="mvp-mark">MVP</b>' : ''}${esc(player.name)}</td>
+      <td>${esc(player.club_name)}</td>
+      <td><b class="rating">${Number(player.rating).toFixed(1)}</b></td>
+      <td>${player.minutes_played}'</td>
+      <td>${player.goals}</td><td>${player.assists}</td><td>${player.shots}</td>
+      <td>${player.passes}</td><td>${player.accurate_passes}</td>
+      <td>${player.yellow_cards ? '🟨 ' + player.yellow_cards : '—'} ${player.red_cards ? '🟥 ' + player.red_cards : ''}</td>
+    </tr>`).join('');
+    const modal = document.createElement('div');
+    modal.id = 'match-detail-modal';
+    modal.className = 'match-modal-backdrop';
+    modal.innerHTML = `<section class="match-modal panel">
+      <button type="button" class="modal-close" id="close-match-modal" aria-label="Закрыть">×</button>
+      <div class="eyebrow">${esc(fixture.tournament_name || 'ТУРНИР')} · ${dateLabel(fixture.match_date)}</div>
+      <div class="match-modal-scoreline">
+        <div>${crest(fixture.home_name,fixture.home_logo,'large')}<b>${esc(fixture.home_name)}</b></div>
+        <strong>${fixture.status === 'completed' ? fixture.home_score + ' : ' + fixture.away_score : '— : —'}</strong>
+        <div>${crest(fixture.away_name,fixture.away_logo,'large')}<b>${esc(fixture.away_name)}</b></div>
+      </div>
+      ${data.historical_estimate ? '<div class="catalog-note estimate-note">Историческая реконструкция статистики. Итог матча сохранён, индивидуальные показатели и рейтинг рассчитаны приблизительно.</div>' : ''}
+      ${!hasStats ? '<div class="empty-state"><strong>Матч ещё не сыгран</strong>После симуляции появятся события, рейтинги и полная статистика.</div>' : ''}
+      ${hasStats ? `<section class="match-modal-section"><h3>Статистика матча</h3>
+        ${matchStatRow('Удары',home.shots,away.shots)}
+        ${matchStatRow('В створ',home.shots_on_target,away.shots_on_target)}
+        ${matchStatRow('Передачи',home.passes,away.passes)}
+        ${matchStatRow('Точность передач',home.pass_accuracy,away.pass_accuracy,'%')}
+        ${matchStatRow('Ожидаемые голы xG',home.xg,away.xg)}
+        ${matchStatRow('Владение',home.possession,away.possession,'%')}
+        ${matchStatRow('Жёлтые карточки',home.yellow_cards,away.yellow_cards)}
+        ${matchStatRow('Красные карточки',home.red_cards,away.red_cards)}
+        ${matchStatRow('Офсайды',home.offsides,away.offsides)}
+        ${matchStatRow('Угловые',home.corners,away.corners)}
+        ${matchStatRow('Фолы',home.fouls,away.fouls)}
+      </section>
+      <section class="match-modal-section"><h3>Игроки и оценки</h3><div class="table-wrap"><table class="match-player-table">
+        <thead><tr><th>Игрок</th><th>Клуб</th><th>Оценка</th><th>Мин.</th><th>Г</th><th>А</th><th>У</th><th>П</th><th>Точн.</th><th>Карточки</th></tr></thead>
+        <tbody>${playerRows || '<tr><td colspan="10">Статистика игроков недоступна</td></tr>'}</tbody>
+      </table></div></section>
+      <section class="match-modal-section"><h3>Ход матча</h3><div class="match-timeline">${timeline || '<div class="empty-state">События матча не записаны</div>'}</div></section>` : ''}
+    </section>`;
+    document.body.appendChild(modal);
+    document.getElementById('close-match-modal').addEventListener('click', () => modal.remove());
+    modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+function renderTournamentStandings(rows) {
+  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead>
+    <tbody>${(rows || []).map((r,i)=>`<tr class="${r.name===state.save?.club_name?'me-row':''}">
+      <td>${i+1}</td><td><div class="team-cell">${crest(r.name,r.logo_url)}${esc(r.name)}</div></td>
+      <td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference}</td><td><b>${r.points}</b></td>
+    </tr>`).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div>`;
+}
+function renderTournamentPlayers(players) {
+  return `<div class="table-wrap"><table class="tournament-stats-table"><thead><tr>
+    <th>Игрок</th><th>Клуб</th><th>Матчи</th><th>Ср. оценка</th><th>Г</th><th>А</th><th>Г+А</th><th>MVP</th><th>ЖК</th><th>КК</th><th>Сухие</th>
+  </tr></thead><tbody>${(players || []).map(player=>`<tr>
+    <td><b>${esc(player.name)}</b><div class="data-source">${esc(player.position)}</div></td>
+    <td>${esc(player.club_name)}</td><td>${player.appearances}</td><td><b class="rating">${Number(player.average_rating || 0).toFixed(2)}</b></td>
+    <td>${player.goals}</td><td>${player.assists}</td><td><b>${player.goal_contributions}</b></td><td>${player.mvp}</td><td>${player.yellow_cards}</td><td>${player.red_cards}</td><td>${player.clean_sheets}</td>
+  </tr>`).join('') || '<tr><td colspan="11">Статистика появится после первых матчей</td></tr>'}</tbody></table></div>`;
+}
+function renderTable(tournaments, detail = null) {
+  if (!detail) {
+    const cards = (tournaments || []).map(t => `<button type="button" class="competition-card" data-tournament="${esc(t.id)}">
+      ${tournamentMark(t.name,t.logo_url)}
+      <span><b>${esc(t.name)}</b><small>${esc(t.country || t.continent || 'Турнир')} · ${esc(t.season)}</small>
+      <em>${t.teams} команд · ${t.played_fixtures}/${t.fixtures} матчей</em></span><i>Открыть →</i>
+    </button>`).join('');
+    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Выбери турнир, чтобы открыть таблицу и подробную статистику.')}`
+      <section class="panel"><div class="competition-grid">${cards || '<div class="empty-state">В этом сезоне пока нет турниров</div>'}</div></section>`;
+  }
+  const t = detail.tournament || {};
+  const totals = detail.totals || {};
+  const topGoals = [...(detail.teams || [])].sort((a,b)=>b.goals-a.goals).slice(0,5);
+  const topTeamsRating = [...(detail.teams || [])].filter(team=>team.average_rating!=null)
+    .sort((a,b)=>b.average_rating-a.average_rating).slice(0,5);
+  return `${pageHead('СОРЕВНОВАНИЯ','${esc(t.name || 'Турнир')}',${esc(t.season || state.save?.season || '')},
+      '<button type="button" class="btn-secondary" id="tournament-back">← Все турниры</button>')}
+    <section class="panel tournament-hero">
+      ${tournamentMark(t.name,t.logo_url)}
+      <div><h2>${esc(t.name)}</h2><span>${esc(t.country || t.continent || '')} · ${esc(t.season || '')}</span></div>
+      <div class="tournament-totals"><b>${totals.played_matches || 0}</b><small>сыграно матчей</small><b>${totals.goals || 0}</b><small>голов</small></div>
+    </section>
+    <section class="panel"><div class="panel-head"><h3>Турнирная таблица</h3><span>${tournaments?.find(item=>String(item.id)===String(t.id))?.teams || ''} КОМАНД</span></div>
+      ${renderTournamentStandings(detail.standings)}
+    </section>
+    <section class="panel"><div class="panel-head"><h3>Статистика игроков</h3><span>СРЕДНЯЯ ОЦЕНКА · G+A · MVP</span></div>
+      ${renderTournamentPlayers(detail.players)}
+    </section>
+    <div class="tournament-analytics">
+      <section class="panel"><h3>Больше всего голов</h3>${topGoals.map((team,index)=>`<div class="analytics-row"><b>${index+1}</b>${crest(team.name,team.logo_url)}<span>${esc(team.name)}</span><strong>${team.goals}</strong></div>`).join('') || '<div class="empty-state">Пока нет голов</div>'}</section>
+      <section class="panel"><h3>Высший средний рейтинг</h3>${topTeamsRating.map((team,index)=>`<div class="analytics-row"><b>${index+1}</b>${crest(team.name,team.logo_url)}<span>${esc(team.name)}</span><strong>${Number(team.average_rating).toFixed(2)}</strong></div>`).join('') || '<div class="empty-state">Рейтинги появятся после матчей</div>'}</section>
+    </div>`;
+}
+
 async function renderCurrent() {
   const tab = state.tab;
   const titles = {home:'Обзор',squad:'Состав',tactics:'Тактика',fixtures:'Календарь',table:'Таблица'};
