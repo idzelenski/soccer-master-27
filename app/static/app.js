@@ -48,7 +48,7 @@ function flagAssetUrl(code) {
     'drapeau du maroc':'ma','drapeau du senegal':'sn'
   };
   value = value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[’']/g, ' ').replace(/\\s+/g, ' ').trim();
-  const stripped = value.replace(/^drapeau (?:de |du |des )?/, '');
+  const stripped = value.replace(/^drapeau (?:de |du |des )?/, '').replace(/^(?:la |le |les |l )/, '').trim();
   const normalized = aliases[value] || aliases[stripped] || names[value] || names[stripped] || value;
   const safe = /^[a-z]{2}$|^gb-(?:eng|sct|wls|nir)$/.test(normalized) ? normalized : '';
   return safe ? 'https://flagcdn.com/w80/' + safe + '.png' : '';
