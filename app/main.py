@@ -1901,10 +1901,10 @@ def _record_match_detail(
 
     if suspended_at_start:
         conn.execute(
-            "UPDATE players SET suspension_matches=GREATEST(0,suspension_matches-1),
+            """UPDATE players SET suspension_matches=GREATEST(0,suspension_matches-1),
                suspension_reason=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_reason END,
                suspension_return_date=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_return_date END,
-               updated_at=now() WHERE id=ANY(%s)",
+               updated_at=now() WHERE id=ANY(%s)""",
             (suspended_at_start,),
         )
         if fixture.get("tournament_id"):
