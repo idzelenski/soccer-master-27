@@ -637,7 +637,7 @@ function redrawTactics() {
   setupTacticsInteractions();
 }
 function playerSurname(name) {
-  const parts = String(name || '').trim().split(/\\s+/).filter(Boolean);
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   return parts.length ? parts[parts.length - 1] : '';
 }
 function playerTag(player, slotIndex = null) {
