@@ -862,22 +862,51 @@ button:disabled {
 .pitch-player em .player-flag { display:block; width:15px; height:11px; margin:0 auto 2px; vertical-align:0; }
 
 
-/* SM27: keep player names readable on the tactical pitch. */
+/* Keep tactical markers fixed to their formation coordinates. */
+.pitch-player {
+  width: 72px;
+  height: 67px;
+  padding: 5px 3px;
+}
 .pitch-player em {
   display: block;
-  width: 104px;
-  max-width: 104px;
-  padding: 2px 4px;
-  border-radius: 4px;
+  width: 100%;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   color: #fff;
-  background: rgba(4,18,11,.78);
-  font-size: 9px;
+  background: transparent;
+  font-size: 8px;
   font-weight: 800;
-  line-height: 1.2;
+  line-height: 1.15;
   text-align: center;
   text-shadow: 0 1px 3px #001;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+
+/* Keep player name and availability badge aligned within the squad row. */
+.player-identity {
+  display: flex;
+  min-height: 38px;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 4px;
+}
+.player-identity .player-name {
+  display: inline-flex;
+  min-height: 18px;
+  align-items: center;
+  gap: 5px;
+}
+.player-identity .player-status {
+  align-self: flex-start;
+  margin: 0;
 }
 
 /* Numeric condition values make small changes visible in the squad table. */
