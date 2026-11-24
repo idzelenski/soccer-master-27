@@ -965,6 +965,15 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         player = dict(row)
         player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
         player["secondary_positions"] = list(player.get("secondary_positions") or [])
+        if int(player.get("market_value") or 0) <= 0:
+            player["market_value"] = estimated_market_value(
+                int(player.get("overall") or 45),
+                int(player.get("potential") or player.get("overall") or 45),
+                int(player.get("age") or 24),
+                int(save.get("reputation") or 50),
+                dict(player.get("attributes") or {}),
+            )
+            player["market_value_source"] = "SM27 estimate"
         result.append(player)
     return serialise(result)
 
