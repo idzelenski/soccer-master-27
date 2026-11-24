@@ -358,6 +358,8 @@ def player_condition_modifier(player: dict) -> int:
 
 def player_available_for_match(player: dict, match_date: date) -> bool:
     """Injured or suspended players cannot be selected until they are eligible again."""
+    if isinstance(match_date, datetime):
+        match_date = match_date.date()
     until = player.get("injury_until")
     if isinstance(until, datetime):
         until = until.date()
