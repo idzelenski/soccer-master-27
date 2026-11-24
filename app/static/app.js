@@ -1195,7 +1195,7 @@ function renderZoneLegend(tournament) {
     ['zone-relegation-playoff','Переходные матчи'],['zone-relegation','Вылет']
   ];
   const isEurope = /champions league|europa league|conference league|лига чемпионов|лига европы|лига конференций/i.test(tournament?.name || '');
-  const visible = isEurope ? labels.slice(0,3).concat([labels[4]]) : labels;
+  const visible = isEurope ? [labels[0],labels[2],labels[3],labels[4]] : labels;
   return `<div class="table-zone-legend">${visible.map(([zone,label])=>`<span><i class="${zone}"></i>${label}</span>`).join('')}</div>`;
 }
 function renderTournamentStandings(rows, tournament) {
