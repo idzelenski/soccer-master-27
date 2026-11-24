@@ -436,3 +436,13 @@ SM27 — футбольный менеджер / симулятор карьер
 - Squad API now fills a missing suspension return date from the player's upcoming scheduled club fixtures across competitions, skipping the number of matches remaining in the ban. Same-day scheduled fixtures are included. No database migration or destructive write was added.
 - GitHub Actions passed for the code changes: JavaScript syntax, Python compileall and pytest. The latest backend change commit is 32f2fa593d958c9b2eca87e15ceddfa59e97341b.
 - Render service is configured for automatic deploys from main. At the time of this note, Render's deploy list had not yet shown a deployment for these commits; production deployment remains to be confirmed. Do not claim the production UI is updated until Render reports the new commit as live.
+
+
+39. TACTICS CLICK STABILITY, SQUAD IDENTITY LAYOUT AND ROSTER IMPORT CAP — 2026-11-24
+- Tactical pitch selection no longer rebuilds the entire screen on a simple selection click; selected state is toggled in-place. Pitch buttons prevent default focus/active movement and explicitly preserve their centered transform.
+- Pitch player labels now show the rectangular national flag to the left of the position, with the surname on a separate line below.
+- Squad identity layout restored to the original horizontal arrangement: player name on the left and injury/suspension status on the right, vertically centered. Removed the extra generated-player line from the squad name cell.
+- Nationality flag URL resolver now accepts common FIFA/ISO-3 codes and localized country names as fallbacks, in addition to stored ISO-2 codes.
+- Removed the hard 30-player truncation during career creation. The source catalogue currently contains 41 PSG player records; career creation previously imported only the first 30. Added the verified source-ID alias Q18637930 -> Fabián Ruiz for PSG.
+- Important data audit: production Neon currently has 756 playable clubs, 558 with source squads and 198 with no source squad; 16,615 world-player records across 558 clubs. The current save data has a separate 30-player PSG roster due to the old cap. This source does not yet prove complete rosters for all 756 clubs. No production database rows or existing saves were changed by this code update.
+- Logos audit found known bad references: Brest points to a pre-1985 crest; Nice points to a simplified fair-use crest; Strasbourg's image URL points to a match photograph and is intentionally suppressed. No unverified substitute images were inserted. Official current assets still require exact direct-file verification before changing the catalog.
