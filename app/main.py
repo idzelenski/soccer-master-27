@@ -1382,7 +1382,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                       FROM fixtures f
                       WHERE f.game_state_id=p.game_state_id
                         AND f.status='scheduled'
-                        AND f.match_date::date>%s
+                        AND f.match_date::date>=%s
                         AND (f.home_club_id=p.club_id OR f.away_club_id=p.club_id)
                       ORDER BY f.match_date
                       OFFSET p.suspension_matches
