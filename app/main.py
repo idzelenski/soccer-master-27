@@ -228,7 +228,7 @@ FLAG_SPECIAL_CODES = {
     "syria": "sy", "taiwan": "tw",
     "por": "pt", "prt": "pt", "ned": "nl", "nld": "nl", "ger": "de", "deu": "de", "sui": "ch", "che": "ch",
     "rsa": "za", "crc": "cr", "uru": "uy", "ury": "uy", "cro": "hr", "hrv": "hr",
-    "gre": "gr", "grc": "gr", "den": "dk", "dnk": "dk", "ksa": "sa", "uae": "ae", "civ": "ci", "slo": "si", "svn": "si", "rom": "ro", "rou": "ro", "chi": "cl", "par": "py", "nig": "ne", "ner": "ne", "ang": "ao", "zam": "zm", "hai": "ht", "hon": "hn", "gam": "gm", "ngr": "ng", "swi": "ch", "ire": "ie", "wal": "gb-wls", "sco": "gb-sct", "inglaterra": "gb-eng", "españa": "es", "francia": "fr", "brasil": "br", "turquía": "tr", "uruguay": "uy", "marruecos": "ma", "bélgica": "be", "países bajos": "nl", "ucrania": "ua", "alemania": "de", "costa de marfil": "ci", "portugal": "pt",
+    "gre": "gr", "grc": "gr", "den": "dk", "dnk": "dk", "ksa": "sa", "uae": "ae", "alg": "dz", "gui": "gn", "glp": "gp", "lit": "lt", "ser": "rs", "tog": "tg", "nig": "ng", "nir": "gb-nir", "civ": "ci", "slo": "si", "svn": "si", "rom": "ro", "rou": "ro", "chi": "cl", "par": "py", "ner": "ne", "ang": "ao", "zam": "zm", "hai": "ht", "hon": "hn", "gam": "gm", "ngr": "ng", "swi": "ch", "ire": "ie", "wal": "gb-wls", "sco": "gb-sct", "inglaterra": "gb-eng", "españa": "es", "francia": "fr", "brasil": "br", "turquía": "tr", "uruguay": "uy", "marruecos": "ma", "bélgica": "be", "países bajos": "nl", "ucrania": "ua", "alemania": "de", "costa de marfil": "ci", "portugal": "pt",
 }
 
 
@@ -1635,7 +1635,7 @@ def _match_lineups(
     rows = conn.execute(
         """SELECT p.id,p.club_id,p.name,p.position,p.secondary_positions,p.overall,p.attributes,
                   p.injury_until,p.injury_type,
-                  coalesce(d.suspension_matches,p.suspension_matches,0) AS suspension_matches,
+                  coalesce(d.suspension_matches,0) AS suspension_matches,
                   p.form,p.morale,p.sharpness,p.fatigue,
                   coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi,
                   role.target_position
