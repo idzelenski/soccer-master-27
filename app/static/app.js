@@ -383,9 +383,7 @@ function renderSquad(players) {
     ].filter(Boolean).join('');
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
       <td><span class="rating">${player.overall}</span></td>
-      <td><span class="player-name">${flagIcon(player.nationality_flag, player.nationality || 'Флаг страны')} ${esc(player.name)}</span>
-        ${status}
-        ${player.original_data?.generated ? '<div class="player-source-generated">Вымышленный игрок SM27</div>' : ''}</td>
+      <td><div class="player-identity"><span class="player-name">${flagIcon(player.nationality_flag, player.nationality || 'Флаг страны')} ${esc(player.name)}</span>${status}${player.original_data?.generated ? '<div class="player-source-generated">Вымышленный игрок SM27</div>' : ''}</div></td>
       <td><span class="position-tag">${esc(player.position)}</span></td>
       <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
       <td>${player.age}</td>
@@ -425,11 +423,7 @@ function showPlayerDetails(playerId) {
     : trainOptions.length
       ? `<div class="position-training-controls"><label>Осваивать позицию<select id="position-training-target" class="select-input">${trainOptions.map(position => `<option value="${position}">${position}</option>`).join('')}</select></label><button id="start-position-training" class="btn-secondary">Начать тренировку</button></div><small class="training-help">Одна новая позиция за раз. До освоения игрок получает позиционный штраф.</small>`
       : '<small class="training-help">Для этой позиции нет доступных соседних ролей.</small>';
-  const marketSource = marketValueSourceLabel(player);
-  const fc27SourceUrl = /^https:\/\/www\.ea\.com\//i.test(player.fc27_source_url || '') ? player.fc27_source_url : '';
-  const fotmobSourceUrl = !player.fc27_player_id && /^https:\/\/www\.fotmob\.com\/players\//i.test(player.source_url || '') ? player.source_url : '';
-  const sofascoreSourceUrl = /^https:\/\/www\.sofascore\.com\/football\/player\//i.test(player.original_data?.research?.sofascore_url || '') ? player.original_data.research.sofascore_url : '';
-  const hasVerifiedValue = Number(player.market_value || 0) > 0;
+    const hasVerifiedValue = Number(player.market_value || 0) > 0;
   const modal = document.createElement('div');
   modal.id = 'player-detail-modal';
   modal.className = 'player-modal-backdrop';
@@ -443,9 +437,9 @@ function showPlayerDetails(playerId) {
       </div>
       <div class="player-modal-grid">
         <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Не освоены'}</b></div>
-        <div class="player-metric"><small>Рыночная стоимость</small><b>${hasVerifiedValue ? money(player.market_value) : 'Нет оценки'}</b><em>${esc(marketSource)}</em></div>
-        <div class="player-metric"><small>Контракт до</small><b>${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Источник: ${esc(player.profile_source || 'SM27 estimate')}</em></div>
-        <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b><em>Оценка SM27 по FC 27 Career Mode</em></div>
+        <div class="player-metric"><small>Рыночная стоимость</small><b>${hasVerifiedValue ? money(player.market_value) : 'Нет оценки'}</b></div>
+        <div class="player-metric"><small>Контракт до</small><b>${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b></div>
+        <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b></div>
       </div>
       <div class="player-state-grid">
         <div class="condition-metric"><small>Тонус</small><b>${player.sharpness ?? 85}/100</b>${renderToneCrystals(player.sharpness)}</div>
@@ -459,7 +453,6 @@ function showPlayerDetails(playerId) {
       </div>
       <div class="panel-head"><h3>Характеристики ${keeper ? 'вратаря' : 'полевого игрока'}</h3><span>ШКАЛА 1–99</span></div>
       <div class="attribute-grid">${bars}</div>
-      <div class="catalog-note"><span>ⓘ</span><span>${player.fc27_player_id ? 'OVR и шесть основных характеристик взяты из базы EA SPORTS FC 27. Потенциал и зарплата — отдельные оценки SM27.' : 'Игрок не найден в базе EA SPORTS FC 27. OVR, потенциал и характеристики — исследовательская оценка SM27, не официальный рейтинг EA.'} ${fc27SourceUrl ? '<a href="' + esc(fc27SourceUrl) + '" target="_blank" rel="noopener noreferrer">Официальная карточка EA</a>' : ''} ${fotmobSourceUrl ? '<a href="' + esc(fotmobSourceUrl) + '" target="_blank" rel="noopener noreferrer">Статистика FotMob 2026/27</a>' : ''} ${sofascoreSourceUrl ? '<a href="' + esc(sofascoreSourceUrl) + '" target="_blank" rel="noopener noreferrer">Стоимость SofaScore</a>' : ''}</span></div>
     </section>`;
   document.body.appendChild(modal);
   document.getElementById('close-player-modal').addEventListener('click', () => modal.remove());
@@ -643,6 +636,10 @@ function redrawTactics() {
   shell(renderTactics(state.squad, tactics), 'Тактика');
   setupTacticsInteractions();
 }
+function playerSurname(name) {
+  const parts = String(name || '').trim().split(/\\s+/).filter(Boolean);
+  return parts.length ? parts[parts.length - 1] : '';
+}
 function playerTag(player, slotIndex = null) {
   if (!player) return "";
   return `<div class="pitch-player-card" draggable="true" data-player-id="${esc(player.id)}" ${slotIndex !== null ? `data-pitch-slot="${slotIndex}"` : ""}>
@@ -667,7 +664,7 @@ function renderTactics(players, tactics) {
     const selected = state.selectedTacticSlot === index;
     const rating = player ? (player.dynamic_overall ?? player.overall) + positionPenalty(player,slot.role) : null;
     return `<button class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
-      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? flagIcon(player.nationality_flag,player.nationality || "Флаг страны") + esc(player.name) : "Выбрать"}</em>
+      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? flagIcon(player.nationality_flag,player.nationality || "Флаг страны") + esc(playerSurname(player.name)) : "Выбрать"}</em>
     </button>`;
   }).join("");
   const benchIds = new Set(state.tacticBench);
@@ -677,7 +674,7 @@ function renderTactics(players, tactics) {
     return p ? '<div class="tactic-roster-item"><button class="tactic-player-row bench-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
-      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(p.name) +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
       '<small>' + esc(p.position) + ' · запас</small></span></button></div>' : '';
   }).join("");
   const reserves = reserveIds.map(id=>{
@@ -685,7 +682,7 @@ function renderTactics(players, tactics) {
     return p ? '<div class="tactic-roster-item"><button class="tactic-player-row reserve-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
-      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(p.name) +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
       '<small>' + esc(p.position) + ' · резерв</small></span></button></div>' : '';
   }).join("");
   const settings = state.tacticSettings;
