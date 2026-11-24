@@ -363,7 +363,6 @@ function renderHome(data) {
 }
 function renderSquad(players) {
   const rows = players.map((player) => {
-    const source = marketValueSourceLabel(player);
     const hasValue = Number(player.market_value || 0) > 0;
     const valueLabel = hasValue ? money(player.market_value) : '—';
     const status = [
@@ -383,7 +382,7 @@ function renderSquad(players) {
       <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
       <td>${player.age}</td>
       <td><span class="potential-rating">${player.potential}</span></td>
-      <td class="value" title="${esc(source)}">${valueLabel}<div class="data-source">${esc(source)}</div></td>
+      <td class="value">${valueLabel}</td>
       <td>${player.contract_end ? new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}) : '—'}</td>
       <td>${money(player.weekly_wage)}<div class="data-source">/ нед.</div></td>
       <td>${renderToneCrystals(player.sharpness)}</td>
@@ -1011,14 +1010,15 @@ function tournamentMark(name, logo) {
 }
 function matchStatRow(label, homeValue, awayValue, suffix = '') {
   const left = Number(homeValue || 0), right = Number(awayValue || 0);
-  const leftWidth = left + right > 0 ? Math.max(4, left / (left + right) * 100) : 50;
+  const total = left + right;
+  const leftWidth = total > 0 ? Math.max(0, Math.min(100, left / total * 100)) : 50;
   const rightWidth = 100 - leftWidth;
+  const same = left === right;
   return `<div class="match-stat-row">
-    <b class="home-stat">${esc(homeValue ?? '—')}${suffix}</b>
-    <span class="stat-track home-track"><i style="width:${leftWidth}%"></i></span>
+    <b class="home-stat ${left > right && !same ? 'stat-better' : ''}">${esc(homeValue ?? '—')}${suffix}</b>
     <span class="stat-name">${esc(label)}</span>
-    <span class="stat-track away-track"><i style="width:${rightWidth}%"></i></span>
-    <b class="away-stat">${esc(awayValue ?? '—')}${suffix}</b>
+    <b class="away-stat ${right > left && !same ? 'stat-better' : ''}">${esc(awayValue ?? '—')}${suffix}</b>
+    <span class="stat-track"><i class="stat-home-fill" style="width:${leftWidth}%"></i><i class="stat-away-fill" style="width:${rightWidth}%"></i></span>
   </div>`;
 }
 async function showMatchDetails(fixtureId) {
@@ -1195,8 +1195,10 @@ function renderZoneLegend(tournament) {
     ['zone-relegation-playoff','Переходные матчи'],['zone-relegation','Вылет']
   ];
   const isEurope = /champions league|europa league|conference league|лига чемпионов|лига европы|лига конференций/i.test(tournament?.name || '');
-  const visible = isEurope ? [labels[0],labels[2],labels[3],labels[4]] : labels;
-  return `<div class="table-zone-legend">${visible.map(([zone,label])=>`<span><i class="${zone}"></i>${label}</span>`).join('')}</div>`;
+  const rows = document.querySelectorAll('.league-standings tbody tr');
+  const activeZones = new Set([...rows].flatMap(row => [...row.classList]));
+  const visible = labels.filter(([zone]) => activeZones.has(zone));
+  return visible.length ? `<div class="table-zone-legend">${visible.map(([zone,label])=>`<span><i class="${zone}"></i>${label}</span>`).join('')}</div>` : '';
 }
 function renderTournamentStandings(rows, tournament) {
   const teamCount = (rows || []).length;
@@ -1213,7 +1215,7 @@ function renderTopTen(title, players, field, formatter = value => value, minimum
     .slice(0,10);
   return `<section class="panel top-ten-card"><div class="panel-head"><h3>${title}</h3><span>ТОП-10</span></div>
     <div class="top-ten-list">${sorted.map((p,i)=>`<div class="top-ten-row">
-      <b class="top-ten-rank">${i+1}</b><span class="top-ten-player"><strong>${esc(p.name)}</strong><small>${esc(p.club_name)} · ${esc(p.position || '')}</small></span>
+      <b class="top-ten-rank">${i+1}</b><span class="top-ten-player"><strong>${flagIcon(p.nationality_flag,p.nationality || 'Флаг страны')}${esc(p.name)}</strong><small>${esc(p.club_name)} · ${esc(p.position || '')}</small></span>
       <strong class="top-ten-value">${formatter(p[field])}</strong>
     </div>`).join('') || '<div class="empty-state">Статистика появится после матчей</div>'}</div></section>`;
 }
@@ -1222,7 +1224,7 @@ function renderTeamTopTen(title, teams, field, formatter = value => value) {
     .sort((a,b)=>Number(b[field] || 0)-Number(a[field] || 0)).slice(0,10);
   return `<section class="panel top-ten-card"><div class="panel-head"><h3>${title}</h3><span>ТОП-10</span></div>
     <div class="top-ten-list">${sorted.map((team,i)=>`<div class="top-ten-row">
-      <b class="top-ten-rank">${i+1}</b><span class="top-ten-player"><strong>${esc(team.name)}</strong></span>
+      <b class="top-ten-rank">${i+1}</b><span class="top-ten-player"><strong>${crest(team.name,team.logo_url)}${esc(team.name)}</strong></span>
       <strong class="top-ten-value">${formatter(team[field])}</strong>
     </div>`).join('') || '<div class="empty-state">Статистика появится после матчей</div>'}</div></section>`;
 }
@@ -1231,7 +1233,7 @@ function renderTournamentPlayers(players) {
     ['Лучшие бомбардиры','goals',v=>v],
     ['Лучшие ассистенты','assists',v=>v],
     ['Гол + пас','goal_contributions',v=>v],
-    ['Средняя оценка','average_rating',v=>Number(v).toFixed(2),3],
+    ['Средняя оценка','average_rating',v=>Number(v).toFixed(2),1],
     ['Игрок матча (MVP)','mvp',v=>v],
     ['Жёлтые карточки','yellow_cards',v=>v],
     ['Красные карточки','red_cards',v=>v],
