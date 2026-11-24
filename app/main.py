@@ -1198,10 +1198,10 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             })
             contract_end = estimated_contract_end(age, external_id)
             weekly_wage = estimated_weekly_wage(
-                overall, age, int(team["reputation"]), player["name"]
+                overall, age, int(team["reputation"]), player_name
             )
             player_inserts.append((
-                game_state_id, team["id"], external_id, player["name"], player["nationality"],
+                game_state_id, team["id"], external_id, player_name, player["nationality"],
                 dob, age, position, overall, potential, market_value, weekly_wage, contract_end,
                 Jsonb(attributes), Jsonb(raw),
                 "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
