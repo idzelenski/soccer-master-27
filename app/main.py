@@ -1953,7 +1953,7 @@ def _record_match_detail(
                      AND (home_club_id=(SELECT club_id FROM players WHERE id=%s)
                           OR away_club_id=(SELECT club_id FROM players WHERE id=%s))
                    ORDER BY match_date OFFSET %s LIMIT 1""",
-                (save["id"],fixture["tournament_id"],fixture["season"],match_date,player_id,player_id,added_ban),
+                (save["id"],fixture["tournament_id"],fixture["season"],match_date,player_id,player_id,old_suspensions + added_ban),
             ).fetchone()
         discipline_changes[player_id] = {
             "yellow_cards": old_yellows + added_yellows,
