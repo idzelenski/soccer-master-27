@@ -1116,22 +1116,23 @@ function renderTable(tournaments, detail = null) {
       <span><b>${esc(t.name)}</b><small>${esc(t.country || t.continent || 'Турнир')} · ${esc(t.season)}</small>
       <em>${t.teams} команд · ${t.played_fixtures}/${t.fixtures} матчей</em></span><i>Открыть →</i>
     </button>`).join('');
-    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Выбери турнир, чтобы открыть таблицу и подробную статистику.')}`
+    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Выбери турнир, чтобы открыть таблицу и подробную статистику.')}
       <section class="panel"><div class="competition-grid">${cards || '<div class="empty-state">В этом сезоне пока нет турниров</div>'}</div></section>`;
   }
   const t = detail.tournament || {};
   const totals = detail.totals || {};
+  const teamCount = (tournaments || []).find(item => String(item.id) === String(t.id))?.teams || '';
   const topGoals = [...(detail.teams || [])].sort((a,b)=>b.goals-a.goals).slice(0,5);
   const topTeamsRating = [...(detail.teams || [])].filter(team=>team.average_rating!=null)
     .sort((a,b)=>b.average_rating-a.average_rating).slice(0,5);
-  return `${pageHead('СОРЕВНОВАНИЯ','${esc(t.name || 'Турнир')}',${esc(t.season || state.save?.season || '')},
+  return `${pageHead('СОРЕВНОВАНИЯ',t.name || 'Турнир',t.season || state.save?.season || '',
       '<button type="button" class="btn-secondary" id="tournament-back">← Все турниры</button>')}
     <section class="panel tournament-hero">
       ${tournamentMark(t.name,t.logo_url)}
       <div><h2>${esc(t.name)}</h2><span>${esc(t.country || t.continent || '')} · ${esc(t.season || '')}</span></div>
-      <div class="tournament-totals"><b>${totals.played_matches || 0}</b><small>сыграно матчей</small><b>${totals.goals || 0}</b><small>голов</small></div>
+      <div class="tournament-totals"><b>${totals.played_matches || 0}/${totals.total_matches || 0}</b><small>матчей сыграно</small><b>${totals.goals || 0}</b><small>голов</small></div>
     </section>
-    <section class="panel"><div class="panel-head"><h3>Турнирная таблица</h3><span>${tournaments?.find(item=>String(item.id)===String(t.id))?.teams || ''} КОМАНД</span></div>
+    <section class="panel"><div class="panel-head"><h3>Турнирная таблица</h3><span>${teamCount} КОМАНД</span></div>
       ${renderTournamentStandings(detail.standings)}
     </section>
     <section class="panel"><div class="panel-head"><h3>Статистика игроков</h3><span>СРЕДНЯЯ ОЦЕНКА · G+A · MVP</span></div>
@@ -1142,10 +1143,9 @@ function renderTable(tournaments, detail = null) {
       <section class="panel"><h3>Высший средний рейтинг</h3>${topTeamsRating.map((team,index)=>`<div class="analytics-row"><b>${index+1}</b>${crest(team.name,team.logo_url)}<span>${esc(team.name)}</span><strong>${Number(team.average_rating).toFixed(2)}</strong></div>`).join('') || '<div class="empty-state">Рейтинги появятся после матчей</div>'}</section>
     </div>`;
 }
-
 async function renderCurrent() {
   const tab = state.tab;
-  const titles = {home:'Обзор',squad:'Состав',tactics:'Тактика',fixtures:'Календарь',table:'Таблица'};
+  const titles = {home:'Обзор',squad:'Состав',tactics:'Тактика',fixtures:'Календарь',table:'Таблицы'};
   const title = titles[tab] || 'SM27';
   const cached = Object.prototype.hasOwnProperty.call(state.tabCache, tab);
   if (!cached) {
