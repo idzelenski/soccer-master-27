@@ -28,7 +28,7 @@ from app.auth import (
 )
 from app.config import settings
 from app.db import close_pool, connection, migrate
-from app.engine import overall_from_market_value, potential_from_overall, round_robin, simulate_score
+from app.engine import overall_from_market_value, potential_from_overall, round_robin, schedule_dates, simulate_score
 from app.schemas import CreateSaveIn, LoginIn, PositionTrainingIn, RegisterIn, TacticIn
 from app.researched_profiles import get_researched_profile
 
@@ -200,11 +200,26 @@ def player_attributes(overall: int, position: str, source_id: str = "") -> dict[
     return {key: max(20, min(99, rating + offset)) for key, offset in offsets.items()}
 
 
-def estimated_market_value(overall: int, potential: int, age: int) -> int:
-    """Conservative fallback only; fictional academy players and unverified values stay blank."""
-    age_factor = 1.12 if age <= 21 else 1.05 if age <= 24 else 1.0 if age <= 29 else max(0.35, 1 - (age - 29) * 0.055)
-    potential_factor = 1 + max(0, potential - overall) * 0.008
-    value = 50_000 * math.exp(max(-1.0, min(4.2, (overall - 45) * 0.105))) * age_factor * potential_factor
+def estimated_market_value(
+    overall: int,
+    potential: int,
+    age: int,
+    league_reputation: int = 50,
+    attributes: dict[str, Any] | None = None,
+) -> int:
+    """Estimate an unpriced real player's transfer value from level, league, age and attributes."""
+    overall = max(35, min(95, int(overall)))
+    potential = max(overall, min(99, int(potential)))
+    age_factor = (
+        1.18 if age <= 19 else 1.12 if age <= 21 else 1.06 if age <= 24
+        else 1.0 if age <= 28 else max(0.22, 1 - (age - 28) * 0.075)
+    )
+    league_factor = max(0.35, min(2.8, (max(10, min(100, league_reputation)) / 50) ** 1.45))
+    potential_factor = 1 + min(30, max(0, potential - overall)) * 0.012
+    relevant = [int(v) for v in (attributes or {}).values() if isinstance(v, (int, float))]
+    ability_factor = max(0.78, min(1.28, (sum(relevant) / len(relevant) / 70))) if relevant else 1.0
+    base = 50_000 * math.exp(max(-1.0, min(4.2, (overall - 45) * 0.105)))
+    value = base * age_factor * league_factor * potential_factor * ability_factor
     return int(round(max(25_000, value) / 10_000) * 10_000)
 
 
@@ -484,8 +499,9 @@ def create_schedule(
 ) -> None:
     ids = [str(team["id"]) for team in teams]
     rounds = round_robin(ids)
+    dates = schedule_dates(start_date, len(rounds))
     for round_index, fixtures in enumerate(rounds):
-        match_date = datetime.combine(start_date + timedelta(days=7 * round_index), datetime.min.time()).replace(
+        match_date = datetime.combine(dates[round_index], datetime.min.time()).replace(
             tzinfo=timezone.utc
         ) + timedelta(hours=14)
         for home_id, away_id in fixtures:
@@ -797,7 +813,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 profile_source = researched["profile_source"]
             else:
                 profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
-            market_value_source = "SofaScore" if researched and researched.get("market_value") is not None else "not_available"
+            market_value_source = "SofaScore" if researched and researched.get("market_value") is not None else "SM27 estimate"
             market_value_as_of = researched.get("market_value_as_of") if market_value_source == "SofaScore" else None
             raw = dict(player["raw_data"] or {})
             raw.update({
@@ -818,6 +834,12 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 attributes = dict(researched["attributes"])
             if not attributes:
                 attributes = player_attributes(overall, position, source_id)
+            if market_value <= 0:
+                market_value = estimated_market_value(
+                    overall, potential, age, int(team_records[-1]["reputation"]), attributes
+                )
+            raw["market_value_source"] = market_value_source
+            raw["market_value_as_of"] = market_value_as_of
             conn.execute(
                 """INSERT INTO players (
                        game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
