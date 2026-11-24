@@ -966,16 +966,53 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     ).fetchone()
     game_state_id = str(game_state["id"])
 
+    # Create all clubs in one round trip rather than inserting each club individually.
+    club_insert_rows: list[tuple] = []
+    for pool_row in teams:
+        stars = float(pool_row.get("fifa_stars") or 2.5)
+        reputation = max(10, min(100, int(
+            pool_row.get("team_strength") or round(stars * 20)
+        )))
+        capacity = pool_row.get("stadium_capacity") or 20000
+        budget = int(max(350_000, min(220_000_000, (reputation ** 2) * 22_000)))
+        colors = (pool_row.get("colors_hex") or "").split(" | ")
+        display_name = display_club_name(pool_row["club_name"])
+        club_insert_rows.append((
+            game_state_id, str(pool_row["source_id"]), display_name,
+            (display_name or "SM27")[:20], pool_row.get("country") or "—",
+            pool_row.get("league_name") or "Лига", pool_row.get("league_name") or "Лига",
+            pool_row.get("continent") or "UEFA", stars, budget, pool_row.get("stadium"),
+            capacity, pool_row.get("logo_url"), colors[0] or "#16A36A",
+            colors[1] if len(colors) > 1 else "#102B22", reputation,
+        ))
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """INSERT INTO clubs (
+                 game_state_id,external_id,name,short_name,country,league,original_league,
+                 continent,star_rating,budget,stadium_name,stadium_capacity,logo_url,
+                 primary_color,secondary_color,reputation
+               ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (game_state_id,external_id) DO UPDATE SET name=EXCLUDED.name""",
+            club_insert_rows,
+        )
+    source_ids = [str(team["source_id"]) for team in teams]
+    club_rows = conn.execute(
+        """SELECT id,external_id FROM clubs
+           WHERE game_state_id=%s AND external_id=ANY(%s)""",
+        (game_state_id, source_ids),
+    ).fetchall()
+    club_id_by_source = {str(row["external_id"]): str(row["id"]) for row in club_rows}
+
     team_records: list[dict] = []
     for pool_row in teams:
-        club_id = make_club(conn, game_state_id, pool_row)
+        source_id = str(pool_row["source_id"])
         reputation = int(
             pool_row.get("team_strength")
             or round(float(pool_row.get("fifa_stars") or 2.5) * 20)
         )
         team_records.append({
-            "id": club_id,
-            "source_id": pool_row["source_id"],
+            "id": club_id_by_source[source_id],
+            "source_id": source_id,
             "name": pool_row["club_name"],
             "country": pool_row.get("country"),
             "league": pool_row.get("league_name") or league_name,
@@ -1114,32 +1151,86 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         with conn.cursor() as cursor:
             cursor.executemany(player_insert_sql, player_inserts)
 
-    # Lineup queries remain club-scoped, but player catalogue lookups/inserts are batched.
+    # Add any missing academy placeholders in one batch.
+    positions = ["GK", "GK", "RB", "CB", "CB", "LB", "CB", "RB", "CDM", "CM", "CM", "CAM", "CM", "CM", "RW", "LW", "ST", "CF"]
+    club_ids = [team["id"] for team in team_records]
+    existing_counts = conn.execute(
+        """SELECT club_id,count(*)::int AS player_count
+           FROM players WHERE game_state_id=%s AND club_id=ANY(%s)
+           GROUP BY club_id""",
+        (game_state_id, club_ids),
+    ).fetchall()
+    player_count_by_club = {str(row["club_id"]): int(row["player_count"]) for row in existing_counts}
+    generated_rows: list[tuple] = []
     for team in team_records:
-        ensure_demo_roster(
-            conn, game_state_id, team["id"], team["name"], team["reputation"],
-            team.get("league") or league_name, team.get("country") or selected.get("country") or "",
-        )
-        lineup_rows = conn.execute(
-            """SELECT id,position,secondary_positions,overall
-               FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC,name""",
-            (game_state_id, team["id"]),
-        ).fetchall()
-        starters, bench, roles = best_lineup([dict(row) for row in lineup_rows], "4-3-3")
-        conn.execute(
-            """INSERT INTO tactics (game_state_id,club_id,formation,mentality,style,starting_xi,bench)
-               VALUES (%s,%s,'4-3-3','balanced',%s,%s,%s)
-               ON CONFLICT (game_state_id,club_id) DO NOTHING""",
-            (
-                game_state_id, team["id"],
-                Jsonb({"slot_roles": [
-                    {"player_id": player_id, "role": role}
-                    for player_id, role in zip(starters, roles)
-                ]}),
-                [uuid.UUID(player_id) for player_id in starters],
-                [uuid.UUID(player_id) for player_id in bench],
-            ),
-        )
+        existing = player_count_by_club.get(team["id"], 0)
+        for index, position in enumerate(positions[existing:], start=existing + 1):
+            source_id = f"generated:{team['id']}:{index}"
+            age = 18 + (index % 12)
+            overall = max(40, min(82, team["reputation"] - 8 + (index % 7)))
+            potential = min(92, overall + 4 + (index % 7))
+            attributes = player_attributes(overall, position, source_id)
+            value = estimated_market_value(
+                overall, potential, age, team.get("league") or league_name,
+                team.get("country") or selected.get("country") or "", attributes,
+            )
+            generated_rows.append((
+                game_state_id, team["id"], source_id, f"Игрок академии {index:02d}", age,
+                position, overall, potential, value,
+                estimated_weekly_wage(overall, age, team["reputation"], generated=True),
+                estimated_contract_end(age, source_id), Jsonb(attributes),
+                Jsonb({
+                    "generated": True,
+                    "note": "Fictional game placeholder, not a real player",
+                    "market_value_source": "SM27 estimate",
+                    "market_value_model": "league-age-ovr-potential-attributes-v1",
+                }),
+            ))
+    if generated_rows:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO players (
+                       game_state_id,club_id,external_id,name,age,position,secondary_positions,
+                       overall,potential,market_value,weekly_wage,contract_end,attributes,
+                       original_data,source_name,profile_source,market_value_source,form,morale,sharpness
+                   ) VALUES (%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,
+                             'SM27 generated roster','SM27 generated academy player','SM27 estimate',50,70,85)""",
+                generated_rows,
+            )
+
+    # Fetch every squad once, then calculate all starting XIs and persist all tactics in a batch.
+    all_player_rows = conn.execute(
+        """SELECT id,club_id,position,secondary_positions,overall
+           FROM players
+           WHERE game_state_id=%s AND club_id=ANY(%s)
+           ORDER BY club_id,overall DESC,name""",
+        (game_state_id, club_ids),
+    ).fetchall()
+    players_by_club: dict[str, list[dict]] = {}
+    for row in all_player_rows:
+        player = dict(row)
+        players_by_club.setdefault(str(player["club_id"]), []).append(player)
+
+    tactic_rows: list[tuple] = []
+    for team in team_records:
+        starters, bench, roles = best_lineup(players_by_club.get(team["id"], []), "4-3-3")
+        tactic_rows.append((
+            game_state_id, team["id"],
+            Jsonb({"slot_roles": [
+                {"player_id": player_id, "role": role}
+                for player_id, role in zip(starters, roles)
+            ]}),
+            [uuid.UUID(player_id) for player_id in starters],
+            [uuid.UUID(player_id) for player_id in bench],
+        ))
+    if tactic_rows:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO tactics (game_state_id,club_id,formation,mentality,style,starting_xi,bench)
+                   VALUES (%s,%s,'4-3-3','balanced',%s,%s,%s)
+                   ON CONFLICT (game_state_id,club_id) DO NOTHING""",
+                tactic_rows,
+            )
 
     selected_game_club = next(
         row["id"] for row in team_records if str(row["source_id"]) == str(selected["source_id"])
@@ -1736,15 +1827,21 @@ def _record_match_detail(
                 (save["id"], fixture["tournament_id"], fixture["season"], suspended_at_start),
             )
 
-    # Accumulate competition-specific yellows; every fifth yellow triggers a one-match ban.
+    # Accumulate cards with one batched read, avoiding per-player database round trips.
     discipline_changes: dict[str, dict[str, int]] = {}
-    for player_id in set(yellow_by_player) | set(red_by_player):
-        current = conn.execute(
-            """SELECT yellow_cards,red_cards,suspension_matches
+    disciplined_ids = sorted(set(yellow_by_player) | set(red_by_player))
+    existing_discipline: dict[str, dict] = {}
+    if disciplined_ids and fixture.get("tournament_id"):
+        existing_rows = conn.execute(
+            """SELECT player_id,yellow_cards,red_cards,suspension_matches
                FROM player_competition_discipline
-               WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND player_id=%s""",
-            (save["id"], fixture["tournament_id"], fixture["season"], player_id),
-        ).fetchone()
+               WHERE game_state_id=%s AND tournament_id=%s AND season=%s
+                 AND player_id=ANY(%s)""",
+            (save["id"], fixture["tournament_id"], fixture["season"], disciplined_ids),
+        ).fetchall()
+        existing_discipline = {str(row["player_id"]): dict(row) for row in existing_rows}
+    for player_id in disciplined_ids:
+        current = existing_discipline.get(player_id)
         old_yellows = int(current["yellow_cards"]) if current else 0
         old_reds = int(current["red_cards"]) if current else 0
         old_suspensions = int(current["suspension_matches"]) if current else 0
@@ -2220,7 +2317,7 @@ def tournament_details(
            JOIN clubs a ON a.id=f.away_club_id
            WHERE f.game_state_id=%s AND f.tournament_id=%s AND f.season=%s
            ORDER BY f.match_date,f.matchday,f.id
-           LIMIT 500""",
+           LIMIT 700""",
         (save["id"],tournament_id,save["season"]),
     ).fetchall()
     totals = conn.execute(
