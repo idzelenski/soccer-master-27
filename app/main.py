@@ -217,18 +217,21 @@ SECONDARY_POSITIONS = {
     "LW": ("LM", "ST"), "ST": ("CF", "LW"), "CF": ("ST", "CAM"),
 }
 FLAG_SPECIAL_CODES = {
-    "england": "gb-eng", "eng": "gb-eng",
+    "england": "gb-eng", "eng": "gb-eng", "bul": "bg", "bgr": "bg", "kos": "xk",
     "scotland": "gb-sct", "sco": "gb-sct",
     "wales": "gb-wls", "wal": "gb-wls",
     "northern ireland": "gb-nir", "nir": "gb-nir",
     "kosovo": "xk", "xk": "xk",
-    "russia": "ru", "turkey": "tr", "south korea": "kr",
+    "russia": "ru", "turkey": "tr", "south korea": "kr", "holland": "nl", "netherlands": "nl",
+    "republic of ireland": "ie", "ireland": "ie", "congo dr": "cd", "dr congo": "cd",
+    "democratic republic of the congo": "cd", "republic of korea": "kr", "guinea-bissau": "gw",
+    "cape verde": "cv", "new zealand": "nz", "united states": "us", "united states of america": "us",
     "north korea": "kp", "iran": "ir", "ivory coast": "ci",
     "czech republic": "cz", "bolivia": "bo", "vietnam": "vn",
     "syria": "sy", "taiwan": "tw",
-    "por": "pt", "ned": "nl", "ger": "de", "sui": "ch",
-    "rsa": "za", "crc": "cr", "uru": "uy", "cro": "hr",
-    "gre": "gr", "den": "dk", "ksa": "sa", "uae": "ae",
+    "por": "pt", "prt": "pt", "ned": "nl", "nld": "nl", "ger": "de", "deu": "de", "sui": "ch", "che": "ch",
+    "rsa": "za", "crc": "cr", "uru": "uy", "ury": "uy", "cro": "hr", "hrv": "hr",
+    "gre": "gr", "grc": "gr", "den": "dk", "dnk": "dk", "ksa": "sa", "uae": "ae", "alg": "dz", "gui": "gn", "glp": "gp", "lit": "lt", "ser": "rs", "tog": "tg", "nig": "ne", "nir": "gb-nir", "civ": "ci", "slo": "si", "svn": "si", "rom": "ro", "rou": "ro", "chi": "cl", "par": "py", "ner": "ne", "ang": "ao", "zam": "zm", "hai": "ht", "hon": "hn", "gam": "gm", "ngr": "ng", "swi": "ch", "ire": "ie", "wal": "gb-wls", "sco": "gb-sct", "inglaterra": "gb-eng", "españa": "es", "francia": "fr", "brasil": "br", "turquía": "tr", "uruguay": "uy", "marruecos": "ma", "bélgica": "be", "países bajos": "nl", "ucrania": "ua", "alemania": "de", "costa de marfil": "ci", "portugal": "pt",
 }
 
 
@@ -1371,7 +1374,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                   p.potential,p.market_value,p.market_value_source,p.weekly_wage,p.contract_end,
                   p.fatigue,p.form,p.morale,p.sharpness,p.position_training_target,
                   p.position_training_progress,p.fc27_player_id,p.injury_type,p.injury_until,
-                  p.suspension_matches,
+                  p.suspension_matches,p.suspension_reason,p.suspension_return_date,
                   p.attributes,p.original_data,p.profile_source,p.source_url,
                   fc.source_url AS fc27_source_url
            FROM players p
@@ -1396,6 +1399,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         player["injury_days_remaining"] = max(0, (injury_until - game_date).days) if injury_until and game_date else 0
         injury = INJURY_BY_KEY.get(player.get("injury_type"))
         player["injury_name"] = injury["name"] if injury else player.get("injury_type")
+        player["injury_return_date"] = injury_until.isoformat() if injury_until else None
         player["suspension_matches"] = int(player.get("suspension_matches") or 0)
         result.append(player)
     return serialise(result)
@@ -1628,14 +1632,21 @@ def _match_lineups(
     home_club_id: str,
     away_club_id: str,
     match_date: date,
+    tournament_id: str | None = None,
+    season: str | None = None,
 ) -> tuple[dict[str, list[dict]], list[str]]:
     rows = conn.execute(
         """SELECT p.id,p.club_id,p.name,p.position,p.secondary_positions,p.overall,p.attributes,
-                  p.injury_until,p.injury_type,p.suspension_matches,p.form,p.morale,p.sharpness,p.fatigue,
+                  p.injury_until,p.injury_type,
+                  coalesce(d.suspension_matches,0) AS suspension_matches,
+                  p.form,p.morale,p.sharpness,p.fatigue,
                   coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi,
                   role.target_position
            FROM players p
            LEFT JOIN tactics t ON t.game_state_id=p.game_state_id AND t.club_id=p.club_id
+           LEFT JOIN player_competition_discipline d
+             ON d.game_state_id=p.game_state_id AND d.player_id=p.id
+            AND d.tournament_id=%s AND d.season=%s
            LEFT JOIN LATERAL (
              SELECT item->>'role' AS target_position
              FROM jsonb_array_elements(coalesce(t.style->'slot_roles','[]'::jsonb)) item
@@ -1644,7 +1655,7 @@ def _match_lineups(
            ) role ON true
            WHERE p.game_state_id=%s AND p.club_id IN (%s,%s)
            ORDER BY p.club_id,p.overall DESC,p.name""",
-        (game_state_id, home_club_id, away_club_id),
+        (tournament_id, season, game_state_id, home_club_id, away_club_id),
     ).fetchall()
     by_club: dict[str, list[dict]] = {str(home_club_id): [], str(away_club_id): []}
     suspended_ids: list[str] = []
@@ -1709,6 +1720,7 @@ def _record_match_detail(
     injury_updates: list[tuple] = []
     yellow_by_player: dict[str, int] = {}
     red_by_player: dict[str, int] = {}
+    red_reason_by_player: dict[str, str] = {}
     team_details: dict[str, dict] = {}
     team_cards: dict[str, dict[str, int]] = {
         home_id: {"yellow": 0, "red": 0},
@@ -1827,16 +1839,23 @@ def _record_match_detail(
             record["red_cards"] += 1
             record["rating"] -= 1.1
             team_cards[club_id]["red"] += 1
-            red_by_player[red_player["id"]] = 2 if rng.random() < 0.22 else 1
+            second_yellow = red_player["id"] in yellow_by_player
+            ban_matches = 1 if second_yellow else (2 if rng.random() < 0.22 else 1)
+            red_by_player[red_player["id"]] = ban_matches
+            red_reason_by_player[red_player["id"]] = (
+                "Вторая жёлтая карточка" if second_yellow
+                else "Прямая красная карточка за грубое нарушение" if ban_matches == 2
+                else "Прямая красная карточка"
+            )
             minute = rng.randint(22, 89)
             event_rows.append((
                 fixture["id"], minute, "red_card", club_id, red_player["id"], None,
-                Jsonb({"simulated": True, "reason": "Удаление"}),
+                Jsonb({"simulated": True, "reason": red_reason_by_player[red_player["id"]]}),
             ))
 
         # About two to four time-loss injuries per club across a 30–38 match season.
         for player in starters:
-            if rng.random() >= 0.006:
+            if rng.random() >= 0.008:
                 continue
             injury = rng.choice(INJURY_CATALOG)
             days_out = rng.randint(int(injury["min_days"]), int(injury["max_days"]))
@@ -1845,7 +1864,7 @@ def _record_match_detail(
             injury_updates.append((injury["key"], return_date, player["id"]))
             event_rows.append((
                 fixture["id"], minute, "injury", club_id, player["id"], None,
-                Jsonb({"simulated": True, "injury": injury["key"], "name": injury["name"], "days_out": days_out}),
+                Jsonb({"simulated": True, "injury": injury["key"], "name": injury["name"], "days_out": days_out, "return_date": return_date.isoformat(), "reason": "Повреждение во время матча"}),
             ))
             record_by_id[player["id"]]["minutes_played"] = minute
             break
@@ -1882,15 +1901,58 @@ def _record_match_detail(
 
     if suspended_at_start:
         conn.execute(
-            "UPDATE players SET suspension_matches=GREATEST(0,suspension_matches-1),updated_at=now() WHERE id=ANY(%s)",
+            """UPDATE players SET suspension_matches=GREATEST(0,suspension_matches-1),
+               suspension_reason=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_reason END,
+               suspension_return_date=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_return_date END,
+               updated_at=now() WHERE id=ANY(%s)""",
             (suspended_at_start,),
         )
         if fixture.get("tournament_id"):
             conn.execute(
                 """UPDATE player_competition_discipline
-                   SET suspension_matches=GREATEST(0,suspension_matches-1),updated_at=now()
+                   SET suspension_matches=GREATEST(0,suspension_matches-1),
+                       suspension_reason=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_reason END,
+                       suspension_return_date=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_return_date END,
+                       updated_at=now()
                    WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND player_id=ANY(%s)""",
                 (save["id"], fixture["tournament_id"], fixture["season"], suspended_at_start),
+            )
+            conn.execute(
+                """UPDATE player_competition_discipline d
+                   SET suspension_return_date=(
+                       SELECT f.match_date::date
+                       FROM fixtures f JOIN players p ON p.id=d.player_id
+                       WHERE f.game_state_id=d.game_state_id AND f.tournament_id=d.tournament_id
+                         AND f.season=d.season AND f.status='scheduled'
+                         AND f.match_date::date>%s
+                         AND (f.home_club_id=p.club_id OR f.away_club_id=p.club_id)
+                       ORDER BY f.match_date OFFSET d.suspension_matches LIMIT 1
+                   )
+                   WHERE d.game_state_id=%s AND d.tournament_id=%s AND d.season=%s
+                     AND d.player_id=ANY(%s) AND d.suspension_matches>0""",
+                (match_date,save["id"],fixture["tournament_id"],fixture["season"],suspended_at_start),
+            )
+            conn.execute(
+                """UPDATE players p SET suspension_reason=active.suspension_reason,
+                           suspension_return_date=active.suspension_return_date
+                   FROM (
+                       SELECT DISTINCT ON (game_state_id,player_id) game_state_id,player_id,
+                              suspension_reason,suspension_return_date
+                       FROM player_competition_discipline
+                       WHERE game_state_id=%s AND player_id=ANY(%s) AND suspension_matches>0
+                       ORDER BY game_state_id,player_id,updated_at DESC
+                   ) active
+                   WHERE p.game_state_id=active.game_state_id AND p.id=active.player_id""",
+                (save["id"],suspended_at_start),
+            )
+            conn.execute(
+                """UPDATE players p SET suspension_reason=NULL,suspension_return_date=NULL
+                   WHERE p.game_state_id=%s AND p.id=ANY(%s)
+                     AND NOT EXISTS (
+                       SELECT 1 FROM player_competition_discipline d
+                       WHERE d.game_state_id=p.game_state_id AND d.player_id=p.id AND d.suspension_matches>0
+                     )""",
+                (save["id"],suspended_at_start),
             )
 
     # Accumulate cards with one batched read, avoiding per-player database round trips.
@@ -1914,34 +1976,60 @@ def _record_match_detail(
         added_yellows = yellow_by_player.get(player_id, 0)
         added_reds = 1 if player_id in red_by_player else 0
         added_ban = max(0, (old_yellows + added_yellows) // 5 - old_yellows // 5) + red_by_player.get(player_id, 0)
+        ban_reason = (
+            red_reason_by_player.get(player_id) if player_id in red_by_player
+            else "Пятая жёлтая карточка в турнире" if added_ban else None
+        )
+        return_row = None
+        if added_ban:
+            return_row = conn.execute(
+                """SELECT match_date::date AS return_date
+                   FROM fixtures
+                   WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND status='scheduled'
+                     AND match_date::date>%s
+                     AND (home_club_id=(SELECT club_id FROM players WHERE id=%s)
+                          OR away_club_id=(SELECT club_id FROM players WHERE id=%s))
+                   ORDER BY match_date OFFSET %s LIMIT 1""",
+                (save["id"],fixture["tournament_id"],fixture["season"],match_date,player_id,player_id,old_suspensions + added_ban),
+            ).fetchone()
         discipline_changes[player_id] = {
             "yellow_cards": old_yellows + added_yellows,
             "red_cards": old_reds + added_reds,
             "suspension_matches": old_suspensions + added_ban,
             "added_ban": added_ban,
+            "suspension_reason": ban_reason,
+            "suspension_return_date": return_row["return_date"] if return_row else None,
         }
     if discipline_changes:
         with conn.cursor() as cursor:
             cursor.executemany(
                 """INSERT INTO player_competition_discipline
-                       (game_state_id,tournament_id,season,player_id,yellow_cards,red_cards,suspension_matches)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s)
+                       (game_state_id,tournament_id,season,player_id,yellow_cards,red_cards,suspension_matches,
+                        suspension_reason,suspension_return_date)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (game_state_id,tournament_id,season,player_id)
                    DO UPDATE SET yellow_cards=EXCLUDED.yellow_cards,
                                  red_cards=EXCLUDED.red_cards,
                                  suspension_matches=EXCLUDED.suspension_matches,
+                                 suspension_reason=coalesce(EXCLUDED.suspension_reason,player_competition_discipline.suspension_reason),
+                                 suspension_return_date=coalesce(EXCLUDED.suspension_return_date,player_competition_discipline.suspension_return_date),
                                  updated_at=now()""",
                 [
                     (save["id"], fixture["tournament_id"], fixture["season"], player_id,
-                     values["yellow_cards"], values["red_cards"], values["suspension_matches"])
+                     values["yellow_cards"], values["red_cards"], values["suspension_matches"],
+                     values["suspension_reason"], values["suspension_return_date"])
                     for player_id, values in discipline_changes.items()
                 ],
             )
-        ban_updates = [(values["added_ban"], player_id) for player_id, values in discipline_changes.items() if values["added_ban"]]
+        ban_updates = [
+            (values["added_ban"],values["suspension_reason"],values["suspension_return_date"],player_id)
+            for player_id,values in discipline_changes.items() if values["added_ban"]
+        ]
         if ban_updates:
             with conn.cursor() as cursor:
                 cursor.executemany(
-                    "UPDATE players SET suspension_matches=suspension_matches+%s,updated_at=now() WHERE id=%s",
+                    """UPDATE players SET suspension_matches=suspension_matches+%s,
+                       suspension_reason=%s,suspension_return_date=%s,updated_at=now() WHERE id=%s""",
                     ban_updates,
                 )
 
@@ -2027,14 +2115,9 @@ def simulate_matchday(
     match_date: date,
     matchday: int | None = None,
     tournament_id: str | None = None,
+    through_date: date | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """Simulate every fixture in a tournament round, even if it spans Fri/Sat/Sun."""
-    conn.execute(
-        """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
-                  sharpness=LEAST(100,sharpness+4),updated_at=now()
-           WHERE game_state_id=%s""",
-        (save["id"],),
-    )
+    """Simulate only fixtures through a date; matchdays may span multiple dates."""
     if matchday is not None and tournament_id:
         rows = conn.execute(
             """SELECT f.*,h.name AS home_name,a.name AS away_name,
@@ -2042,8 +2125,9 @@ def simulate_matchday(
                FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
                WHERE f.game_state_id=%s AND f.status='scheduled'
                  AND f.matchday=%s AND f.tournament_id=%s
+                 AND (%s IS NULL OR f.match_date::date<=%s)
                ORDER BY f.match_date,f.id""",
-            (save["id"], matchday, tournament_id),
+            (save["id"], matchday, tournament_id, through_date, through_date),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -2055,6 +2139,19 @@ def simulate_matchday(
             (save["id"], match_date),
         ).fetchall()
 
+    participating_clubs = sorted({
+        str(club_id)
+        for row in rows
+        for club_id in (row["home_club_id"], row["away_club_id"])
+    })
+    if participating_clubs:
+        conn.execute(
+            """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
+                      sharpness=LEAST(100,sharpness+4),updated_at=now()
+               WHERE game_state_id=%s AND club_id=ANY(%s)""",
+            (save["id"], participating_clubs),
+        )
+
     completed: list[dict] = []
     manager_results: list[dict] = []
     managed_club_id = str(save["managed_club_id"])
@@ -2064,7 +2161,8 @@ def simulate_matchday(
         fixture_date = fixture["match_date"].date() if isinstance(fixture["match_date"], datetime) else fixture["match_date"]
         last_match_date = max(last_match_date, fixture_date)
         lineups, suspended_ids = _match_lineups(
-            conn, str(save["id"]), str(fixture["home_club_id"]), str(fixture["away_club_id"]), fixture_date
+            conn, str(save["id"]), str(fixture["home_club_id"]), str(fixture["away_club_id"]),
+            fixture_date, str(fixture.get("tournament_id") or ""), str(fixture.get("season") or save.get("season") or "")
         )
         home_players = lineups.get(str(fixture["home_club_id"]), [])
         away_players = lineups.get(str(fixture["away_club_id"]), [])
@@ -2207,7 +2305,7 @@ def advance_game_to_date(
            FROM fixtures
            WHERE game_state_id=%s AND status='scheduled'
            GROUP BY tournament_id,matchday
-           HAVING max(match_date::date)<=%s
+           HAVING min(match_date::date)<=%s
            ORDER BY min(match_date),matchday""",
         (save["id"], target_date),
     ).fetchall()
@@ -2215,7 +2313,8 @@ def advance_game_to_date(
     manager_results: list[dict] = []
     for row in rounds:
         completed, own_results = simulate_matchday(
-            conn, save, row["match_date"], int(row["matchday"]), str(row["tournament_id"])
+            conn, save, row["match_date"], int(row["matchday"]), str(row["tournament_id"]),
+            through_date=target_date
         )
         matches_simulated += len(completed)
         manager_results.extend(own_results)

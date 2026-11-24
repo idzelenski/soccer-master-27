@@ -286,7 +286,7 @@ def test_best_lineup_uses_global_role_assignment_for_wingers():
     assert by_role["RW"] == "elite-rw"
 
 
-def test_calendar_context_menu_simulates_complete_tournament_rounds_to_target_date():
+def test_calendar_context_menu_simulates_only_fixtures_through_target_date():
     from pathlib import Path
 
     backend = Path("app/main.py").read_text(encoding="utf-8")
@@ -296,7 +296,9 @@ def test_calendar_context_menu_simulates_complete_tournament_rounds_to_target_da
     frontend = Path("app/static/app.js").read_text(encoding="utf-8")
     assert "status='scheduled'" in endpoint
     assert "GROUP BY tournament_id,matchday" in endpoint
-    assert "HAVING max(match_date::date)<=%s" in endpoint
+    assert "HAVING min(match_date::date)<=%s" in endpoint
+    assert "through_date=target_date" in endpoint
+    assert "f.match_date::date<=%s" in backend
     assert 'simulate_matchday(' in endpoint
     assert 'row["match_date"], int(row["matchday"]), str(row["tournament_id"])' in endpoint
     assert "game_date=%s,simulation_cursor=%s" in endpoint

@@ -29,13 +29,13 @@ def expected_goals(
     away_overall: float = 60,
     home_advantage: float = 0.16,
 ) -> tuple[float, float]:
-    # Reputation is a long-term baseline; the actual starting XI drives match strength.
-    # A 10-point OVR gap must matter even when a source assigns every club the same stars.
-    home_strength = (home_reputation * 0.15 + home_overall * 0.85) / 100
-    away_strength = (away_reputation * 0.15 + away_overall * 0.85) / 100
-    difference = clamp(home_strength - away_strength, -0.70, 0.70)
-    home_xg = clamp(1.42 * math.exp(difference * 2.8) + home_advantage, 0.18, 3.6)
-    away_xg = clamp(1.18 * math.exp(-difference * 2.8), 0.12, 3.1)
+    # Club reputation carries the season-long strength baseline; line-up OVR still matters,
+    # but must not erase a meaningful gap between elite and lower-tier clubs.
+    home_strength = (home_reputation * 0.58 + home_overall * 0.42) / 100
+    away_strength = (away_reputation * 0.58 + away_overall * 0.42) / 100
+    difference = clamp(home_strength - away_strength, -0.55, 0.55)
+    home_xg = clamp(1.42 * math.exp(difference * 3.6) + home_advantage, 0.18, 3.6)
+    away_xg = clamp(1.18 * math.exp(-difference * 3.6), 0.12, 3.1)
     return round(home_xg, 2), round(away_xg, 2)
 
 
