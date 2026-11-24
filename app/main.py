@@ -2188,6 +2188,18 @@ def tournament_details(
            ORDER BY goals DESC,average_rating DESC,c.name""",
         (save["id"], tournament_id, save["season"]),
     ).fetchall()
+    match_rows = conn.execute(
+        """SELECT f.id,f.match_date,f.matchday,f.stage,f.status,f.home_score,f.away_score,
+                  f.home_xg,f.away_xg,h.name AS home_name,h.logo_url AS home_logo,
+                  a.name AS away_name,a.logo_url AS away_logo
+           FROM fixtures f
+           JOIN clubs h ON h.id=f.home_club_id
+           JOIN clubs a ON a.id=f.away_club_id
+           WHERE f.game_state_id=%s AND f.tournament_id=%s AND f.season=%s
+           ORDER BY f.match_date,f.matchday,f.id
+           LIMIT 500""",
+        (save["id"],tournament_id,save["season"]),
+    ).fetchall()
     totals = conn.execute(
         """SELECT count(*) FILTER (WHERE status='completed')::int AS played_matches,
                   count(*) FILTER (WHERE status='scheduled')::int AS scheduled_matches,
@@ -2202,6 +2214,7 @@ def tournament_details(
         "standings": [dict(row) for row in standings_rows],
         "players": [dict(row) for row in player_rows],
         "teams": [dict(row) for row in team_rows],
+        "matches": [dict(row) for row in match_rows],
         "totals": dict(totals),
     })
 
