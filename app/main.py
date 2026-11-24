@@ -875,6 +875,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 "source_snapshot": selected["source_snapshot"].isoformat(),
                 "calendar_year_season": calendar_year_season,
                 "calendar_start_date": career_start_date.isoformat(),
+                "calendar_league_code": league_code,
             }),
         ),
     ).fetchone()
@@ -1908,7 +1909,7 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
             (next_season, save["id"], save["season"]),
         )
         first_day = (
-            date(next_year, 2, 1) if calendar_year_season and save.get("club_league") == "Major League Soccer"
+            date(next_year, 2, 1) if calendar_year_season and (save.get("game_settings") or {}).get("calendar_league_code") == "USA-MLS"
             else date(next_year, 1, 1) if calendar_year_season
             else date(next_year, 7, 1)
         )
