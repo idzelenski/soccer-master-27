@@ -74,6 +74,13 @@ function loadTabData(key, loader) {
   state.tabLoads[key] = pending;
   return pending;
 }
+function invalidateCareerTabs() {
+  state.cacheEpoch += 1;
+  state.tabCache = {};
+  state.tabLoads = {};
+  state.preloadStarted = false;
+}
+
 async function preloadCareerTabs() {
   if (state.preloadStarted || !state.save) return;
   state.preloadStarted = true;
@@ -978,6 +985,7 @@ function setupCalendarInteractions() {
           method: 'POST', body: '{}'
         });
         if (state.save) state.save.game_date = result.game_date;
+        invalidateCareerTabs();
         const ownMatch = result.manager_result || (result.results || []).slice(-1)[0];
         if (ownMatch) {
           toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
@@ -1244,6 +1252,7 @@ async function advanceGame() {
     if (ownMatch) toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
     else if (result.new_season) toast('Начался новый сезон ' + result.new_season);
     else toast('Тур сыгран. Твой клуб в этом туре не играл.');
+    invalidateCareerTabs();
     state.tab='home'; await renderCurrent();
   } catch(err){toast(err.message,true);if(button){button.disabled=false;button.textContent='Сыграть тур →';}}
 }
