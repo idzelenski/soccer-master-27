@@ -45,6 +45,13 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOGGER = logging.getLogger("sm27")
 
 
+def _json_safe_date(value: Any) -> Any:
+    """Convert Python date values to JSON-compatible ISO strings."""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    return value
+
+
 def _round_kickoff(anchor: date, game_index: int) -> datetime:
     """Spread fixtures across Fri/Sat/Sun, or Tue/Wed/Thu for a midweek round."""
     slot = game_index % 3
@@ -1177,7 +1184,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             raw = dict(player["raw_data"] or {})
             raw.update({
                 "market_value_source": market_value_source,
-                "market_value_as_of": market_value_as_of,
+                "market_value_as_of": _json_safe_date(market_value_as_of),
                 "market_value_model": "league-age-ovr-potential-attributes-v1" if market_value_source == "SM27 estimate" else None,
                 "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 researched estimate" if researched else "SM27 estimate",
                 "contract_source": "SM27 estimate",
