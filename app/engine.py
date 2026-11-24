@@ -431,13 +431,14 @@ def league_schedule_dates(
 
     if "argentine primera" in name:
         start, end = date(year, 2, 1), date(year, 12, 6)
-        weekends = _window_dates(start, end, (5,))
-        midweeks = [
-            date(year, 3, 11), date(year, 4, 8), date(year, 5, 13), date(year, 6, 10),
-            date(year, 7, 22), date(year, 8, 19), date(year, 9, 16), date(year, 10, 14),
-            date(year, 11, 11), date(year, 12, 2),
-        ]
-        return _combine_round_dates(weekends, midweeks, round_count)
+        weekends = _window_dates(start, end, (5, 6))
+        available_midweeks = _window_dates(date(year, 3, 11), date(year, 11, 25), (2,))
+        midweek_count = min(14, max(0, round_count - 30))
+        weekend_count = round_count - midweek_count
+        return sorted(
+            _evenly_spaced(weekends, weekend_count)
+            + _evenly_spaced(available_midweeks, midweek_count)
+        )
 
     if "norway" in nation or "norwegian" in name or "eliteserien" in name:
         start, end = date(year, 3, 15), date(year, 11, 15)
