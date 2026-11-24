@@ -408,3 +408,10 @@ SM27 — футбольный менеджер / симулятор карьер
 - Competition bans are now checked within the relevant tournament, not globally across unrelated competitions. Five accumulated yellows or a red-card event are the only ban triggers. Red events distinguish second yellow from direct red; ban reason and exact expected return date are stored. The date is recalculated as each suspended match is served. Migration 005 adds nullable explanation/date fields and backfills active legacy bans from card records and scheduled fixtures.
 - Match balance: club reputation now has 58% weight and starting XI OVR 42% (previously 15% / 85%), increasing the influence of a genuine club-strength gap while retaining lineup quality. Added regression tests for favorite/underdog expected-goal differences.
 - Migration 005 is additive/idempotent. No saves, match history, player ratings or fixture results are deleted or reset.
+
+
+36. FIX SQL MIGRATION EXECUTION AND RESTORE DEPLOY — 2026-11-24
+- Production startup failure on commit 7c742ad was traced to app/db.py splitting SQL migrations with sql.split(";"). Migration 005 contains semicolons inside quoted logo_source/logo_license text, so the SQL string was truncated and PostgreSQL raised unterminated quoted string.
+- Fixed app/db.py: each complete migration file is now executed once with psycopg's simple-query protocol (prepare=False), preserving semicolons inside quoted values and avoiding fragile manual splitting.
+- Normalized migration 005 provenance strings to commas rather than semicolons for readability. Migration remains additive/idempotent; no existing saves, match results, players or fixtures are deleted/reset.
+- Follow-up: wait for GitHub Actions, verify migration and startup logs on Render, confirm exact deployed commit and HTTP health before considering release complete.
