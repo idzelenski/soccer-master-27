@@ -8,6 +8,7 @@ import random
 import re
 import uuid
 import unicodedata
+import time
 from contextlib import asynccontextmanager
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -571,45 +572,79 @@ def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list
     if len(available) < len(roles):
         raise ValueError(f"Для схемы {formation} нужно минимум {len(roles)} игроков")
 
-    # Solve the complete role assignment, rather than greedily consuming the
-    # best player for the first slot and leaving weaker fits for later slots.
+    # Rectangular Hungarian assignment: O(players * roles^2), instead of the
+    # previous exponential bitmask DP with tuple copies for every reachable state.
+    ordered = sorted(available, key=lambda row: str(row["id"]))
+    player_count = len(ordered)
     slot_count = len(roles)
-    full_mask = (1 << slot_count) - 1
-    empty_path: tuple[str | None, ...] = tuple(None for _ in roles)
-    dp: dict[int, tuple[int, tuple[str | None, ...]]] = {0: (0, empty_path)}
-    ordered_players = sorted(available, key=lambda row: str(row["id"]))
+    ratings = [
+        int(player.get("dynamic_overall") or player.get("overall") or 0)
+        for player in ordered
+    ]
+    scores = [
+        [
+            ratings[player_index] + position_penalty(
+                player.get("position") or "CM",
+                list(player.get("secondary_positions") or []),
+                role,
+            )
+            for role in roles
+        ]
+        for player in ordered
+    ]
 
-    for player in ordered_players:
-        player_id = str(player["id"])
-        primary = player.get("position") or "CM"
-        secondary = list(player.get("secondary_positions") or [])
-        rating = int(player.get("dynamic_overall") or player.get("overall") or 0)
-        next_dp = dict(dp)
-        for mask, (total, path) in dp.items():
-            for slot_index, role in enumerate(roles):
-                bit = 1 << slot_index
-                if mask & bit:
+    # Hungarian algorithm for n rows >= m columns, minimizing negative score.
+    u = [0] * (player_count + 1)
+    v = [0] * (slot_count + 1)
+    matched_player = [0] * (slot_count + 1)
+    previous_slot = [0] * (slot_count + 1)
+    infinity = float("inf")
+    for player_index in range(1, player_count + 1):
+        matched_player[0] = player_index
+        min_cost = [infinity] * (slot_count + 1)
+        used = [False] * (slot_count + 1)
+        current_slot = 0
+        while True:
+            used[current_slot] = True
+            current_player = matched_player[current_slot]
+            delta = infinity
+            next_slot = 0
+            for slot_index in range(1, slot_count + 1):
+                if used[slot_index]:
                     continue
-                next_mask = mask | bit
-                candidate_path = list(path)
-                candidate_path[slot_index] = player_id
-                candidate_path_tuple = tuple(candidate_path)
-                candidate_total = total + rating + position_penalty(primary, secondary, role)
-                previous = next_dp.get(next_mask)
-                candidate_key = tuple(value or "" for value in candidate_path_tuple)
-                previous_key = tuple(value or "" for value in previous[1]) if previous else ()
-                if (
-                    previous is None
-                    or candidate_total > previous[0]
-                    or (candidate_total == previous[0] and candidate_key < previous_key)
-                ):
-                    next_dp[next_mask] = (candidate_total, candidate_path_tuple)
-        dp = next_dp
+                cost = -scores[current_player - 1][slot_index - 1]
+                reduced_cost = cost - u[current_player] - v[slot_index]
+                if reduced_cost < min_cost[slot_index]:
+                    min_cost[slot_index] = reduced_cost
+                    previous_slot[slot_index] = current_slot
+                if min_cost[slot_index] < delta:
+                    delta = min_cost[slot_index]
+                    next_slot = slot_index
+            for slot_index in range(slot_count + 1):
+                if used[slot_index]:
+                    u[matched_player[slot_index]] += delta
+                    v[slot_index] -= delta
+                else:
+                    min_cost[slot_index] -= delta
+            current_slot = next_slot
+            if matched_player[current_slot] == 0:
+                break
+        while True:
+            next_slot = previous_slot[current_slot]
+            matched_player[current_slot] = matched_player[next_slot]
+            current_slot = next_slot
+            if current_slot == 0:
+                break
 
-    best = dp.get(full_mask)
-    if best is None or any(player_id is None for player_id in best[1]):
+    selected_by_slot: list[str | None] = [None] * slot_count
+    for slot_index in range(1, slot_count + 1):
+        player_index = matched_player[slot_index]
+        if player_index:
+            selected_by_slot[slot_index - 1] = str(ordered[player_index - 1]["id"])
+    if any(player_id is None for player_id in selected_by_slot):
         raise ValueError(f"Не удалось собрать полный состав по схеме {formation}")
-    selected = [str(player_id) for player_id in best[1]]
+
+    selected = [str(player_id) for player_id in selected_by_slot]
     selected_set = set(selected)
     remaining = [row for row in available if str(row["id"]) not in selected_set]
     bench_rows = sorted(
@@ -893,6 +928,18 @@ def catalog_clubs(
 
 @app.post("/api/saves")
 def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
+    started_at = time.perf_counter()
+    stage_started = started_at
+
+    def log_stage(stage: str) -> None:
+        nonlocal stage_started
+        now = time.perf_counter()
+        LOGGER.info(
+            "Career creation stage=%s duration=%.3fs total=%.3fs",
+            stage, now - stage_started, now - started_at,
+        )
+        stage_started = now
+
     # Serialize career creation for this manager to prevent duplicate save slots.
     conn.execute("SELECT id FROM managers WHERE id=%s FOR UPDATE", (manager["id"],)).fetchone()
     active = conn.execute(
@@ -921,6 +968,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         teams = [dict(row) for row in teams_rows]
     if selected["source_id"] not in {team["source_id"] for team in teams}:
         teams.append(selected)
+    log_stage(f"catalogue clubs={len(teams)}")
 
     league_name = selected.get("league_name") or "SM27 League"
     calendar_year_season = league_code in {"USA-MLS", "BRA-SA", "ARG-PD"}
@@ -995,6 +1043,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                ON CONFLICT (game_state_id,external_id) DO UPDATE SET name=EXCLUDED.name""",
             club_insert_rows,
         )
+    log_stage("clubs inserted")
     source_ids = [str(team["source_id"]) for team in teams]
     club_rows = conn.execute(
         """SELECT id,external_id FROM clubs
@@ -1042,6 +1091,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     players_by_source: dict[str, list[dict]] = {}
     for row in player_rows:
         players_by_source.setdefault(str(row["club_source_id"]), []).append(dict(row))
+    log_stage(f"player catalogue rows={len(player_rows)}")
 
     player_insert_sql = """INSERT INTO players (
            game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
@@ -1150,6 +1200,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     if player_inserts:
         with conn.cursor() as cursor:
             cursor.executemany(player_insert_sql, player_inserts)
+    log_stage(f"real players inserted={len(player_inserts)}")
 
     # Add any missing academy placeholders in one batch.
     positions = ["GK", "GK", "RB", "CB", "CB", "LB", "CB", "RB", "CDM", "CM", "CM", "CAM", "CM", "CM", "RW", "LW", "ST", "CF"]
@@ -1197,6 +1248,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                              'SM27 generated roster','SM27 generated academy player','SM27 estimate',50,70,85)""",
                 generated_rows,
             )
+    log_stage(f"academy players inserted={len(generated_rows)}")
 
     # Fetch every squad once, then calculate all starting XIs and persist all tactics in a batch.
     all_player_rows = conn.execute(
@@ -1231,12 +1283,15 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                    ON CONFLICT (game_state_id,club_id) DO NOTHING""",
                 tactic_rows,
             )
+    log_stage(f"AI lineups prepared={len(tactic_rows)}")
 
     selected_game_club = next(
         row["id"] for row in team_records if str(row["source_id"]) == str(selected["source_id"])
     )
     conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
     create_schedule(conn, game_state_id, str(tournament["id"]), team_records, season=season_label, start_date=career_start_date)
+    log_stage(f"schedule created clubs={len(team_records)}")
+    LOGGER.info("Career creation completed total=%.3fs", time.perf_counter() - started_at)
     return {
         "ok": True,
         "save_id": game_state_id,
