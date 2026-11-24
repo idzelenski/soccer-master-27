@@ -1015,8 +1015,9 @@ function matchStatRow(label, homeValue, awayValue, suffix = '') {
   const rightWidth = 100 - leftWidth;
   return `<div class="match-stat-row">
     <b class="home-stat">${esc(homeValue ?? '—')}${suffix}</b>
-    <span class="stat-track"><i style="width:${leftWidth}%"></i><i style="width:${rightWidth}%"></i></span>
+    <span class="stat-track home-track"><i style="width:${leftWidth}%"></i></span>
     <span class="stat-name">${esc(label)}</span>
+    <span class="stat-track away-track"><i style="width:${rightWidth}%"></i></span>
     <b class="away-stat">${esc(awayValue ?? '—')}${suffix}</b>
   </div>`;
 }
@@ -1113,73 +1114,170 @@ async function showMatchDetails(fixtureId) {
     toast(error.message, true);
   }
 }
-function renderTournamentStandings(rows) {
-  return `<div class="table-wrap"><table><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead>
-    <tbody>${(rows || []).map((r,i)=>`<tr class="${r.name===state.save?.club_name?'me-row':''}">
-      <td>${i+1}</td><td><div class="team-cell">${crest(r.name,r.logo_url)}${esc(r.name)}</div></td>
+function leagueZone(tournament, position, teamCount) {
+  const name = String(tournament?.name || '').toLowerCase();
+  const country = String(tournament?.country || '').toLowerCase();
+  const tier = Number(tournament?.tier || 1);
+  if (tournament?.tournament_type === 'continental' || /champions league|europa league|conference league|лига чемпионов|лига европы|лига конференций/.test(name)) {
+    if (position <= 8) return 'zone-ucl';
+    if (position <= 24) return 'zone-europe-playoff';
+    return 'zone-out';
+  }
+  if (tier > 1) {
+    const promotion = Math.min(2, Math.max(1, Math.floor(teamCount * .12)));
+    const playoff = Math.min(teamCount - promotion - 3, Math.max(2, Math.ceil(teamCount * .18)));
+    if (position <= promotion) return 'zone-promotion';
+    if (position <= promotion + playoff) return 'zone-promotion-playoff';
+    if (position > teamCount - 3) return 'zone-relegation';
+    return '';
+  }
+  const isEngland = /england|англи/.test(country) || /premier league/.test(name);
+  const isGermany = /germany|герман/.test(country) || /bundesliga/.test(name);
+  const isFrance = /france|франц/.test(country) || /ligue 1/.test(name);
+  const isNetherlands = /netherlands|нидерланд/.test(country) || /eredivisie/.test(name);
+  const isPortugal = /portugal|португал/.test(country) || /primeira liga/.test(name);
+  const isScotland = /scotland|шотланд/.test(country) || /premiership/.test(name);
+  const isSpain = /spain|испан/.test(country) || /la liga/.test(name);
+  const isItaly = /italy|итал/.test(country) || /serie a/.test(name);
+  const isRussia = /russia|росси/.test(country) || /рпл|premier liga/.test(name);
+  const bottom = isGermany || isFrance || isPortugal ? 2 : 3;
+  if (position > teamCount - bottom) return 'zone-relegation';
+  if ((isGermany || isFrance || isPortugal) && position === teamCount - bottom) return 'zone-relegation-playoff';
+  if (isNetherlands) {
+    if (position <= 2) return 'zone-ucl';
+    if (position === 3) return 'zone-ucl-playoff';
+    if (position === 4) return 'zone-uel';
+    if (position >= 5 && position <= 8) return 'zone-europe-playoff';
+    return '';
+  }
+  if (isPortugal) {
+    if (position <= 2) return 'zone-ucl';
+    if (position === 3) return 'zone-ucl-playoff';
+    if (position === 4) return 'zone-uel';
+    if (position === 5) return 'zone-uecl';
+    return '';
+  }
+  if (isScotland) {
+    if (position <= 2) return 'zone-ucl';
+    if (position === 3) return 'zone-uel';
+    if (position === 4) return 'zone-uecl';
+    return '';
+  }
+  if (isRussia) {
+    if (position <= 2) return 'zone-ucl';
+    if (position <= 4) return 'zone-uel';
+    if (position <= 6) return 'zone-uecl';
+    return '';
+  }
+  if (isEngland) {
+    if (position <= 4) return 'zone-ucl';
+    if (position === 5) return 'zone-uel';
+    if (position === 6) return 'zone-uecl';
+    return '';
+  }
+  if (isSpain || isItaly || isGermany || isFrance) {
+    if (position <= 4) return 'zone-ucl';
+    if (position === 5) return 'zone-uel';
+    if (position === 6) return 'zone-uecl';
+    return '';
+  }
+  if (position <= 4) return 'zone-ucl';
+  if (position === 5) return 'zone-uel';
+  if (position === 6) return 'zone-uecl';
+  return '';
+}
+function renderZoneLegend(tournament) {
+  const labels = [
+    ['zone-ucl','Лига чемпионов'],['zone-ucl-playoff','Квалификация ЛЧ'],
+    ['zone-uel','Лига Европы'],['zone-uecl','Лига конференций'],
+    ['zone-europe-playoff','Плей-офф за еврокубки'],
+    ['zone-promotion','Повышение'],['zone-promotion-playoff','Плей-офф за повышение'],
+    ['zone-relegation-playoff','Переходные матчи'],['zone-relegation','Вылет']
+  ];
+  const isEurope = /champions league|europa league|conference league|лига чемпионов|лига европы|лига конференций/i.test(tournament?.name || '');
+  const visible = isEurope ? labels.slice(0,3).concat([labels[4]]) : labels;
+  return `<div class="table-zone-legend">${visible.map(([zone,label])=>`<span><i class="${zone}"></i>${label}</span>`).join('')}</div>`;
+}
+function renderTournamentStandings(rows, tournament) {
+  const teamCount = (rows || []).length;
+  return `<div class="table-wrap"><table class="league-standings"><thead><tr><th>#</th><th>Клуб</th><th>И</th><th>В</th><th>Н</th><th>П</th><th>ЗМ</th><th>ПМ</th><th>РМ</th><th>ОЧКИ</th></tr></thead>
+    <tbody>${(rows || []).map((r,i)=>{const zone=leagueZone(tournament,i+1,teamCount);return `<tr class="${zone} ${r.name===state.save?.club_name?'me-row':''}">
+      <td><span class="table-position">${i+1}</span></td><td><div class="team-cell">${crest(r.name,r.logo_url)}${esc(r.name)}</div></td>
       <td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference}</td><td><b>${r.points}</b></td>
-    </tr>`).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div>`;
+    </tr>`;}).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div>${renderZoneLegend(tournament)}`;
+}
+function renderTopTen(title, players, field, formatter = value => value, minimumAppearances = 0) {
+  const sorted = [...(players || [])].filter(p => Number(p[field] || 0) > 0 || field === 'average_rating')
+    .filter(p => Number(p.appearances || 0) >= minimumAppearances)
+    .sort((a,b)=>Number(b[field] || 0)-Number(a[field] || 0) || Number(b.goals || 0)-Number(a.goals || 0))
+    .slice(0,10);
+  return `<section class="panel top-ten-card"><div class="panel-head"><h3>${title}</h3><span>ТОП-10</span></div>
+    <div class="top-ten-list">${sorted.map((p,i)=>`<div class="top-ten-row">
+      <b class="top-ten-rank">${i+1}</b><span class="top-ten-player"><strong>${esc(p.name)}</strong><small>${esc(p.club_name)} · ${esc(p.position || '')}</small></span>
+      <strong class="top-ten-value">${formatter(p[field])}</strong>
+    </div>`).join('') || '<div class="empty-state">Статистика появится после матчей</div>'}</div></section>`;
+}
+function renderTeamTopTen(title, teams, field, formatter = value => value) {
+  const sorted = [...(teams || [])].filter(team=>team[field]!=null)
+    .sort((a,b)=>Number(b[field] || 0)-Number(a[field] || 0)).slice(0,10);
+  return `<section class="panel top-ten-card"><div class="panel-head"><h3>${title}</h3><span>ТОП-10</span></div>
+    <div class="top-ten-list">${sorted.map((team,i)=>`<div class="top-ten-row">
+      <b class="top-ten-rank">${i+1}</b><span class="top-ten-player"><strong>${esc(team.name)}</strong></span>
+      <strong class="top-ten-value">${formatter(team[field])}</strong>
+    </div>`).join('') || '<div class="empty-state">Статистика появится после матчей</div>'}</div></section>`;
 }
 function renderTournamentPlayers(players) {
-  return `<div class="table-wrap"><table class="tournament-stats-table"><thead><tr>
-    <th>Игрок</th><th>Клуб</th><th>Матчи</th><th>Ср. оценка</th><th>Г</th><th>А</th><th>Г+А</th><th>MVP</th><th>ЖК</th><th>КК</th><th>Сухие</th>
-  </tr></thead><tbody>${(players || []).map(player=>`<tr>
-    <td><b>${esc(player.name)}</b><div class="data-source">${esc(player.position)}</div></td>
-    <td>${esc(player.club_name)}</td><td>${player.appearances}</td><td><b class="rating">${Number(player.average_rating || 0).toFixed(2)}</b></td>
-    <td>${player.goals}</td><td>${player.assists}</td><td><b>${player.goal_contributions}</b></td><td>${player.mvp}</td><td>${player.yellow_cards}</td><td>${player.red_cards}</td><td>${player.clean_sheets}</td>
-  </tr>`).join('') || '<tr><td colspan="11">Статистика появится после первых матчей</td></tr>'}</tbody></table></div>`;
+  const groups = [
+    ['Лучшие бомбардиры','goals',v=>v],
+    ['Лучшие ассистенты','assists',v=>v],
+    ['Гол + пас','goal_contributions',v=>v],
+    ['Средняя оценка','average_rating',v=>Number(v).toFixed(2),3],
+    ['Игрок матча (MVP)','mvp',v=>v],
+    ['Жёлтые карточки','yellow_cards',v=>v],
+    ['Красные карточки','red_cards',v=>v],
+    ['Сухие матчи','clean_sheets',v=>v]
+  ];
+  return `<div class="tournament-analytics player-leaderboards">${groups.map(([title,field,format,min])=>renderTopTen(title,players,field,format,min||0)).join('')}</div>`;
 }
 function renderTable(tournaments, detail = null, detailError = '') {
   const rows = tournaments || [];
   if (!rows.length) {
-    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Турниры текущего сезона и их статистика.')}
+    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Турнирная таблица и статистика сезона.')}
       <section class="panel"><div class="empty-state"><strong>Турниры не найдены</strong>Для этого сохранения не найден турнир текущего сезона.</div></section>`;
   }
   const selectedId = String(state.selectedTournamentId || rows[0].id);
   const options = rows.map(t => `<option value="${esc(t.id)}" ${String(t.id) === selectedId ? 'selected' : ''}>${esc(t.name)} · ${esc(t.season)}</option>`).join('');
   const selector = `<section class="panel tournament-selector">
-    <div><div class="eyebrow">ТЕКУЩИЙ СЕЗОН</div><h3>Выбор турнира</h3><p>Таблица, статистика игроков и результаты выбранного соревнования.</p></div>
+    <div><div class="eyebrow">ТЕКУЩИЙ СЕЗОН</div><h3>Выбор турнира</h3><p>Таблица и индивидуальные рейтинги участников.</p></div>
     <select class="select-input" id="tournament-select" aria-label="Выбрать турнир">${options}</select>
   </section>`;
   if (!detail) {
     return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Турнирная таблица и подробная статистика сезона.')}
       ${selector}
-      <section class="panel"><div class="empty-state">${detailError ? '<strong>Не удалось загрузить статистику</strong>' + esc(detailError) : '<strong>Загружаем турнир</strong>Получаем таблицу, статистику и матчи…'}</div></section>`;
+      <section class="panel"><div class="empty-state">${detailError ? '<strong>Не удалось загрузить статистику</strong>' + esc(detailError) : '<strong>Загружаем турнир</strong>Получаем таблицу и статистику…'}</div></section>`;
   }
   const t = detail.tournament || {};
-  const totals = detail.totals || {};
-  const teamCount = rows.find(item => String(item.id) === String(t.id))?.teams || '';
-  const topGoals = [...(detail.teams || [])].sort((a,b)=>b.goals-a.goals).slice(0,5);
-  const topTeamsRating = [...(detail.teams || [])].filter(team=>team.average_rating!=null)
-    .sort((a,b)=>b.average_rating-a.average_rating).slice(0,5);
-  return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Турнирная таблица и подробная статистика сезона.')}
+  const teamCount = rows.find(item => String(item.id) === String(t.id))?.teams || (detail.standings || []).length;
+  const teamStats = detail.teams || [];
+  return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Положение команд и статистические лидеры турнира.')}
     ${selector}
     <section class="panel tournament-hero">
       ${tournamentMark(t.name,t.logo_url)}
       <div><h2>${esc(t.name)}</h2><span>${esc(t.country || t.continent || '')} · ${esc(t.season || '')}</span></div>
-      <div class="tournament-totals"><b>${totals.played_matches || 0}/${totals.total_matches || 0}</b><small>матчей сыграно</small><b>${totals.goals || 0}</b><small>голов</small></div>
     </section>
     <section class="panel"><div class="panel-head"><h3>Турнирная таблица</h3><span>${teamCount} КОМАНД</span></div>
-      ${renderTournamentStandings(detail.standings)}
+      ${renderTournamentStandings(detail.standings,t)}
     </section>
-    <section class="panel"><div class="panel-head"><h3>Статистика игроков</h3><span>ОЦЕНКА · ГОЛЫ · АССИСТЫ · MVP · КАРТОЧКИ · СУХИЕ МАТЧИ</span></div>
-      ${renderTournamentPlayers(detail.players)}
-    </section>
-    <section class="panel"><div class="panel-head"><h3>Матчи турнира</h3><span>${(detail.matches || []).length} МАТЧЕЙ · НАЖМИ ДЛЯ ОТЧЁТА</span></div>
-      <div class="tournament-fixtures">${(detail.matches || []).map(match => `
-        <button type="button" class="tournament-match-card" data-fixture-id="${esc(match.id)}">
-          <span class="tournament-match-meta">${match.matchday ? 'ТУР ' + match.matchday : esc(match.stage || 'МАТЧ')} · ${dateLabel(match.match_date)}</span>
-          <span class="tournament-match-team">${crest(match.home_name,match.home_logo)}<b>${esc(match.home_name)}</b></span>
-          <strong class="tournament-match-score">${match.status === 'completed' ? match.home_score + ' : ' + match.away_score : '— : —'}</strong>
-          <span class="tournament-match-team away">${crest(match.away_name,match.away_logo)}<b>${esc(match.away_name)}</b></span>
-          <span class="tournament-match-open">${match.status === 'completed' ? 'ОТЧЁТ ↗' : 'ПРЕВЬЮ ↗'}</span>
-        </button>`).join('') || '<div class="empty-state">Матчи пока не созданы</div>'}</div>
-    </section>
-    <div class="tournament-analytics">
-      <section class="panel"><h3>Больше всего голов</h3>${topGoals.map((team,index)=>`<div class="analytics-row"><b>${index+1}</b>${crest(team.name,team.logo_url)}<span>${esc(team.name)}</span><strong>${team.goals}</strong></div>`).join('') || '<div class="empty-state">Пока нет голов</div>'}</section>
-      <section class="panel"><h3>Высший средний рейтинг</h3>${topTeamsRating.map((team,index)=>`<div class="analytics-row"><b>${index+1}</b>${crest(team.name,team.logo_url)}<span>${esc(team.name)}</span><strong>${Number(team.average_rating).toFixed(2)}</strong></div>`).join('') || '<div class="empty-state">Рейтинги появятся после матчей</div>'}</section>
+    <section class="panel tournament-statistics-heading"><div class="eyebrow">СТАТИСТИКА ТУРНИРА</div><h2>Лидеры соревнования</h2><p>Отдельный рейтинг по каждому показателю — первые 10 мест.</p></section>
+    ${renderTournamentPlayers(detail.players)}
+    <div class="tournament-analytics team-leaderboards">
+      ${renderTeamTopTen('Самые результативные команды',teamStats,'goals',v=>v+' гол.') }
+      ${renderTeamTopTen('Средний рейтинг команды',teamStats,'average_rating',v=>Number(v).toFixed(2))}
+      ${renderTeamTopTen('Больше всего MVP',teamStats,'mvp',v=>v)}
+      ${renderTeamTopTen('Сухие матчи команды',teamStats,'clean_sheets',v=>v)}
     </div>`;
 }
+
 async function renderCurrent() {
   const tab = state.tab;
   const titles = {home:'Обзор',squad:'Состав',tactics:'Тактика',fixtures:'Календарь',table:'Таблицы'};
