@@ -1548,12 +1548,12 @@ def update_table(conn: Connection, fixture: dict) -> None:
 
 
 def update_player_condition(conn: Connection, game_state_id: str, club_id: str, result: str) -> None:
-    morale_delta = 3 if result == "win" else -3 if result == "loss" else 1
-    form_delta = 4 if result == "win" else -3 if result == "loss" else 1
+    morale_delta = 4 if result == "win" else -4 if result == "loss" else 1
+    form_delta = 4 if result == "win" else -4 if result == "loss" else 1
     conn.execute(
         """UPDATE players SET
              fatigue=LEAST(100,fatigue+12),
-             sharpness=GREATEST(20,LEAST(100,sharpness+2)),
+             sharpness=GREATEST(20,LEAST(100,sharpness-5)),
              form=GREATEST(0,LEAST(100,form+%s)),
              morale=GREATEST(0,LEAST(100,morale+%s)),
              updated_at=now()
@@ -2146,8 +2146,8 @@ def simulate_matchday(
     })
     if participating_clubs:
         conn.execute(
-            """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
-                      sharpness=LEAST(100,sharpness+4),updated_at=now()
+            """UPDATE players SET fatigue=GREATEST(0,fatigue-6),
+                      sharpness=LEAST(100,sharpness+3),updated_at=now()
                WHERE game_state_id=%s AND club_id=ANY(%s)""",
             (save["id"], participating_clubs),
         )
