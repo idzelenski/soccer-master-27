@@ -226,7 +226,7 @@ INJURY_BY_KEY = {item["key"]: item for item in INJURY_CATALOG}
 def tournament_logo_url(name: str | None, country: str | None = None) -> str | None:
     title = (name or "").casefold()
     nation = (country or "").casefold()
-    if "russian premier" in title or "рпл" in title or nation in {"russia", "россия"}:
+    if "russian premier" in title or "рпл" in title:
         return "https://fc-ural.ru/uploads/main/01d/a5b552980d57e977e8e3ab4d4c175d7f672e1ac8822ad6cc2892ff7a2f25f387/mir_rpl_01.png"
     if "premier league" in title and ("royaume" in nation or "kingdom" in nation or "england" in nation):
         return "https://commons.wikimedia.org/wiki/Special:FilePath/Pl-logo-light.svg"
@@ -1205,7 +1205,7 @@ def fixtures(manager: dict = Depends(manager_dep), conn: Connection = Depends(db
     rows = conn.execute(
         """SELECT f.id,f.match_date,f.matchday,f.stage,f.status,f.home_score,f.away_score,
                   h.name AS home_name,a.name AS away_name,h.logo_url AS home_logo,a.logo_url AS away_logo,
-                  coalesce(t.name,%s) AS tournament_name,
+                  f.tournament_id,t.logo_url AS tournament_logo,coalesce(t.name,%s) AS tournament_name,
                   CASE WHEN f.stage IS NOT NULL AND btrim(f.stage)<>'' THEN f.stage
                        WHEN f.matchday IS NOT NULL THEN 'ТУР '||f.matchday::text
                        ELSE 'МАТЧ' END AS stage_label,
@@ -1339,11 +1339,18 @@ def _match_lineups(
     match_date: date,
 ) -> tuple[dict[str, list[dict]], list[str]]:
     rows = conn.execute(
-        """SELECT p.id,p.club_id,p.name,p.position,p.overall,p.attributes,p.injury_until,
-                  p.injury_type,p.suspension_matches,
-                  coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi
+        """SELECT p.id,p.club_id,p.name,p.position,p.secondary_positions,p.overall,p.attributes,
+                  p.injury_until,p.injury_type,p.suspension_matches,p.form,p.morale,p.sharpness,p.fatigue,
+                  coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi,
+                  role.target_position
            FROM players p
            LEFT JOIN tactics t ON t.game_state_id=p.game_state_id AND t.club_id=p.club_id
+           LEFT JOIN LATERAL (
+             SELECT item->>'role' AS target_position
+             FROM jsonb_array_elements(coalesce(t.style->'slot_roles','[]'::jsonb)) item
+             WHERE item->>'player_id'=p.id::text
+             LIMIT 1
+           ) role ON true
            WHERE p.game_state_id=%s AND p.club_id IN (%s,%s)
            ORDER BY p.club_id,p.overall DESC,p.name""",
         (game_state_id, home_club_id, away_club_id),
@@ -1376,6 +1383,21 @@ def _match_lineups(
         starters = [by_id[player_id] for player_id in xi_ids if player_id in by_id][:11]
         used = {player["id"] for player in starters}
         starters.extend(player for player in available if player["id"] not in used and len(starters) < 11)
+        for player in starters:
+            condition_delta = round(
+                (float(player.get("form") or 50) - 50) * 0.06
+                + (float(player.get("morale") or 70) - 70) * 0.04
+                + (float(player.get("sharpness") or 85) - 85) * 0.04
+                - float(player.get("fatigue") or 0) * 0.08
+            )
+            role_penalty = position_penalty(
+                str(player.get("position") or "CM"),
+                list(player.get("secondary_positions") or []),
+                str(player.get("target_position") or player.get("position") or "CM"),
+            )
+            player["effective_overall"] = max(
+                1, min(99, int(player["overall"]) + condition_delta + role_penalty)
+            )
         selected[club_id] = starters
     return selected, suspended_ids
 
@@ -1446,7 +1468,7 @@ def _record_match_detail(
                 "name": player["name"],
                 "position": player["position"],
                 "minutes_played": 90,
-                "rating": 6.05 + (float(player["overall"]) - 65) * 0.035 + rng.uniform(-0.34, 0.38),
+                "rating": 6.05 + (float(player.get("effective_overall") or player["overall"]) - 65) * 0.035 + rng.uniform(-0.34, 0.38),
                 "goals": 0,
                 "assists": 0,
                 "shots": shot_alloc[index] if index < len(shot_alloc) else 0,
@@ -1749,8 +1771,8 @@ def simulate_matchday(
         )
         home_players = lineups.get(str(fixture["home_club_id"]), [])
         away_players = lineups.get(str(fixture["away_club_id"]), [])
-        home_overall = sum(float(player["overall"]) for player in home_players) / len(home_players) if home_players else 60
-        away_overall = sum(float(player["overall"]) for player in away_players) / len(away_players) if away_players else 60
+        home_overall = sum(float(player.get("effective_overall") or player["overall"]) for player in home_players) / len(home_players) if home_players else 60
+        away_overall = sum(float(player.get("effective_overall") or player["overall"]) for player in away_players) / len(away_players) if away_players else 60
         seed = int(hashlib.sha256(f"{fixture['id']}:{fixture_date}".encode()).hexdigest()[:8], 16)
         rng = random.Random(seed ^ 0x5F27A11)
         result = simulate_score(
@@ -2051,7 +2073,8 @@ def tournament_details(
     ).fetchall()
     totals = conn.execute(
         """SELECT count(*) FILTER (WHERE status='completed')::int AS played_matches,
-                  count(*)::int AS scheduled_matches,
+                  count(*) FILTER (WHERE status='scheduled')::int AS scheduled_matches,
+                  count(*)::int AS total_matches,
                   coalesce(sum(home_score+away_score) FILTER (WHERE status='completed'),0)::int AS goals
            FROM fixtures
            WHERE game_state_id=%s AND tournament_id=%s AND season=%s""",
