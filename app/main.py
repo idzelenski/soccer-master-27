@@ -28,7 +28,15 @@ from app.auth import (
 )
 from app.config import settings
 from app.db import close_pool, connection, migrate
-from app.engine import overall_from_market_value, potential_from_overall, round_robin, simulate_score
+from app.engine import (
+    INJURY_CATALOG,
+    estimate_transfer_value,
+    league_schedule_dates,
+    overall_from_market_value,
+    potential_from_overall,
+    round_robin,
+    simulate_score,
+)
 from app.schemas import CreateSaveIn, LoginIn, PositionTrainingIn, RegisterIn, TacticIn
 from app.researched_profiles import get_researched_profile
 
@@ -200,12 +208,45 @@ def player_attributes(overall: int, position: str, source_id: str = "") -> dict[
     return {key: max(20, min(99, rating + offset)) for key, offset in offsets.items()}
 
 
-def estimated_market_value(overall: int, potential: int, age: int) -> int:
-    """Conservative fallback only; fictional academy players and unverified values stay blank."""
-    age_factor = 1.12 if age <= 21 else 1.05 if age <= 24 else 1.0 if age <= 29 else max(0.35, 1 - (age - 29) * 0.055)
-    potential_factor = 1 + max(0, potential - overall) * 0.008
-    value = 50_000 * math.exp(max(-1.0, min(4.2, (overall - 45) * 0.105))) * age_factor * potential_factor
-    return int(round(max(25_000, value) / 10_000) * 10_000)
+def estimated_market_value(
+    overall: int,
+    potential: int,
+    age: int,
+    league: str = "",
+    country: str = "",
+    attributes: dict[str, Any] | None = None,
+) -> int:
+    """SM27 transfer-value estimate calibrated by competition, age, OVR and role traits."""
+    return estimate_transfer_value(overall, potential, age, league, country, attributes)
+
+
+INJURY_BY_KEY = {item["key"]: item for item in INJURY_CATALOG}
+
+
+def tournament_logo_url(name: str | None, country: str | None = None) -> str | None:
+    title = (name or "").casefold()
+    nation = (country or "").casefold()
+    if "russian premier" in title or "рпл" in title or nation in {"russia", "россия"}:
+        return "https://fc-ural.ru/uploads/main/01d/a5b552980d57e977e8e3ab4d4c175d7f672e1ac8822ad6cc2892ff7a2f25f387/mir_rpl_01.png"
+    if "premier league" in title and ("royaume" in nation or "kingdom" in nation or "england" in nation):
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Pl-logo-light.svg"
+    if "la liga" in title or "laliga" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/LaLiga%20logo%202023.svg"
+    if "saudi" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Saudi%20Pro%20League%20Logo.svg"
+    if "champions league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Champions%20League%20logo.svg"
+    if "europa league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Europa%20League%202021.svg"
+    if "conference league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Conference%20League%20logo.svg"
+    if "bundesliga" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Bundesliga%20logo.svg"
+    if "serie a" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Serie%20A%20logo%202022.svg"
+    if "ligue 1" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Ligue%201%20McDonald%27s%20logo.svg"
+    return None
 
 
 FC27_WAGE_OVERRIDES = {
@@ -480,24 +521,58 @@ def create_schedule(
     tournament_id: str,
     teams: list[dict],
     season: str = "2026/27",
-    start_date: date = date(2026, 8, 15),
+    start_date: date | None = None,
 ) -> None:
+    """Create a full season by competition calendar, batching all fixture inserts."""
     ids = [str(team["id"]) for team in teams]
     rounds = round_robin(ids)
-    for round_index, fixtures in enumerate(rounds):
-        match_date = datetime.combine(start_date + timedelta(days=7 * round_index), datetime.min.time()).replace(
-            tzinfo=timezone.utc
-        ) + timedelta(hours=14)
-        for home_id, away_id in fixtures:
-            conn.execute(
-                """INSERT INTO fixtures (game_state_id, tournament_id, season, match_date,
-                           matchday, home_club_id, away_club_id, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,'scheduled')
+    tournament = conn.execute(
+        "SELECT name,country FROM tournaments WHERE id=%s",
+        (tournament_id,),
+    ).fetchone()
+    season_year = int(str(season)[:4])
+    round_dates = league_schedule_dates(
+        tournament["name"] if tournament else "",
+        tournament["country"] if tournament else "",
+        season_year,
+        len(rounds),
+    )
+    if len(round_dates) != len(rounds):
+        anchor = start_date or date(season_year, 8, 15)
+        round_dates = [anchor + timedelta(days=7 * index) for index in range(len(rounds))]
+
+    rows_to_insert: list[tuple] = []
+    for round_index, games in enumerate(rounds):
+        anchor = round_dates[round_index]
+        for game_index, (home_id, away_id) in enumerate(games):
+            if anchor.weekday() == 5:  # Saturday-centred round: Friday, Saturday or Sunday
+                match_day = anchor + timedelta(days=(-1, 0, 1)[game_index % 3])
+                hours = (17, 14, 16)
+            elif anchor.weekday() == 6:  # Sunday-centred round: Friday, Saturday or Sunday
+                match_day = anchor + timedelta(days=(-2, -1, 0)[game_index % 3])
+                hours = (17, 14, 16)
+            else:  # Midweek round: Tuesday, Wednesday or Thursday
+                match_day = anchor + timedelta(days=(-1, 0, 1)[game_index % 3])
+                hours = (19, 19, 20)
+            kickoff = datetime.combine(match_day, datetime.min.time()).replace(
+                tzinfo=timezone.utc
+            ) + timedelta(hours=hours[game_index % 3])
+            rows_to_insert.append((
+                game_state_id, tournament_id, season, kickoff, round_index + 1,
+                "Регулярный чемпионат", 1 if round_index < len(rounds) // 2 else 2,
+                home_id, away_id,
+            ))
+    if rows_to_insert:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO fixtures (
+                       game_state_id,tournament_id,season,match_date,matchday,stage,leg,
+                       home_club_id,away_club_id,status
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'scheduled')
                    ON CONFLICT (game_state_id,tournament_id,season,match_date,home_club_id,away_club_id)
                    DO NOTHING""",
-                (game_state_id, tournament_id, season, match_date, round_index + 1, home_id, away_id),
+                rows_to_insert,
             )
-
 
 
 def refresh_ai_lineups() -> int:
@@ -700,18 +775,20 @@ def catalog_clubs(
 
 @app.post("/api/saves")
 def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
-    # Serialize career creation for this manager. Without the row lock, simultaneous
-    # requests can both calculate the same next save_slot before either transaction commits.
+    # Serialize career creation for this manager to prevent duplicate save slots.
     conn.execute("SELECT id FROM managers WHERE id=%s FOR UPDATE", (manager["id"],)).fetchone()
     active = conn.execute(
         "SELECT id FROM game_states WHERE manager_id=%s AND status='active' LIMIT 1", (manager["id"],)
     ).fetchone()
     if active:
         raise HTTPException(status_code=409, detail="У вас уже есть активное сохранение. Завершите его перед созданием нового.")
-    selected = conn.execute("SELECT * FROM sm27_club_pool WHERE source_id=%s", (body.club_source_id,)).fetchone()
-    if not selected:
+
+    selected_row = conn.execute(
+        "SELECT * FROM sm27_club_pool WHERE source_id=%s", (body.club_source_id,)
+    ).fetchone()
+    if not selected_row:
         raise HTTPException(status_code=404, detail="Клуб не найден в игровом каталоге")
-    selected = dict(selected)
+    selected = dict(selected_row)
     league_code = selected["league_code"]
     teams_rows = conn.execute(
         "SELECT * FROM sm27_club_pool WHERE league_code=%s ORDER BY sort_rank, club_name",
@@ -726,60 +803,115 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         teams = [dict(row) for row in teams_rows]
     if selected["source_id"] not in {team["source_id"] for team in teams}:
         teams.append(selected)
+
+    league_name = selected.get("league_name") or "SM27 League"
     tournament_code = f"SM27-{league_code}"[:64]
     tournament = conn.execute(
-        """INSERT INTO tournaments (code,name,country,continent,tournament_type,tier,format,active)
-           VALUES (%s,%s,%s,%s,'league',%s,%s,true)
-           ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, country=EXCLUDED.country,
-             continent=EXCLUDED.continent, tier=EXCLUDED.tier, format=EXCLUDED.format
+        """INSERT INTO tournaments (
+               code,name,country,continent,tournament_type,tier,format,active,logo_url
+           )
+           VALUES (%s,%s,%s,%s,'league',%s,%s,true,%s)
+           ON CONFLICT(code) DO UPDATE SET
+             name=EXCLUDED.name,country=EXCLUDED.country,continent=EXCLUDED.continent,
+             tier=EXCLUDED.tier,format=EXCLUDED.format,
+             logo_url=coalesce(tournaments.logo_url,EXCLUDED.logo_url)
            RETURNING id""",
-        (tournament_code, selected.get("league_name") or "SM27 League", selected.get("country"),
-         selected.get("continent") or "UEFA", selected.get("league_level") or 1,
-         Jsonb({"points_win": 3, "points_draw": 1, "season": "2026/27"})),
+        (
+            tournament_code, league_name, selected.get("country"),
+            selected.get("continent") or "UEFA", selected.get("league_level") or 1,
+            Jsonb({"points_win": 3, "points_draw": 1, "season": "2026/27"}),
+            tournament_logo_url(league_name, selected.get("country")),
+        ),
     ).fetchone()
     game_state = conn.execute(
         """INSERT INTO game_states (manager_id,save_slot,game_date,season,difficulty,status,save_name,game_settings)
-           VALUES (%s,(SELECT coalesce(max(save_slot),0)+1 FROM game_states WHERE manager_id=%s),DATE '2026-07-01','2026/27','normal','active',%s,%s) RETURNING id""",
-        (manager["id"], manager["id"], body.save_name.strip(), Jsonb({"source_snapshot": selected["source_snapshot"].isoformat()})),
+           VALUES (%s,(SELECT coalesce(max(save_slot),0)+1 FROM game_states WHERE manager_id=%s),
+                   DATE '2026-07-01','2026/27','normal','active',%s,%s)
+           RETURNING id""",
+        (
+            manager["id"], manager["id"], body.save_name.strip(),
+            Jsonb({"source_snapshot": selected["source_snapshot"].isoformat()}),
+        ),
     ).fetchone()
     game_state_id = str(game_state["id"])
+
     team_records: list[dict] = []
     for pool_row in teams:
         club_id = make_club(conn, game_state_id, pool_row)
-        team_records.append({"id": club_id, "source_id": pool_row["source_id"], "name": pool_row["club_name"], "reputation": int(pool_row.get("team_strength") or round(float(pool_row.get("fifa_stars") or 2.5) * 20))})
-        conn.execute(
+        reputation = int(
+            pool_row.get("team_strength")
+            or round(float(pool_row.get("fifa_stars") or 2.5) * 20)
+        )
+        team_records.append({
+            "id": club_id,
+            "source_id": pool_row["source_id"],
+            "name": pool_row["club_name"],
+            "country": pool_row.get("country"),
+            "league": pool_row.get("league_name") or league_name,
+            "reputation": reputation,
+        })
+
+    with conn.cursor() as cursor:
+        cursor.executemany(
             """INSERT INTO club_tournaments (game_state_id,tournament_id,club_id,season)
                VALUES (%s,%s,%s,'2026/27') ON CONFLICT DO NOTHING""",
-            (game_state_id, tournament["id"], club_id),
+            [(game_state_id, tournament["id"], team["id"]) for team in team_records],
         )
-        player_rows = conn.execute(
-            """SELECT wp.source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
-                      wp.market_value_eur,wp.market_value_as_of,wp.source_url,wp.raw_data,
-                      wp.fc27_player_id,fc.position AS fc27_position,fc.overall AS fc27_overall,
-                      fc.potential AS fc27_potential,fc.attributes AS fc27_attributes
-               FROM world_player_catalog wp
-               LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=wp.fc27_player_id
-               WHERE wp.club_source_id=%s
-               ORDER BY wp.market_value_eur DESC, wp.name LIMIT 30""",
-            (pool_row["source_id"],),
-        ).fetchall()
-        for player in player_rows:
+
+    # One catalogue query replaces a separate player SELECT per club.
+    source_ids = [str(team["source_id"]) for team in team_records]
+    player_rows = conn.execute(
+        """SELECT wp.club_source_id,wp.source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
+                  wp.market_value_eur,wp.market_value_as_of,wp.source_url,wp.raw_data,
+                  wp.fc27_player_id,fc.position AS fc27_position,fc.overall AS fc27_overall,
+                  fc.potential AS fc27_potential,fc.attributes AS fc27_attributes
+           FROM world_player_catalog wp
+           LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=wp.fc27_player_id
+           WHERE wp.club_source_id=ANY(%s)
+           ORDER BY wp.club_source_id,wp.market_value_eur DESC,wp.name""",
+        (source_ids,),
+    ).fetchall()
+    players_by_source: dict[str, list[dict]] = {}
+    for row in player_rows:
+        players_by_source.setdefault(str(row["club_source_id"]), []).append(dict(row))
+
+    player_insert_sql = """INSERT INTO players (
+           game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
+           secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
+           attributes,original_data,source_name,source_url,data_verified_at,
+           form,morale,sharpness,nationality_flag,profile_source,fc27_player_id,
+           market_value_source
+       ) VALUES (
+           %s,%s,%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+           50,70,85,%s,%s,%s,%s
+       )
+       ON CONFLICT (game_state_id,external_id) DO NOTHING"""
+    player_inserts: list[tuple] = []
+    teams_by_source = {str(team["source_id"]): team for team in team_records}
+
+    for source_id, players_for_club in players_by_source.items():
+        team = teams_by_source[source_id]
+        for player in players_for_club[:30]:
             dob = player["date_of_birth"]
-            age = max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425))) if dob else 24
-            source_id = str(player["source_id"])
-            fc27_id = player.get("fc27_player_id")
-            researched = get_researched_profile(player["name"], pool_row["club_name"]) if not fc27_id else None
-            position = researched["position"] if researched else normalise_player_position(
-                player.get("fc27_position") or player["position"], source_id
+            age = (
+                max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425)))
+                if dob else 24
             )
+            external_id = str(player["source_id"])
+            fc27_id = player.get("fc27_player_id")
+            researched = get_researched_profile(player["name"], team["name"]) if not fc27_id else None
+            position = researched["position"] if researched else normalise_player_position(
+                player.get("fc27_position") or player["position"], external_id
+            )
+            source_market_value = int(player.get("market_value_eur") or 0)
             if player.get("fc27_overall") is not None:
                 overall = int(player["fc27_overall"])
             elif researched:
                 overall = int(researched["overall"])
             else:
                 overall = overall_from_market_value(
-                    0, age, int(team_records[-1]["reputation"]),
-                    int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
+                    source_market_value, age, int(team["reputation"]),
+                    int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
                 )
             if player.get("fc27_potential") is not None:
                 potential = int(player["fc27_potential"])
@@ -788,57 +920,70 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             else:
                 potential = max(
                     overall,
-                    potential_from_overall(overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)),
+                    potential_from_overall(
+                        overall, age, int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
+                    ),
                 )
-            market_value = int(researched["market_value"]) if researched and researched.get("market_value") is not None else 0
+
+            attributes = dict(player["fc27_attributes"] or {}) if fc27_id else {}
+            if researched:
+                attributes = dict(researched["attributes"])
+            if not attributes:
+                attributes = player_attributes(overall, position, external_id)
+
             if fc27_id:
                 profile_source = "EA SPORTS FC 27 official ratings database"
             elif researched:
                 profile_source = researched["profile_source"]
             else:
                 profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
-            market_value_source = "SofaScore" if researched and researched.get("market_value") is not None else "not_available"
-            market_value_as_of = researched.get("market_value_as_of") if market_value_source == "SofaScore" else None
+
+            researched_value = int(researched["market_value"]) if researched and researched.get("market_value") else 0
+            if researched_value > 0:
+                market_value = researched_value
+                market_value_source = "SofaScore"
+                market_value_as_of = researched.get("market_value_as_of")
+            elif source_market_value > 0:
+                market_value = source_market_value
+                market_value_source = "Transfermarkt"
+                market_value_as_of = player.get("market_value_as_of")
+            else:
+                market_value = estimated_market_value(
+                    overall, potential, age, team.get("league") or league_name,
+                    team.get("country") or selected.get("country"), attributes,
+                )
+                market_value_source = "SM27 estimate"
+                market_value_as_of = None
+
             raw = dict(player["raw_data"] or {})
             raw.update({
                 "market_value_source": market_value_source,
                 "market_value_as_of": market_value_as_of,
+                "market_value_model": "league-age-ovr-potential-attributes-v1" if market_value_source == "SM27 estimate" else None,
                 "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 researched estimate" if researched else "SM27 estimate",
                 "contract_source": "SM27 estimate",
                 "wage_source": "Capology 2026/27 estimate" if normalise_player_name(player["name"]).startswith(("cristianoronaldo", "inigomartinez")) else "SM27 career wage model",
                 "research": researched["research"] if researched else None,
                 "generated": False,
             })
-            contract_end = estimated_contract_end(age, source_id)
+            contract_end = estimated_contract_end(age, external_id)
             weekly_wage = estimated_weekly_wage(
-                overall, age, int(team_records[-1]["reputation"]), player["name"]
+                overall, age, int(team["reputation"]), player["name"]
             )
-            attributes = dict(player["fc27_attributes"] or {}) if fc27_id else {}
-            if researched:
-                attributes = dict(researched["attributes"])
-            if not attributes:
-                attributes = player_attributes(overall, position, source_id)
-            conn.execute(
-                """INSERT INTO players (
-                       game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
-                       secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
-                       attributes,original_data,source_name,source_url,data_verified_at,
-                       form,morale,sharpness,nationality_flag,profile_source,fc27_player_id,
-                       market_value_source
-                   ) VALUES (
-                       %s,%s,%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       50,70,85,%s,%s,%s,%s
-                   )
-                   ON CONFLICT (game_state_id,external_id) DO NOTHING""",
-                (
-                    game_state_id, club_id, source_id, player["name"], player["nationality"], dob, age, position,
-                    overall, potential, market_value, weekly_wage, contract_end,
-                    Jsonb(attributes), Jsonb(raw),
-                    "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
-                    researched["source_url"] if researched else player["source_url"], market_value_as_of,
-                    flag_for_nationality(player["nationality"]), profile_source, fc27_id, market_value_source,
-                ),
-            )
+            player_inserts.append((
+                game_state_id, team["id"], external_id, player["name"], player["nationality"],
+                dob, age, position, overall, potential, market_value, weekly_wage, contract_end,
+                Jsonb(attributes), Jsonb(raw),
+                "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
+                researched["source_url"] if researched else player["source_url"], market_value_as_of,
+                flag_for_nationality(player["nationality"]), profile_source, fc27_id,
+                market_value_source,
+            ))
+    if player_inserts:
+        with conn.cursor() as cursor:
+            cursor.executemany(player_insert_sql, player_inserts)
+
+    # Lineup queries remain club-scoped, but player catalogue lookups/inserts are batched.
     for team in team_records:
         ensure_demo_roster(conn, game_state_id, team["id"], team["name"], team["reputation"])
         lineup_rows = conn.execute(
@@ -861,11 +1006,20 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 [uuid.UUID(player_id) for player_id in bench],
             ),
         )
-    selected_game_club = next(row["id"] for row in team_records if row["source_id"] == selected["source_id"])
+
+    selected_game_club = next(
+        row["id"] for row in team_records if str(row["source_id"]) == str(selected["source_id"])
+    )
     conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
     create_schedule(conn, game_state_id, str(tournament["id"]), team_records)
-    return {"ok": True, "save_id": game_state_id, "club": selected["club_name"], "league": selected.get("league_name"), "teams": len(team_records)}
-
+    return {
+        "ok": True,
+        "save_id": game_state_id,
+        "club": selected["club_name"],
+        "league": league_name,
+        "teams": len(team_records),
+        "players_imported": len(player_inserts),
+    }
 
 
 @app.post("/api/saves/restart")
