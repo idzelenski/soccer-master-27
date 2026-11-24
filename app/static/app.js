@@ -5,8 +5,39 @@ const state = { manager: null, save: null, summary: null, clubs: [], leagues: []
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
 function flagAssetUrl(code) {
-  const value = String(code || '').toLowerCase();
-  const safe = /^[a-z]{2}$|^gb-(?:eng|sct|wls|nir)$/.test(value) ? value : '';
+  const value = String(code || '').trim().toLowerCase();
+  const aliases = {
+    eng:'gb-eng', sco:'gb-sct', wal:'gb-wls', nir:'gb-nir',
+    bul:'bg', bgr:'bg', kos:'xk', xk:'xk',
+    esp:'es', fra:'fr', deu:'de', ger:'de', bra:'br', por:'pt', prt:'pt',
+    rus:'ru', ukr:'ua', ita:'it', ned:'nl', nld:'nl', bel:'be', arg:'ar',
+    uru:'uy', ury:'uy', col:'co', chi:'cl', par:'py', mex:'mx', usa:'us',
+    sui:'ch', che:'ch', sui:'ch', cro:'hr', hrv:'hr', gre:'gr', grc:'gr',
+    den:'dk', dnk:'dk', swe:'se', nor:'no', fin:'fi', aut:'at', cze:'cz',
+    svn:'si', slo:'si', svk:'sk', rou:'ro', rom:'ro', hun:'hu', pol:'pl',
+    srp:'rs', ser:'rs', srb:'rs', tur:'tr', alg:'dz', mar:'ma', civ:'ci',
+    nga:'ng', sen:'sn', gha:'gh', cmr:'cm', cod:'cd', dza:'dz', egy:'eg',
+    tun:'tn', rsa:'za', zaf:'za', jpn:'jp', kor:'kr', irn:'ir', sau:'sa',
+    ksa:'sa', aus:'au', nzl:'nz', can:'ca', crc:'cr', jam:'jm', ecu:'ec',
+    bol:'bo', per:'pe', ven:'ve', bra:'br', qat:'qa', uae:'ae', isr:'il',
+    alb:'al', mkd:'mk', mne:'me', bih:'ba', geo:'ge', arm:'am', aze:'az',
+    kaz:'kz', uzb:'uz', idn:'id', tha:'th', chn:'cn', ind:'in', irl:'ie',
+    ire:'ie', nir:'gb-nir'
+  };
+  const names = {
+    'france':'fr','francia':'fr','francia':'fr','espagne':'es','españa':'es',
+    'spain':'es','germany':'de','allemagne':'de','brésil':'br','brasil':'br',
+    'brazil':'br','italie':'it','italy':'it','portugal':'pt','portugal':'pt',
+    'pays-bas':'nl','netherlands':'nl','holland':'nl','maroc':'ma','morocco':'ma',
+    'sénégal':'sn','senegal':'sn','algérie':'dz','algeria':'dz',
+    'angleterre':'gb-eng','england':'gb-eng','écosse':'gb-sct','scotland':'gb-sct',
+    'pays de galles':'gb-wls','wales':'gb-wls','irlande':'ie','ireland':'ie',
+    'kosovo':'xk','russie':'ru','russia':'ru','ukraine':'ua','côte d’ivoire':'ci',
+    "côte d'ivoire":'ci','ivory coast':'ci','république démocratique du congo':'cd',
+    'democratic republic of the congo':'cd','rd congo':'cd','congo dr':'cd'
+  };
+  const normalized = aliases[value] || names[value] || value;
+  const safe = /^[a-z]{2}$|^gb-(?:eng|sct|wls|nir)$/.test(normalized) ? normalized : '';
   return safe ? 'https://flagcdn.com/w80/' + safe + '.png' : '';
 }
 function flagImage(code) {
@@ -100,7 +131,7 @@ async function preloadCareerTabs() {
   if (results.some(result => result.status === 'rejected')) state.preloadStarted = false;
 }
 function flagIcon(code, label = 'Флаг страны') {
-  const src = flagAssetUrl(code);
+  const src = flagAssetUrl(code || label);
   return src
     ? '<img class="player-flag" src="' + src + '" alt="' + esc(label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">'
     : '';
@@ -383,7 +414,7 @@ function renderSquad(players) {
     ].filter(Boolean).join('');
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
       <td><span class="rating">${player.overall}</span></td>
-      <td><div class="player-identity"><span class="player-name">${flagIcon(player.nationality_flag, player.nationality || 'Флаг страны')} ${esc(player.name)}</span>${status}${player.original_data?.generated ? '<div class="player-source-generated">Вымышленный игрок SM27</div>' : ''}</div></td>
+      <td><div class="player-identity"><span class="player-name">${flagIcon(player.nationality_flag || player.nationality, player.nationality || 'Флаг страны')} ${esc(player.name)}</span><span class="player-status-group">${status}</span></div></td>
       <td><span class="position-tag">${esc(player.position)}</span></td>
       <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
       <td>${player.age}</td>
@@ -431,7 +462,7 @@ function showPlayerDetails(playerId) {
     <section class="player-modal panel">
       <button class="modal-close" id="close-player-modal" aria-label="Закрыть">×</button>
       <div class="player-modal-head">
-        <div class="player-modal-flag">${flagIcon(player.nationality_flag, player.nationality || 'Флаг страны')}</div>
+        <div class="player-modal-flag">${flagIcon(player.nationality_flag || player.nationality, player.nationality || 'Флаг страны')}</div>
         <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>${esc(player.name)}</h2><p>${esc(player.nationality || 'Национальность не указана')} · ${player.age} лет · ${esc(player.position)}</p></div>
         <div class="player-modal-ratings"><b>${player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
       </div>
@@ -663,8 +694,8 @@ function renderTactics(players, tactics) {
     const player = byId.get(state.tacticSlots[index]);
     const selected = state.selectedTacticSlot === index;
     const rating = player ? (player.dynamic_overall ?? player.overall) + positionPenalty(player,slot.role) : null;
-    return `<button class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
-      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? flagIcon(player.nationality_flag,player.nationality || "Флаг страны") + esc(playerSurname(player.name)) : "Выбрать"}</em>
+    return `<button type="button" class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
+      <strong>${player ? rating : "+"}</strong><small class="pitch-position-row">${player ? flagIcon(player.nationality_flag || player.nationality,player.nationality || "Флаг страны") : ""}<span>${esc(slot.role)}</span></small><em>${player ? esc(playerSurname(player.name)) : "Выбрать"}</em>
     </button>`;
   }).join("");
   const benchIds = new Set(state.tacticBench);
@@ -674,7 +705,7 @@ function renderTactics(players, tactics) {
     return p ? '<div class="tactic-roster-item"><button class="tactic-player-row bench-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
-      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag || p.nationality,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
       '<small>' + esc(p.position) + ' · запас</small></span></button></div>' : '';
   }).join("");
   const reserves = reserveIds.map(id=>{
@@ -682,7 +713,7 @@ function renderTactics(players, tactics) {
     return p ? '<div class="tactic-roster-item"><button class="tactic-player-row reserve-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
-      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag || p.nationality,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
       '<small>' + esc(p.position) + ' · резерв</small></span></button></div>' : '';
   }).join("");
   const settings = state.tacticSettings;
@@ -773,6 +804,11 @@ function swapTacticPlayers(slotIndex, playerId) {
   state.selectedTacticSlot = null;
   redrawTactics();
 }
+function syncTacticSelectionUI() {
+  document.querySelectorAll(".pitch-player[data-pitch-slot]").forEach(node => {
+    node.classList.toggle("selected", Number(node.dataset.pitchSlot) === state.selectedTacticSlot);
+  });
+}
 function setupTacticsInteractions() {
   document.getElementById("formation")?.addEventListener("change",event=>{
     const result=optimiseLineup(state.squad,event.target.value);
@@ -795,13 +831,16 @@ function setupTacticsInteractions() {
     state.tacticFormation=formation;
     redrawTactics();
   });
-  document.querySelectorAll("[data-pitch-slot]").forEach(button=>button.addEventListener("click",()=>{
+  document.querySelectorAll("[data-pitch-slot]").forEach(button=>button.addEventListener("click",event=>{
+    event.preventDefault();
     const slot=Number(button.dataset.pitchSlot);
-    if(state.selectedTacticPlayer){
-      swapTacticPlayers(slot,state.selectedTacticPlayer);
-      return;
-    }
-    if(state.selectedTacticSlot!==null && state.selectedTacticSlot!==slot){
+    if(state.selectedTacticSlot!==null){
+      if(state.selectedTacticSlot===slot){
+        state.selectedTacticSlot=null;
+        state.selectedTacticPlayer=null;
+        syncTacticSelectionUI();
+        return;
+      }
       const first=state.tacticSlots[state.selectedTacticSlot];
       const second=state.tacticSlots[slot];
       state.tacticSlots[slot]=first;
@@ -811,9 +850,13 @@ function setupTacticsInteractions() {
       redrawTactics();
       return;
     }
-    state.selectedTacticSlot=state.selectedTacticSlot===slot ? null : slot;
-    state.selectedTacticPlayer=state.selectedTacticSlot===null ? null : (state.tacticSlots[slot] || null);
-    redrawTactics();
+    if(state.selectedTacticPlayer){
+      swapTacticPlayers(slot,state.selectedTacticPlayer);
+      return;
+    }
+    state.selectedTacticSlot=slot;
+    state.selectedTacticPlayer=state.tacticSlots[slot] || null;
+    syncTacticSelectionUI();
   }));
   document.querySelectorAll(".tactic-player-row").forEach(button=>button.addEventListener("click",()=>{
     const id=String(button.dataset.playerId);
