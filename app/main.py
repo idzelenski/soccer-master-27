@@ -2230,7 +2230,7 @@ def simulate_matchday(
                FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
                WHERE f.game_state_id=%s AND f.status='scheduled'
                  AND f.matchday=%s AND f.tournament_id=%s
-                 AND (%s IS NULL OR f.match_date::date<=%s)
+                 AND (%s::date IS NULL OR f.match_date::date<=%s::date)
                ORDER BY f.match_date,f.id""",
             (save["id"], matchday, tournament_id, through_date, through_date),
         ).fetchall()
