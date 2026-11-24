@@ -302,26 +302,40 @@ INJURY_BY_KEY = {item["key"]: item for item in INJURY_CATALOG}
 def tournament_logo_url(name: str | None, country: str | None = None) -> str | None:
     title = (name or "").casefold()
     nation = (country or "").casefold()
-    if "russian premier" in title or "рпл" in title:
+    if "russian premier" in title or "российская премьер" in title or "рпл" in title:
         return "https://fc-ural.ru/uploads/main/01d/a5b552980d57e977e8e3ab4d4c175d7f672e1ac8822ad6cc2892ff7a2f25f387/mir_rpl_01.png"
     if "premier league" in title and ("royaume" in nation or "kingdom" in nation or "england" in nation):
-        return "https://commons.wikimedia.org/wiki/Special:FilePath/Pl-logo-light.svg"
-    if "la liga" in title or "laliga" in title:
-        return "https://commons.wikimedia.org/wiki/Special:FilePath/LaLiga%20logo%202023.svg"
-    if "saudi" in title:
-        return "https://commons.wikimedia.org/wiki/Special:FilePath/Saudi%20Pro%20League%20Logo.svg"
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Premier%20League.svg"
     if "champions league" in title:
         return "https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Champions%20League%20logo.svg"
-    if "europa league" in title:
-        return "https://commons.wikimedia.org/wiki/Special:FilePath/Europa%20League%202021.svg"
     if "conference league" in title:
         return "https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Conference%20League%20logo.svg"
+    if "europa league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Europa%20League%202021.svg"
+    if "la liga" in title or "laliga" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/LaLiga%20logo%202023.svg"
     if "bundesliga" in title:
         return "https://commons.wikimedia.org/wiki/Special:FilePath/Bundesliga%20logo.svg"
     if "serie a" in title:
         return "https://commons.wikimedia.org/wiki/Special:FilePath/Serie%20A%20logo%202022.svg"
     if "ligue 1" in title:
         return "https://commons.wikimedia.org/wiki/Special:FilePath/Ligue%201%20McDonald%27s%20logo.svg"
+    if "eredivisie" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Eredivisie%20nieuw%20logo%202017-.svg"
+    if "primeira liga" in title or "liga portugal" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Liga%20Portugal%20Betclic%20logo.svg"
+    if "major league soccer" in title or title == "mls":
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Major%20League%20Soccer%20Crest%20Logo%20Black%20Transparent%202024.svg"
+    if "campeonato brasileiro" in title or "série a" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Campeonato_Brasileiro_S%C3%A9rie_A_logo_%282026%29.svg"
+    if "liga profesional" in title or "argentine primera" in title or "primera división" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Liga_Profesional_de_F%C3%BAtbol_%28Argentina%29_wordmark.svg"
+    if "championship" in title or "efl championship" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/EFL_Championship_Wordmark.svg"
+    if "j1 league" in title or "j league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/J1_league_logo_2026.svg"
+    if "saudi" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Saudi%20Pro%20League%20Logo.svg"
     return None
 
 
