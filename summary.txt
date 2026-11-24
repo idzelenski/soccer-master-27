@@ -415,3 +415,14 @@ SM27 — футбольный менеджер / симулятор карьер
 - Fixed app/db.py: each complete migration file is now executed once with psycopg's simple-query protocol (prepare=False), preserving semicolons inside quoted values and avoiding fragile manual splitting.
 - Normalized migration 005 provenance strings to commas rather than semicolons for readability. Migration remains additive/idempotent; no existing saves, match results, players or fixtures are deleted/reset.
 - Follow-up: wait for GitHub Actions, verify migration and startup logs on Render, confirm exact deployed commit and HTTP health before considering release complete.
+
+
+37. SQUAD CONDITION, CALENDAR PROGRESSION AND MATCH UI — 2026-11-24
+- Tactical pitch labels now use full player names rather than surnames only; CSS gives the labels a readable wrapped layout.
+- Squad availability badges are concise ("Травма" / "Дисквалификация"). Injury type, reason, remaining time and return dates remain available in the player's profile modal only.
+- Calendar date advancement now simulates the user's fixtures as the animation reaches each match date, reveals each result immediately, and continues without a browser/page reload. Requests are sent only on the user's fixture dates (plus a final date update when needed), not for every calendar day, to limit Neon/Render traffic.
+- Match statistics now begin with possession, retain the existing order for the remaining metrics, and place fouls immediately before yellow/red cards.
+- Player condition now responds visibly to matches: sharpness decreases after a match, fatigue increases, and form/morale respond to the result. Pre-match recovery was reduced so playing does not paradoxically improve fatigue/sharpness overall. Squad table displays numeric sharpness/morale alongside icons so small changes are visible.
+- Calendar highlights the current in-game date distinctly and dims past dates in an FC-style treatment.
+- Added a regression test for win/draw/loss condition deltas. No schema changes or destructive database operations.
+- Pending verification: GitHub Actions, Render deployment and production UI/health checks.
