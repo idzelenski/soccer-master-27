@@ -324,3 +324,14 @@ SM27 — футбольный менеджер / симулятор карьер
 - SQL migration 004_match_center.sql просмотрена: только additive/idempotent изменения и безопасные backfill для нулевой стоимости и старых сыгранных матчей; DROP/TRUNCATE/DELETE отсутствуют. Production Neon migration ещё не запускалась.
 - Render workspace My Workspace / service soccer-master-27 подтверждены. autoDeploy=yes, branch=main, plan=free, Frankfurt. После merge новый deploy не появился в Render deploy history/events; последний live остаётся dep-dc1t7f6c6qcc73bq66og (commit 28b7a2c). Не запускать повторный/ручной deploy, пока не выяснена причина отсутствия autoDeploy. Production app и Neon не изменялись.
 - PR #4 (дублирующий) закрыт без merge.
+
+
+28. УСКОРЕНИЕ ВЫБОРА КЛУБА / СОЗДАНИЯ КАРЬЕРЫ (2026-11-24)
+- Пользователь сообщил: после клика по клубу при регистрации создание карьеры либо зависает/не открывается, либо занимает около 30 секунд.
+- Проверен актуальный POST /api/saves: клик запускает полную синхронную инициализацию карьеры (клубы лиги, реальные игроки, академия, стартовые XI всех AI-клубов, календарь). Это ожидаемо больше, чем просто UI selection.
+- Найдено тяжёлое место: best_lineup использовал bitmask DP по 2^11 состояниям с копированием tuple для каждого клуба. Заменено на Hungarian assignment с полиномиальной сложностью O(players × roles²), сохраняющим глобально оптимальный подбор по OVR и позиционным штрафам.
+- Добавлены этапные performance logs для POST /api/saves: каталог/клубы, вставка клубов, чтение игроков, вставка реальных игроков, академия, AI lineups, расписание, общее время. Это позволит подтвердить остаточную задержку по Render logs вместо догадок.
+- Добавлен тест 30-игрокового состава (11 уникальных стартеров + 7 запасных). PR #5 влит в main squash-коммитом fbfb5cc02e5494f07a59135b80e20917b98ac5b6.
+- GitHub Actions run 45405151373 (run 124) завершился success: compileall, pytest 50 passed (0.65s), node --check app/static/app.js.
+- Neon schema/data не менялись; SQL migration не требуется. Тарифы Render/Neon не менялись.
+- Render service подтверждён: autoDeploy=yes, branch=main, Free, Frankfurt. После merge нового deploy пока не видно; последний известный live deploy всё ещё на commit 28b7a2c. Ручной deploy не запускался, поскольку autoDeploy включён. Пока новая версия не live, нельзя утверждать, что пользователь уже получил ускорение.
