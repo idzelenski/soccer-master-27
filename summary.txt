@@ -464,3 +464,9 @@ SM27 — футбольный менеджер / симулятор карьер
 - Additional PSG first-team roster verification: the active career now contains 33 players; source roster contains 41 catalogue records, with 8 additional names still requiring classification/verification before deciding whether they belong in the senior career squad.
 
 - Additional code commits: 22c361ce1e33aee5c5cee551668db67f17ad6686 (reset tactical position-label span styles so the role is not rendered as a green rating badge); 10e4351e9b1b2f05f8eae678aa4b9f337fa6a37e (localized nationality flag mapping).
+
+41. FINAL VERIFICATION NOTES — 2026-11-24
+- Active PSG save now contains 33 players. Cross-checked against PSG's official 2026/27 squad page: all 24 listed first-team players are present; 9 additional players in the save are academy/reserve records from the source catalogue.
+- Fabián Ruiz's current contract end was set to 2028-06-30 based on the current Sofascore profile following PSG's 2026-09-04 extension announcement. Transfermarkt's pre-extension 2026-06-01 snapshot still shows €30m market value.
+- The source completeness check is not exhaustive for all clubs: 756 clubs total, 558 source squads, 198 without world_player_catalog squads; FC 27 has 17,849 players across 669 club-name strings, but only 248 names match sm27_club_pool exactly. Avoid unsafe fuzzy joins that can assign players to the wrong club.
+- CI combined status returned no check statuses for the latest code commits; Render deploy list still points to older live commit da2444a484c034b8541c5bb1af34656e3da3a741. UI code changes are therefore not yet live; Neon crest and PSG player data changes are live.
