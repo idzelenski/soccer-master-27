@@ -44,6 +44,79 @@ STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOGGER = logging.getLogger("sm27")
 
 
+def _round_kickoff(anchor: date, game_index: int) -> datetime:
+    """Spread fixtures across Fri/Sat/Sun, or Tue/Wed/Thu for a midweek round."""
+    slot = game_index % 3
+    if anchor.weekday() == 4:
+        match_day, hours = anchor + timedelta(days=(0, 1, 2)[slot]), (20, 17, 15)
+    elif anchor.weekday() == 5:
+        match_day, hours = anchor + timedelta(days=(-1, 0, 1)[slot]), (17, 14, 16)
+    elif anchor.weekday() == 6:
+        match_day, hours = anchor + timedelta(days=(-2, -1, 0)[slot]), (17, 14, 16)
+    else:
+        match_day, hours = anchor + timedelta(days=(-1, 0, 1)[slot]), (19, 19, 20)
+    return datetime.combine(match_day, datetime.min.time()).replace(tzinfo=timezone.utc) + timedelta(hours=hours[slot])
+
+
+def repair_legacy_schedules(conn: Connection) -> int:
+    """Re-date untouched legacy seasons that put every matchday on the same weekday."""
+    legacy = conn.execute(
+        """SELECT f.game_state_id,f.tournament_id,f.season,t.name,t.country,
+                  count(*) FILTER (WHERE f.status='completed')::int AS completed,
+                  count(*) FILTER (WHERE f.status='scheduled')::int AS scheduled,
+                  count(DISTINCT extract(dow FROM f.match_date)) FILTER (WHERE f.status='scheduled')::int AS weekdays,
+                  count(DISTINCT f.matchday)::int AS rounds,
+                  count(DISTINCT f.home_club_id)::int AS teams
+           FROM fixtures f
+           JOIN game_states gs ON gs.id=f.game_state_id
+           JOIN tournaments t ON t.id=f.tournament_id
+           WHERE gs.status='active'
+           GROUP BY f.game_state_id,f.tournament_id,f.season,t.name,t.country
+           HAVING count(*) FILTER (WHERE f.status='completed')=0
+              AND count(*) FILTER (WHERE f.status='scheduled')>0
+              AND count(DISTINCT extract(dow FROM f.match_date)) FILTER (WHERE f.status='scheduled')=1
+              AND count(DISTINCT f.home_club_id)>=6
+           ORDER BY f.game_state_id,t.name"""
+    ).fetchall()
+    updated = 0
+    for competition in legacy:
+        # The league must still have a complete untouched round-robin schedule.
+        round_rows = conn.execute(
+            """SELECT matchday,min(match_date)::date AS old_date,
+                      array_agg(id ORDER BY home_club_id,away_club_id) AS fixture_ids
+               FROM fixtures
+               WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND status='scheduled'
+               GROUP BY matchday ORDER BY matchday""",
+            (competition["game_state_id"],competition["tournament_id"],competition["season"]),
+        ).fetchall()
+        if len(round_rows) != int(competition["rounds"]):
+            continue
+        season_year = int(str(competition["season"])[:4])
+        anchors = league_schedule_dates(
+            competition["name"],competition["country"] or "",season_year,len(round_rows)
+        )
+        if len(anchors) != len(round_rows):
+            continue
+        updates: list[tuple[datetime,str]] = []
+        for round_index,(round_row,anchor) in enumerate(zip(round_rows,anchors)):
+            fixture_ids = [str(item) for item in round_row["fixture_ids"]]
+            for game_index,fixture_id in enumerate(fixture_ids):
+                updates.append((_round_kickoff(anchor,game_index),fixture_id))
+        if updates:
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    """UPDATE fixtures SET match_date=%s
+                       WHERE id=%s AND game_state_id=%s AND status='scheduled'""",
+                    [(kickoff,fixture_id,competition["game_state_id"]) for kickoff,fixture_id in updates],
+                )
+            updated += len(updates)
+            LOGGER.info(
+                "Repaired legacy calendar for save %s, competition %s: %s scheduled fixtures",
+                competition["game_state_id"],competition["name"],len(updates),
+            )
+    return updated
+
+
 def _run_fc27_rating_import() -> None:
     try:
         from scripts.import_fc27_ratings import main as import_ratings
@@ -77,6 +150,9 @@ async def lifespan(_: FastAPI):
         start_fc27_import = False
         with connection() as conn:
             migrate(conn)
+            repaired_fixtures = repair_legacy_schedules(conn)
+            if repaired_fixtures:
+                LOGGER.info("Repaired %s legacy scheduled fixtures", repaired_fixtures)
             state = conn.execute(
                 """SELECT status,(attempted_at < now()-interval '30 minutes') AS retryable
                    FROM fc27_import_state WHERE import_key='ratings'"""
@@ -575,21 +651,7 @@ def create_schedule(
     for round_index, games in enumerate(rounds):
         anchor = round_dates[round_index]
         for game_index, (home_id, away_id) in enumerate(games):
-            if anchor.weekday() == 4:  # Friday-centred round
-                match_day = anchor + timedelta(days=(0, 1, 2)[game_index % 3])
-                hours = (20, 17, 15)
-            elif anchor.weekday() == 5:  # Saturday-centred round
-                match_day = anchor + timedelta(days=(-1, 0, 1)[game_index % 3])
-                hours = (17, 14, 16)
-            elif anchor.weekday() == 6:  # Sunday-centred round
-                match_day = anchor + timedelta(days=(-2, -1, 0)[game_index % 3])
-                hours = (17, 14, 16)
-            else:  # Midweek round: Tuesday, Wednesday or Thursday
-                match_day = anchor + timedelta(days=(-1, 0, 1)[game_index % 3])
-                hours = (19, 19, 20)
-            kickoff = datetime.combine(match_day, datetime.min.time()).replace(
-                tzinfo=timezone.utc
-            ) + timedelta(hours=hours[game_index % 3])
+            kickoff = _round_kickoff(anchor, game_index)
             rows_to_insert.append((
                 game_state_id, tournament_id, season, kickoff, round_index + 1,
                 "Регулярный чемпионат", 1 if round_index < leg_split else 2,
