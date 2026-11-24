@@ -523,20 +523,35 @@ def create_schedule(
     season: str = "2026/27",
     start_date: date | None = None,
 ) -> None:
-    """Create a full season by competition calendar, batching all fixture inserts."""
+    """Create a league calendar, keeping reserved midweeks clear for cups and UEFA."""
     ids = [str(team["id"]) for team in teams]
-    rounds = round_robin(ids)
     tournament = conn.execute(
-        "SELECT name,country FROM tournaments WHERE id=%s",
+        "SELECT code,name,country FROM tournaments WHERE id=%s",
         (tournament_id,),
     ).fetchone()
+    league_name = tournament["name"] if tournament else ""
+    league_code = tournament["code"] if tournament else ""
+    first_leg_rounds = round_robin(ids)
+    leg_split = len(first_leg_rounds) // 2
+    rounds = first_leg_rounds
+
+    # MLS has 30 clubs and 34 fixtures per club, not a European home-and-away round robin.
+    if "major league soccer" in league_name.casefold() and len(ids) == 30:
+        first_leg = first_leg_rounds[:leg_split]
+        extra_count = max(0, 34 - len(first_leg))
+        repeat_indexes = [
+            round(index * (len(first_leg) - 1) / max(1, extra_count - 1))
+            for index in range(extra_count)
+        ]
+        additional = [
+            [(away, home) for home, away in first_leg[index]]
+            for index in repeat_indexes
+        ]
+        rounds = first_leg + additional
+        leg_split = len(first_leg)
+
     season_year = int(str(season)[:4])
-    round_dates = league_schedule_dates(
-        tournament["name"] if tournament else "",
-        tournament["country"] if tournament else "",
-        season_year,
-        len(rounds),
-    )
+    round_dates = league_schedule_dates(league_name, tournament["country"] if tournament else "", season_year, len(rounds))
     if len(round_dates) != len(rounds):
         anchor = start_date or date(season_year, 8, 15)
         round_dates = [anchor + timedelta(days=7 * index) for index in range(len(rounds))]
@@ -545,10 +560,13 @@ def create_schedule(
     for round_index, games in enumerate(rounds):
         anchor = round_dates[round_index]
         for game_index, (home_id, away_id) in enumerate(games):
-            if anchor.weekday() == 5:  # Saturday-centred round: Friday, Saturday or Sunday
+            if anchor.weekday() == 4:  # Friday-centred round
+                match_day = anchor + timedelta(days=(0, 1, 2)[game_index % 3])
+                hours = (20, 17, 15)
+            elif anchor.weekday() == 5:  # Saturday-centred round
                 match_day = anchor + timedelta(days=(-1, 0, 1)[game_index % 3])
                 hours = (17, 14, 16)
-            elif anchor.weekday() == 6:  # Sunday-centred round: Friday, Saturday or Sunday
+            elif anchor.weekday() == 6:  # Sunday-centred round
                 match_day = anchor + timedelta(days=(-2, -1, 0)[game_index % 3])
                 hours = (17, 14, 16)
             else:  # Midweek round: Tuesday, Wednesday or Thursday
@@ -559,7 +577,7 @@ def create_schedule(
             ) + timedelta(hours=hours[game_index % 3])
             rows_to_insert.append((
                 game_state_id, tournament_id, season, kickoff, round_index + 1,
-                "Регулярный чемпионат", 1 if round_index < len(rounds) // 2 else 2,
+                "Регулярный чемпионат", 1 if round_index < leg_split else 2,
                 home_id, away_id,
             ))
     if rows_to_insert:
