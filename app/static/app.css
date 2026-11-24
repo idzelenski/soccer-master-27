@@ -843,3 +843,20 @@ button:disabled {
 .top-ten-player .crest { width:19px; height:19px; flex-basis:19px; border-radius:4px; }
 .data-source { display:none !important; }
 .calendar-match-row { box-sizing:border-box; }
+
+/* The selected-day pane is content, not a nested framed card. */
+.calendar-selected { min-width:0; padding:18px 16px; border:0 !important; outline:0 !important; box-shadow:none !important; background:transparent; }
+.calendar-selected-match {
+  box-sizing:border-box; display:grid; width:100%; min-width:0;
+  margin:0 0 10px; padding:16px 15px !important;
+  border:1px solid rgba(194,223,204,.10) !important; border-radius:12px;
+  outline:0 !important; box-shadow:none !important; gap:12px; overflow:hidden;
+}
+.calendar-selected-match .calendar-selected-opponent,
+.calendar-selected-match .calendar-match-details,
+.calendar-selected-match > small,
+.calendar-selected-match > strong { min-width:0; padding-left:2px; padding-right:2px; }
+.calendar-selected-match .calendar-match-details,
+.calendar-selected-match > small { line-height:1.55; overflow-wrap:anywhere; }
+.tactic-player-row .player-flag { width:17px; height:13px; margin-right:6px; vertical-align:-3px; }
+.pitch-player em .player-flag { display:block; width:15px; height:11px; margin:0 auto 2px; vertical-align:0; }
