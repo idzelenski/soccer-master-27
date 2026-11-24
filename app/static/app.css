@@ -760,3 +760,33 @@ button, [role="button"] { touch-action: manipulation; }
   .match-timeline-event { grid-template-columns: 40px minmax(0,1fr); }
   .match-timeline-event > em { grid-column: 2; }
 }
+
+
+.tournament-fixtures { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 9px; }
+.tournament-match-card {
+  display: grid;
+  grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
+  align-items: center;
+  gap: 9px 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--text);
+  background: rgba(255,255,255,.025);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .1s ease, background .1s ease;
+}
+.tournament-match-card:hover { border-color: rgba(65,217,139,.38); background: rgba(65,217,139,.05); }
+.tournament-match-meta { grid-column: 1 / -1; color: var(--muted-2); font-size: 9px; font-weight: 800; }
+.tournament-match-team { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 10px; }
+.tournament-match-team .crest { width: 27px; height: 27px; flex-basis: 27px; border-radius: 7px; }
+.tournament-match-team b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tournament-match-team.away { justify-content: flex-end; text-align: right; }
+.tournament-match-score { min-width: 46px; padding: 5px 7px; border-radius: 7px; background: rgba(65,217,139,.1); color: var(--green-bright); font: 800 12px Manrope; text-align: center; white-space: nowrap; }
+.tournament-match-open { grid-column: 1 / -1; color: var(--green); font-size: 8px; font-weight: 800; letter-spacing: .12em; text-align: right; }
+@media (max-width: 760px) {
+  .tournament-fixtures { grid-template-columns: minmax(0,1fr); }
+}
