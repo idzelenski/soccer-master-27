@@ -1795,16 +1795,23 @@ def simulate_matchday(
 @app.post("/api/game/advance")
 def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
     save = require_save(conn, str(manager["id"]))
-    next_date = conn.execute(
-        "SELECT match_date::date AS match_date FROM fixtures WHERE game_state_id=%s AND status='scheduled' ORDER BY match_date LIMIT 1",
+    next_round = conn.execute(
+        """SELECT tournament_id,matchday,max(match_date::date) AS match_date
+           FROM fixtures
+           WHERE game_state_id=%s AND status='scheduled'
+           GROUP BY tournament_id,matchday
+           ORDER BY min(match_date),matchday
+           LIMIT 1""",
         (save["id"],),
     ).fetchone()
-    if not next_date:
+    if not next_round:
         current_year = int(str(save.get("season") or "2026/27")[:4])
         next_year = current_year + 1
         next_season = f"{next_year}/{(next_year + 1) % 100:02d}"
         tournament_id = conn.execute(
-            "SELECT tournament_id FROM club_tournaments WHERE game_state_id=%s AND season=%s LIMIT 1",
+            """SELECT tournament_id FROM club_tournaments
+               WHERE game_state_id=%s AND season=%s
+               ORDER BY tournament_id LIMIT 1""",
             (save["id"], save["season"]),
         ).fetchone()
         if not tournament_id:
@@ -1820,10 +1827,9 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
                ON CONFLICT (game_state_id,tournament_id,club_id,season) DO NOTHING""",
             (next_season, save["id"], save["season"]),
         )
-        season_start = date(next_year, 8, 15)
         create_schedule(
             conn, str(save["id"]), str(tournament_id["tournament_id"]),
-            [dict(club) for club in clubs], season=next_season, start_date=season_start,
+            [dict(club) for club in clubs], season=next_season,
         )
         first_day = date(next_year, 7, 1)
         conn.execute(
@@ -1832,10 +1838,14 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
             (next_season, first_day, first_day, save["id"]),
         )
         return {"ok": True, "new_season": next_season, "matches_simulated": 0, "results": [], "manager_result": None}
-    match_date = next_date["match_date"]
-    completed, manager_results = simulate_matchday(conn, save, match_date)
+
+    match_date = next_round["match_date"]
+    completed, manager_results = simulate_matchday(
+        conn, save, match_date, int(next_round["matchday"]), str(next_round["tournament_id"])
+    )
     return {
         "ok": True,
+        "matchday": int(next_round["matchday"]),
         "matchday_date": match_date.isoformat(),
         "matches_simulated": len(completed),
         "results": manager_results,
@@ -1857,18 +1867,22 @@ def advance_game_to_date(
     season_end = date(season_start_year + 1, 6, 30)
     if target_date > season_end:
         raise HTTPException(status_code=422, detail="Выбери дату внутри текущего игрового сезона")
-    match_dates = conn.execute(
-        """SELECT DISTINCT match_date::date AS match_date
+    rounds = conn.execute(
+        """SELECT tournament_id,matchday,max(match_date::date) AS match_date,
+                  min(match_date::date) AS first_match_date
            FROM fixtures
            WHERE game_state_id=%s AND status='scheduled'
-             AND match_date::date>%s AND match_date::date<=%s
-           ORDER BY match_date""",
-        (save["id"], current_date, target_date),
+           GROUP BY tournament_id,matchday
+           HAVING max(match_date::date)<=%s
+           ORDER BY min(match_date),matchday""",
+        (save["id"], target_date),
     ).fetchall()
     matches_simulated = 0
     manager_results: list[dict] = []
-    for row in match_dates:
-        completed, own_results = simulate_matchday(conn, save, row["match_date"])
+    for row in rounds:
+        completed, own_results = simulate_matchday(
+            conn, save, row["match_date"], int(row["matchday"]), str(row["tournament_id"])
+        )
         matches_simulated += len(completed)
         manager_results.extend(own_results)
     conn.execute(
@@ -1879,12 +1893,11 @@ def advance_game_to_date(
     return {
         "ok": True,
         "game_date": target_date.isoformat(),
-        "matchdays_simulated": len(match_dates),
+        "matchdays_simulated": len(rounds),
         "matches_simulated": matches_simulated,
         "results": manager_results,
         "manager_result": manager_results[-1] if manager_results else None,
     }
-
 
 @app.get("/api/standings")
 def standings(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
