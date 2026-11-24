@@ -49,12 +49,12 @@ WHERE d.game_state_id=p.game_state_id AND d.player_id=p.id
 -- Current AS Roma 2025+ crest and current S.S. Lazio eagle/shield crest.
 UPDATE world_club_catalog
 SET logo_url='https://www.footylogos.com/downloads/logo/roma-logo-footylogos.svg',
-    logo_source='FootyLogos current AS Roma crest 2025; rights remain with club'
+    logo_source='FootyLogos current AS Roma crest 2025, rights remain with club'
 WHERE lower(name) IN ('as roma','roma');
 
 UPDATE sm27_club_pool
 SET logo_url='https://www.footylogos.com/downloads/logo/roma-logo-footylogos.svg',
-    logo_license='FootyLogos current crest reference; rights remain with club'
+    logo_license='FootyLogos current crest reference, rights remain with club'
 WHERE lower(club_name) IN ('as roma','roma');
 
 UPDATE clubs
@@ -63,7 +63,7 @@ WHERE lower(name) IN ('as roma','roma');
 
 UPDATE world_club_catalog
 SET logo_url='https://www.footylogos.com/downloads/logo/lazio-logo-footylogos.png',
-    logo_source='FootyLogos current S.S. Lazio crest; rights remain with club'
+    logo_source='FootyLogos current S.S. Lazio crest, rights remain with club'
 WHERE lower(name) IN ('ss lazio','s.s. lazio','lazio');
 
 UPDATE sm27_club_pool
