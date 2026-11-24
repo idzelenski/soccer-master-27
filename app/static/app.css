@@ -939,3 +939,86 @@ button:disabled {
   border-color: rgba(65,217,139,.85);
   background: rgba(65,217,139,.13);
 }
+
+
+/* Tactical player labels: country flag + role on the first line, surname below. */
+.pitch-player {
+  transform: translate(-50%, -50%) !important;
+  transition: none !important;
+  touch-action: manipulation;
+}
+.pitch-player:active {
+  transform: translate(-50%, -50%) !important;
+}
+.pitch-player:focus {
+  outline: none;
+}
+.pitch-player:focus-visible {
+  outline: 2px solid var(--lime);
+  outline-offset: 3px;
+}
+.pitch-player .pitch-position-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  max-width: 70px;
+  min-width: 0;
+  line-height: 1;
+}
+.pitch-position-row .player-flag {
+  width: 14px;
+  height: 10px;
+  flex: 0 0 14px;
+  margin: 0;
+  border-radius: 1px;
+}
+.pitch-player em {
+  display: block;
+  max-width: 70px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 8px;
+  font-style: normal;
+  line-height: 1.15;
+}
+
+/* Keep the squad table in its original two-column identity layout. */
+.player-identity {
+  display: flex;
+  min-height: 38px;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+.player-identity .player-name {
+  display: inline-flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 18px;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 5px;
+  text-align: left;
+}
+.player-status-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+.player-identity .player-status {
+  flex: 0 0 auto;
+  align-self: center;
+  margin: 0;
+  white-space: nowrap;
+}
+.squad-table td {
+  vertical-align: middle;
+}
