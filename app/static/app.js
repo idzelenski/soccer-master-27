@@ -415,8 +415,7 @@ function showPlayerDetails(playerId) {
   const fc27SourceUrl = /^https:\/\/www\.ea\.com\//i.test(player.fc27_source_url || '') ? player.fc27_source_url : '';
   const fotmobSourceUrl = !player.fc27_player_id && /^https:\/\/www\.fotmob\.com\/players\//i.test(player.source_url || '') ? player.source_url : '';
   const sofascoreSourceUrl = /^https:\/\/www\.sofascore\.com\/football\/player\//i.test(player.original_data?.research?.sofascore_url || '') ? player.original_data.research.sofascore_url : '';
-  const hasVerifiedValue = Number(player.market_value || 0) > 0
-    && player.market_value_source === 'SofaScore';
+  const hasVerifiedValue = Number(player.market_value || 0) > 0;
   const modal = document.createElement('div');
   modal.id = 'player-detail-modal';
   modal.className = 'player-modal-backdrop';
@@ -430,13 +429,15 @@ function showPlayerDetails(playerId) {
       </div>
       <div class="player-modal-grid">
         <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Не освоены'}</b></div>
-        <div class="player-metric"><small>Рыночная стоимость</small><b>${hasVerifiedValue ? money(player.market_value) : 'Нет подтверждённой оценки'}</b><em>${esc(marketSource)}</em></div>
+        <div class="player-metric"><small>Рыночная стоимость</small><b>${hasVerifiedValue ? money(player.market_value) : 'Нет оценки'}</b><em>${esc(marketSource)}</em></div>
         <div class="player-metric"><small>Контракт до</small><b>${player.contract_end ? dateLabel(player.contract_end) : 'Не указано'}</b><em>Источник: ${esc(player.profile_source || 'SM27 estimate')}</em></div>
         <div class="player-metric"><small>Зарплата в неделю</small><b>${money(player.weekly_wage)}</b><em>Оценка SM27 по FC 27 Career Mode</em></div>
       </div>
       <div class="player-state-grid">
         <div class="condition-metric"><small>Тонус</small><b>${player.sharpness ?? 85}/100</b>${renderToneCrystals(player.sharpness)}</div>
         <div class="condition-metric"><small>Настрой</small><b>${player.morale ?? 70}/100</b>${renderMoodFaces(player.morale)}</div>
+        ${Number(player.injury_days_remaining || 0) > 0 ? `<div class="condition-metric"><small>Травма</small><b>${esc(player.injury_name || 'Травма')} · ${player.injury_days_remaining} дн.</b></div>` : ''}
+        ${Number(player.suspension_matches || 0) > 0 ? `<div class="condition-metric"><small>Дисквалификация</small><b>Осталось ${player.suspension_matches} матч.</b></div>` : ''}
       </div>
       <div class="position-training-panel">
         <div class="panel-head"><h3>Развитие позиции</h3><span>${isTraining ? 'ИДЁТ ТРЕНИРОВКА' : 'ВЫБЕРИ НОВУЮ РОЛЬ'}</span></div>
@@ -1037,11 +1038,12 @@ async function showMatchDetails(fixtureId) {
       const detail = event.detail || {};
       const eventTitle = detail.name || detail.injury || detail.reason || timelineLabels[event.event_type] || event.event_type;
       const assist = event.assist_name ? ' · пас: ' + esc(event.assist_name) : '';
+      const injuryName = detail.name ? ' · ' + esc(detail.name) : '';
       const days = detail.days_out ? ' · выбыл на ' + detail.days_out + ' дн.' : '';
       return `<div class="match-timeline-event event-${esc(event.event_type)}">
         <b>${Number(event.minute || 0)}'${event.added_time ? '+' + event.added_time : ''}</b>
         <span><strong>${esc(timelineLabels[event.event_type] || eventTitle)}</strong>
-        <small>${esc(event.player_name || event.club_name || '')}${assist}${days}</small></span>
+        <small>${esc(event.player_name || event.club_name || '')}${injuryName}${assist}${days}</small></span>
         <em>${esc(event.club_name || '')}</em>
       </div>`;
     }).join('');
