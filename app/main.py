@@ -1120,15 +1120,16 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
 
     for source_id, players_for_club in players_by_source.items():
         team = teams_by_source[source_id]
-        for player in players_for_club[:30]:
+        for player in players_for_club:
             dob = player["date_of_birth"]
             age = (
                 max(16, min(43, int((age_reference_date - dob).days / 365.2425)))
                 if dob else 24
             )
             external_id = str(player["source_id"])
+            player_name = "Fabián Ruiz" if external_id == "Q18637930" and team["name"] == "Paris Saint-Germain" else player["name"]
             fc27_id = player.get("fc27_player_id")
-            researched = get_researched_profile(player["name"], team["name"]) if not fc27_id else None
+            researched = get_researched_profile(player_name, team["name"]) if not fc27_id else None
             position = researched["position"] if researched else normalise_player_position(
                 player.get("fc27_position") or player["position"], external_id
             )
