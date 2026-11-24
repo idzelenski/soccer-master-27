@@ -330,7 +330,15 @@ function shell(content, title = 'Обзор') {
       ${content}
     </main>
   </div>`;
-  document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => { state.tab = button.dataset.nav; renderCurrent(); }));
+  document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => {
+    state.tab = button.dataset.nav;
+    if (state.tab === 'fixtures') {
+      const currentDate = new Date(state.save?.game_date || new Date());
+      state.calendarMonth = new Date(currentDate.getFullYear(),currentDate.getMonth(),1);
+      state.selectedCalendarDate = null;
+    }
+    renderCurrent();
+  }));
   document.getElementById('logout').addEventListener('click', logout);
   document.getElementById('restart-career').addEventListener('click', restartCareer);
 }
@@ -367,10 +375,10 @@ function renderSquad(players) {
     const valueLabel = hasValue ? money(player.market_value) : '—';
     const status = [
       Number(player.injury_days_remaining || 0) > 0
-        ? `<span class="player-status injury-status">Травма · ${player.injury_days_remaining} дн.</span>`
+        ? `<span class="player-status injury-status">Травма · ${player.injury_days_remaining} дн. · до ${dateLabel(player.injury_return_date)}</span>`
         : '',
       Number(player.suspension_matches || 0) > 0
-        ? `<span class="player-status suspension-status">Дисквалификация · ${player.suspension_matches} матч.</span>`
+        ? `<span class="player-status suspension-status">Дисквалификация · ${player.suspension_matches} матч. · ${esc(player.suspension_reason || "причина не записана")} · до ${dateLabel(player.suspension_return_date)}</span>`
         : ''
     ].filter(Boolean).join('');
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
@@ -442,8 +450,8 @@ function showPlayerDetails(playerId) {
       <div class="player-state-grid">
         <div class="condition-metric"><small>Тонус</small><b>${player.sharpness ?? 85}/100</b>${renderToneCrystals(player.sharpness)}</div>
         <div class="condition-metric"><small>Настрой</small><b>${player.morale ?? 70}/100</b>${renderMoodFaces(player.morale)}</div>
-        ${Number(player.injury_days_remaining || 0) > 0 ? `<div class="condition-metric"><small>Травма</small><b>${esc(player.injury_name || 'Травма')} · ${player.injury_days_remaining} дн.</b></div>` : ''}
-        ${Number(player.suspension_matches || 0) > 0 ? `<div class="condition-metric"><small>Дисквалификация</small><b>Осталось ${player.suspension_matches} матч.</b></div>` : ''}
+        ${Number(player.injury_days_remaining || 0) > 0 ? `<div class="condition-metric"><small>Травма</small><b>${esc(player.injury_name || "Травма")} · ${player.injury_days_remaining} дн. · до ${dateLabel(player.injury_return_date)}</b></div>` : ''}
+        ${Number(player.suspension_matches || 0) > 0 ? `<div class="condition-metric"><small>Дисквалификация</small><b>Осталось ${player.suspension_matches} матч. · ${esc(player.suspension_reason || "причина не записана")} · до ${dateLabel(player.suspension_return_date)}</b></div>` : ''}
       </div>
       <div class="position-training-panel">
         <div class="panel-head"><h3>Развитие позиции</h3><span>${isTraining ? 'ИДЁТ ТРЕНИРОВКА' : 'ВЫБЕРИ НОВУЮ РОЛЬ'}</span></div>
@@ -659,7 +667,7 @@ function renderTactics(players, tactics) {
     const selected = state.selectedTacticSlot === index;
     const rating = player ? (player.dynamic_overall ?? player.overall) + positionPenalty(player,slot.role) : null;
     return `<button class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
-      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? esc(player.name.split(" ").slice(-1)[0]) : "Выбрать"}</em>
+      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? flagIcon(player.nationality_flag,player.nationality || "Флаг страны") + esc(player.name.split(" ").slice(-1)[0]) : "Выбрать"}</em>
     </button>`;
   }).join("");
   const benchIds = new Set(state.tacticBench);
@@ -669,7 +677,7 @@ function renderTactics(players, tactics) {
     return p ? '<div class="tactic-roster-item"><button class="tactic-player-row bench-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
-      (p.dynamic_overall ?? p.overall) + '</b><span>' + esc(p.name) +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(p.name) +
       '<small>' + esc(p.position) + ' · запас</small></span></button></div>' : '';
   }).join("");
   const reserves = reserveIds.map(id=>{
@@ -677,7 +685,7 @@ function renderTactics(players, tactics) {
     return p ? '<div class="tactic-roster-item"><button class="tactic-player-row reserve-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
-      (p.dynamic_overall ?? p.overall) + '</b><span>' + esc(p.name) +
+      (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag,p.nationality || "Флаг страны") + esc(p.name) +
       '<small>' + esc(p.position) + ' · резерв</small></span></button></div>' : '';
   }).join("");
   const settings = state.tacticSettings;
@@ -967,18 +975,27 @@ function setupCalendarInteractions() {
         toast("Нельзя перемотать карьеру назад. Выбери текущую или будущую дату.",true);
         return;
       }
-      const cells = Array.from(document.querySelectorAll("[data-calendar-date]"));
-      const targetIndex = cells.findIndex(cell => cell.dataset.calendarDate === targetDate);
-      if (targetIndex < 0) return;
-      let currentIndex = cells.findIndex(cell => cell.dataset.calendarDate === currentDate);
-      if (currentIndex < 0) currentIndex = targetIndex;
-      const direction = targetIndex >= currentIndex ? 1 : -1;
-      for (let index = currentIndex; index !== targetIndex + direction; index += direction) {
-        cells.forEach((cell, cellIndex) => cell.classList.toggle("selected", cellIndex === index));
-        state.selectedCalendarDate = cells[index].dataset.calendarDate;
-        if (index !== targetIndex) await new Promise(resolve => setTimeout(resolve, 24));
+      const start = new Date(currentDate + "T12:00:00");
+      const end = new Date(targetDate + "T12:00:00");
+      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+      state.calendarMonth = new Date(start.getFullYear(),start.getMonth(),1);
+      state.selectedCalendarDate = currentDate;
+      await renderCurrent();
+      let cursor = new Date(start);
+      while (cursor <= end) {
+        const key = cursor.getFullYear() + "-" + String(cursor.getMonth()+1).padStart(2,"0") + "-" + String(cursor.getDate()).padStart(2,"0");
+        const monthKey = cursor.getFullYear() + "-" + cursor.getMonth();
+        if (state.calendarMonth.getFullYear() + "-" + state.calendarMonth.getMonth() !== monthKey) {
+          state.calendarMonth = new Date(cursor.getFullYear(),cursor.getMonth(),1);
+          await renderCurrent();
+        }
+        document.querySelectorAll("[data-calendar-date]").forEach(cell => cell.classList.toggle("selected",cell.dataset.calendarDate===key));
+        state.selectedCalendarDate = key;
+        await new Promise(resolve => setTimeout(resolve,28));
+        cursor.setDate(cursor.getDate()+1);
       }
-      button.disabled = true;
+      const activeButton = document.querySelector('[data-calendar-date="' + targetDate + '"]');
+      if (activeButton) activeButton.disabled = true;
       try {
         const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(targetDate), {
           method: 'POST', body: '{}'
