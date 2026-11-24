@@ -1908,6 +1908,164 @@ def advance_game_to_date(
         "manager_result": manager_results[-1] if manager_results else None,
     }
 
+@app.get("/api/matches/{fixture_id}")
+def match_details(
+    fixture_id: str,
+    manager: dict = Depends(manager_dep),
+    conn: Connection = Depends(db_dep),
+) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    fixture_row = conn.execute(
+        """SELECT f.*,t.name AS tournament_name,t.logo_url AS tournament_logo,
+                  h.name AS home_name,h.logo_url AS home_logo,
+                  a.name AS away_name,a.logo_url AS away_logo
+           FROM fixtures f
+           LEFT JOIN tournaments t ON t.id=f.tournament_id
+           JOIN clubs h ON h.id=f.home_club_id
+           JOIN clubs a ON a.id=f.away_club_id
+           WHERE f.id=%s AND f.game_state_id=%s""",
+        (fixture_id, save["id"]),
+    ).fetchone()
+    if not fixture_row:
+        raise HTTPException(status_code=404, detail="Матч не найден в текущей карьере")
+    fixture = dict(fixture_row)
+    match_stats = (fixture.get("notes") or {}).get("match")
+    if not isinstance(match_stats, dict):
+        match_stats = None
+
+    player_rows = conn.execute(
+        """SELECT s.player_id,s.club_id,c.name AS club_name,p.name,p.position,
+                  s.minutes_played,s.rating,s.goals,s.assists,s.shots,s.shots_on_target,
+                  s.passes,s.accurate_passes,s.tackles,s.interceptions,s.key_passes,
+                  s.yellow_cards,s.red_cards,s.saves,s.clean_sheet,s.is_mvp,s.is_estimate
+           FROM fixture_player_stats s
+           JOIN players p ON p.id=s.player_id
+           JOIN clubs c ON c.id=s.club_id
+           WHERE s.fixture_id=%s
+           ORDER BY s.rating DESC,s.goals DESC,s.assists DESC,p.name""",
+        (fixture_id,),
+    ).fetchall()
+    event_rows = conn.execute(
+        """SELECT e.minute,e.added_time,e.event_type,e.detail,c.name AS club_name,
+                  p.name AS player_name,a.name AS assist_name
+           FROM match_events e
+           LEFT JOIN clubs c ON c.id=e.club_id
+           LEFT JOIN players p ON p.id=e.player_id
+           LEFT JOIN players a ON a.id=e.assist_player_id
+           WHERE e.fixture_id=%s
+           ORDER BY e.minute,e.added_time,e.id""",
+        (fixture_id,),
+    ).fetchall()
+    return serialise({
+        "fixture": fixture,
+        "stats": match_stats,
+        "players": [dict(row) for row in player_rows],
+        "events": [dict(row) for row in event_rows],
+        "historical_estimate": bool(match_stats and match_stats.get("historical_estimate")),
+        "stats_available": bool(player_rows),
+    })
+
+
+@app.get("/api/tournaments")
+def tournaments(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
+    save = require_save(conn, str(manager["id"]))
+    rows = conn.execute(
+        """SELECT t.id,t.code,t.name,t.country,t.continent,t.tournament_type,t.logo_url,
+                  ct.season,
+                  count(DISTINCT ct.club_id)::int AS teams,
+                  count(DISTINCT f.id)::int AS fixtures,
+                  count(DISTINCT f.id) FILTER (WHERE f.status='completed')::int AS played_fixtures
+           FROM club_tournaments ct
+           JOIN tournaments t ON t.id=ct.tournament_id
+           LEFT JOIN fixtures f
+             ON f.game_state_id=ct.game_state_id AND f.tournament_id=ct.tournament_id AND f.season=ct.season
+           WHERE ct.game_state_id=%s AND ct.season=%s
+           GROUP BY t.id,ct.season
+           ORDER BY t.tier,t.name""",
+        (save["id"], save["season"]),
+    ).fetchall()
+    return serialise([dict(row) for row in rows])
+
+
+@app.get("/api/tournaments/{tournament_id}")
+def tournament_details(
+    tournament_id: str,
+    manager: dict = Depends(manager_dep),
+    conn: Connection = Depends(db_dep),
+) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    tournament = conn.execute(
+        """SELECT t.id,t.code,t.name,t.country,t.continent,t.tournament_type,t.logo_url,
+                  ct.season
+           FROM tournaments t
+           JOIN club_tournaments ct ON ct.tournament_id=t.id
+           WHERE t.id=%s AND ct.game_state_id=%s AND ct.season=%s
+           LIMIT 1""",
+        (tournament_id, save["id"], save["season"]),
+    ).fetchone()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Турнир не найден в текущем сезоне")
+
+    standings_rows = conn.execute(
+        """SELECT c.id AS club_id,c.name,c.logo_url,ct.played,ct.won,ct.drawn,ct.lost,
+                  ct.goals_for,ct.goals_against,ct.goal_difference,ct.points
+           FROM club_tournaments ct JOIN clubs c ON c.id=ct.club_id
+           WHERE ct.game_state_id=%s AND ct.tournament_id=%s AND ct.season=%s
+           ORDER BY ct.points DESC,coalesce(ct.goal_difference,0) DESC,ct.goals_for DESC,c.name""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchall()
+    player_rows = conn.execute(
+        """SELECT p.id AS player_id,p.name,p.position,c.name AS club_name,c.logo_url AS club_logo,
+                  count(*)::int AS appearances,
+                  round(avg(s.rating)::numeric,2)::float AS average_rating,
+                  sum(s.goals)::int AS goals,sum(s.assists)::int AS assists,
+                  (sum(s.goals)+sum(s.assists))::int AS goal_contributions,
+                  count(*) FILTER (WHERE s.is_mvp)::int AS mvp,
+                  sum(s.yellow_cards)::int AS yellow_cards,sum(s.red_cards)::int AS red_cards,
+                  count(*) FILTER (WHERE s.clean_sheet)::int AS clean_sheets
+           FROM fixture_player_stats s
+           JOIN fixtures f ON f.id=s.fixture_id AND f.status='completed'
+           JOIN players p ON p.id=s.player_id
+           JOIN clubs c ON c.id=s.club_id
+           WHERE s.game_state_id=%s AND s.tournament_id=%s AND f.season=%s
+           GROUP BY p.id,p.name,p.position,c.name,c.logo_url
+           ORDER BY average_rating DESC,goal_contributions DESC,goals DESC,p.name
+           LIMIT 100""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchall()
+    team_rows = conn.execute(
+        """SELECT c.id AS club_id,c.name,c.logo_url,
+                  coalesce(sum(s.goals),0)::int AS goals,
+                  round(avg(s.rating)::numeric,2)::float AS average_rating,
+                  count(*) FILTER (WHERE s.is_mvp)::int AS mvp,
+                  coalesce(sum(s.yellow_cards),0)::int AS yellow_cards,
+                  coalesce(sum(s.red_cards),0)::int AS red_cards,
+                  count(*) FILTER (WHERE s.clean_sheet)::int AS clean_sheets
+           FROM fixture_player_stats s
+           JOIN fixtures f ON f.id=s.fixture_id AND f.status='completed'
+           JOIN clubs c ON c.id=s.club_id
+           WHERE s.game_state_id=%s AND s.tournament_id=%s AND f.season=%s
+           GROUP BY c.id,c.name,c.logo_url
+           ORDER BY goals DESC,average_rating DESC,c.name""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchall()
+    totals = conn.execute(
+        """SELECT count(*) FILTER (WHERE status='completed')::int AS played_matches,
+                  count(*)::int AS scheduled_matches,
+                  coalesce(sum(home_score+away_score) FILTER (WHERE status='completed'),0)::int AS goals
+           FROM fixtures
+           WHERE game_state_id=%s AND tournament_id=%s AND season=%s""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchone()
+    return serialise({
+        "tournament": dict(tournament),
+        "standings": [dict(row) for row in standings_rows],
+        "players": [dict(row) for row in player_rows],
+        "teams": [dict(row) for row in team_rows],
+        "totals": dict(totals),
+    })
+
+
 @app.get("/api/standings")
 def standings(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
     save = require_save(conn, str(manager["id"]))
