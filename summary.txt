@@ -489,3 +489,11 @@ SM27 — футбольный менеджер / симулятор карьер
 - Added unit coverage for zero condition values, neutral defaults, injury return dates, and suspensions. No schema change or paid resource was introduced.
 
 - Tactics auto-lineup and formation optimization now exclude currently injured/suspended players; saved assignments are preserved so the player reappears in the same slot/group after eligibility returns.
+
+
+44. ПЕРЕПРОВЕРКА ФЛАГОВ И РЕГЛАМЕНТА СУПЕРЛИГИ ТУРЦИИ (2026-11-24)
+- Проверка live `world_player_catalog` выявила реальные source-nationality labels `Almanya`, `Belçika`, `İtalya`; у Alexander Nübel, Leandro Trossard и Fabio Miretti в активной карьере были пустые `nationality_flag`.
+- Добавлены нормализации для этих турецких названий (и нескольких других реально встречающихся локализованных названий) на сервере и в браузерном fallback. Startup backfill заполнит пустые флаги в существующих career rows после успешного деплоя.
+- Для Süper Lig 2026/27 добавлены отдельные зоны: 1-е — ЛЧ (league phase), 2-е — квалификация ЛЧ, 3-е — Лига Европы, 4-е — Лига конференций, 5-е — условная дополнительная квота при перераспределении места Кубка; 3 последних клуба вылетают.
+- Официальный регламент TFF 2026/27: 18 команд, два круга, 16–18 места вылетают. Квоты UEFA по документу TFF: 1-е место — ЛЧ league phase; 2-е — ЛЧ Q2; обладатель Кубка — ЛЕ play-offs; 3-е — ЛЕ Q2; 4-е — ЛК Q2. Если обладатель Кубка уже квалифицировался через лигу, места перераспределяются вплоть до 5-го места.
+- В каталоге `sm27_club_pool` найдено 90 уникальных `league_code` (756 клубов); единичный тест только ISO-кодов недостаточен для проверки всех локализованных национальностей. Полный аудит форматов остальных лиг продолжается; эти изменения не означают, что все 90 регламентов уже проверены.

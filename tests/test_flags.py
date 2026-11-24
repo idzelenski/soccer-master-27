@@ -26,3 +26,10 @@ def test_localized_and_source_generated_nationalities_resolve():
     }
     for nationality, code in expected.items():
         assert flag_for_nationality(nationality) == code
+
+
+def test_turkish_catalog_nationalities_resolve_to_rectangular_flag_codes():
+    assert flag_for_nationality("Almanya") == "de"
+    assert flag_for_nationality("Belçika") == "be"
+    assert flag_for_nationality("İtalya") == "it"
+    assert flag_for_nationality("Türkiye") == "tr"

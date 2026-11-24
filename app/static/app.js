@@ -25,6 +25,9 @@ function flagAssetUrl(code) {
     ire:'ie', nir:'gb-nir'
   };
   const names = {
+    'almanya':'de','belcika':'be','italya':'it','avusturya':'at','hollanda':'nl',
+    'guney kore':'kr','fildisi sahili':'ci','nijerya':'ng','romanya':'ro','sirbistan':'rs',
+    'turkiye':'tr','cekya':'cz','portekiz':'pt','bosna-hersek':'ba',
     'france':'fr','francia':'fr','francia':'fr','espagne':'es','españa':'es',
     'spain':'es','germany':'de','allemagne':'de','brésil':'br','brasil':'br',
     'brazil':'br','italie':'it','italy':'it','portugal':'pt','portugal':'pt',
@@ -1249,6 +1252,18 @@ function leagueZone(tournament, position, teamCount) {
   const name = String(tournament?.name || '').toLowerCase();
   const country = String(tournament?.country || '').toLowerCase();
   const tier = Number(tournament?.tier || 1);
+  const leagueCode = String(tournament?.code || '').replace(/^SM27-/, '');
+  // TFF 2026/27: 18 clubs, 3 relegated; 1st UCL league phase, 2nd UCL Q2,
+  // cup winner UEL play-offs, 3rd UEL Q2, 4th UECL Q2 (5th can inherit UECL).
+  if (leagueCode === 'TUR-SL') {
+    if (position === 1) return 'zone-ucl';
+    if (position === 2) return 'zone-ucl-playoff';
+    if (position === 3) return 'zone-uel';
+    if (position === 4) return 'zone-uecl';
+    if (position === 5) return 'zone-europe-playoff';
+    if (position > teamCount - 3) return 'zone-relegation';
+    return '';
+  }
   if (tournament?.tournament_type === 'continental' || /champions league|europa league|conference league|лига чемпионов|лига европы|лига конференций/.test(name)) {
     if (position <= 8) return 'zone-ucl';
     if (position <= 24) return 'zone-europe-playoff';

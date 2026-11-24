@@ -220,6 +220,12 @@ SECONDARY_POSITIONS = {
     "LW": ("LM", "ST"), "ST": ("CF", "LW"), "CF": ("ST", "CAM"),
 }
 FLAG_SPECIAL_CODES = {
+    # Localized labels present in the live player catalog (including Turkish source names).
+    "almanya": "de", "belçika": "be", "belcika": "be", "italya": "it",
+    "avusturya": "at", "hollanda": "nl", "güney kore": "kr", "guney kore": "kr",
+    "fildişi sahili": "ci", "fildisi sahili": "ci", "nijerya": "ng",
+    "romanya": "ro", "sırbistan": "rs", "sirbistan": "rs", "türkiye": "tr",
+    "çekya": "cz", "cekya": "cz", "portekiz": "pt", "bosna-hersek": "ba",
     "england": "gb-eng", "eng": "gb-eng", "bul": "bg", "bgr": "bg", "kos": "xk",
     "scotland": "gb-sct", "sco": "gb-sct",
     "wales": "gb-wls", "wal": "gb-wls",
