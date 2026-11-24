@@ -619,10 +619,13 @@ function positionPenalty(player, target) {
 }
 function optimiseLineup(players, formation) {
   const roles = formationSlots(formation).map(slot => slot.role);
+  const eligiblePlayers = players.filter(player =>
+    !Number(player.injury_days_remaining || 0) && !Number(player.suspension_matches || 0)
+  );
   const fullMask = (1 << roles.length) - 1;
   const blank = Array(roles.length).fill(null);
   let dp = new Map([[0, {score: 0, path: blank}]]);
-  const ordered = [...players].sort((a,b) => String(a.id).localeCompare(String(b.id)));
+  const ordered = [...eligiblePlayers].sort((a,b) => String(a.id).localeCompare(String(b.id)));
 
   for (const player of ordered) {
     const next = new Map(dp);
@@ -650,11 +653,11 @@ function optimiseLineup(players, formation) {
   const best = dp.get(fullMask);
   const starters = best ? best.path.filter(Boolean) : [];
   if (starters.length !== roles.length) {
-    const fallback = [...players].sort((a,b) => Number(b.dynamic_overall ?? b.overall) - Number(a.dynamic_overall ?? a.overall));
+    const fallback = [...eligiblePlayers].sort((a,b) => Number(b.dynamic_overall ?? b.overall) - Number(a.dynamic_overall ?? a.overall));
     return {starters: fallback.slice(0, roles.length), remaining: fallback.slice(roles.length)};
   }
   const selected = new Set(starters.map(player => String(player.id)));
-  const remaining = players.filter(player => !selected.has(String(player.id)));
+  const remaining = eligiblePlayers.filter(player => !selected.has(String(player.id)));
   return {starters, remaining};
 }
 function ensureTacticState(players, tactics) {

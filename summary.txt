@@ -487,3 +487,5 @@ SM27 — футбольный менеджер / симулятор карьер
 - Added a shared match-eligibility check for injury return dates and suspensions. Competition-specific and global suspension counts are combined with `GREATEST`, so a zero in one source cannot hide an active ban in the other. Injured/suspended players are excluded from the starting XI and become eligible again when the injury return date is reached or suspension count reaches zero.
 - The SQL date parameter in the `Сыграть тур` fixture query is explicitly cast to `date`; this fixes PostgreSQL's `IndeterminateDatatype` error seen on the old production build. The latest app commit contains this cast; production must run the new commit before the fix is live.
 - Added unit coverage for zero condition values, neutral defaults, injury return dates, and suspensions. No schema change or paid resource was introduced.
+
+- Tactics auto-lineup and formation optimization now exclude currently injured/suspended players; saved assignments are preserved so the player reappears in the same slot/group after eligibility returns.
