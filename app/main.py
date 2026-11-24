@@ -2070,12 +2070,6 @@ def simulate_matchday(
     through_date: date | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """Simulate only fixtures through a date; matchdays may span multiple dates."""
-    conn.execute(
-        """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
-                  sharpness=LEAST(100,sharpness+4),updated_at=now()
-           WHERE game_state_id=%s""",
-        (save["id"],),
-    )
     if matchday is not None and tournament_id:
         rows = conn.execute(
             """SELECT f.*,h.name AS home_name,a.name AS away_name,
@@ -2096,6 +2090,19 @@ def simulate_matchday(
                ORDER BY f.match_date,f.id""",
             (save["id"], match_date),
         ).fetchall()
+
+    participating_clubs = sorted({
+        str(club_id)
+        for row in rows
+        for club_id in (row["home_club_id"], row["away_club_id"])
+    })
+    if participating_clubs:
+        conn.execute(
+            """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
+                      sharpness=LEAST(100,sharpness+4),updated_at=now()
+               WHERE game_state_id=%s AND club_id=ANY(%s)""",
+            (save["id"], participating_clubs),
+        )
 
     completed: list[dict] = []
     manager_results: list[dict] = []
