@@ -655,6 +655,15 @@ def create_schedule(
         rounds = first_leg + additional
         leg_split = len(first_leg)
 
+    elif (league_code == "ARG-PD" or "argentine primera" in league_name.casefold()) and len(ids) == 30:
+        first_leg = first_leg_rounds[:leg_split]
+        additional = [
+            [(away, home) for home, away in first_leg[index]]
+            for index in (0, 14, 28)
+        ]
+        rounds = first_leg + additional
+        leg_split = len(first_leg)
+
     season_year = int(str(season)[:4])
     round_dates = league_schedule_dates(league_name, tournament["country"] if tournament else "", season_year, len(rounds))
     if len(round_dates) != len(rounds):
