@@ -52,11 +52,11 @@ def connection() -> Generator[psycopg.Connection, None, None]:
 def migrate(conn: psycopg.Connection) -> None:
     migration_dir = Path(__file__).resolve().parent.parent / "sql"
     for migration in sorted(migration_dir.glob("*.sql")):
-        sql = migration.read_text(encoding="utf-8")
-        for statement in sql.split(";"):
-            statement = statement.strip()
-            if statement:
-                conn.execute(statement)
+        sql = migration.read_text(encoding="utf-8").strip()
+        if sql:
+            # Execute the complete migration using PostgreSQL's simple-query protocol.
+            # Splitting on semicolons corrupts valid SQL when a quoted string contains ';'.
+            conn.execute(sql, prepare=False)
     conn.commit()
 
 
