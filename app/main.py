@@ -2284,10 +2284,7 @@ def match_details(
     return serialise({
         "fixture": fixture,
         "stats": match_stats,
-        "players": [
-            {**dict(row), "nationality_flag": row["nationality_flag"] or flag_for_nationality(row["nationality"])}
-            for row in player_rows
-        ],
+        "players": [dict(row) for row in player_rows],
         "events": [dict(row) for row in event_rows],
         "historical_estimate": bool(match_stats and match_stats.get("historical_estimate")),
         "stats_available": bool(player_rows),
@@ -2401,7 +2398,10 @@ def tournament_details(
     return serialise({
         "tournament": dict(tournament),
         "standings": [dict(row) for row in standings_rows],
-        "players": [dict(row) for row in player_rows],
+        "players": [
+            {**dict(row), "nationality_flag": row["nationality_flag"] or flag_for_nationality(row["nationality"])}
+            for row in player_rows
+        ],
         "teams": [dict(row) for row in team_rows],
         "matches": [dict(row) for row in match_rows],
         "totals": dict(totals),
