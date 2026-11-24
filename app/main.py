@@ -1890,13 +1890,19 @@ def _record_match_detail(
 
     if suspended_at_start:
         conn.execute(
-            "UPDATE players SET suspension_matches=GREATEST(0,suspension_matches-1),updated_at=now() WHERE id=ANY(%s)",
+            "UPDATE players SET suspension_matches=GREATEST(0,suspension_matches-1),
+               suspension_reason=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_reason END,
+               suspension_return_date=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_return_date END,
+               updated_at=now() WHERE id=ANY(%s)",
             (suspended_at_start,),
         )
         if fixture.get("tournament_id"):
             conn.execute(
                 """UPDATE player_competition_discipline
-                   SET suspension_matches=GREATEST(0,suspension_matches-1),updated_at=now()
+                   SET suspension_matches=GREATEST(0,suspension_matches-1),
+                       suspension_reason=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_reason END,
+                       suspension_return_date=CASE WHEN suspension_matches<=1 THEN NULL ELSE suspension_return_date END,
+                       updated_at=now()
                    WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND player_id=ANY(%s)""",
                 (save["id"], fixture["tournament_id"], fixture["season"], suspended_at_start),
             )
@@ -1922,34 +1928,60 @@ def _record_match_detail(
         added_yellows = yellow_by_player.get(player_id, 0)
         added_reds = 1 if player_id in red_by_player else 0
         added_ban = max(0, (old_yellows + added_yellows) // 5 - old_yellows // 5) + red_by_player.get(player_id, 0)
+        ban_reason = (
+            "Красная карточка" if player_id in red_by_player
+            else "Пятая жёлтая карточка в турнире" if added_ban else None
+        )
+        return_row = None
+        if added_ban:
+            return_row = conn.execute(
+                """SELECT match_date::date AS return_date
+                   FROM fixtures
+                   WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND status='scheduled'
+                     AND match_date::date>%s
+                     AND (home_club_id=(SELECT club_id FROM players WHERE id=%s)
+                          OR away_club_id=(SELECT club_id FROM players WHERE id=%s))
+                   ORDER BY match_date OFFSET %s LIMIT 1""",
+                (save["id"],fixture["tournament_id"],fixture["season"],match_date,player_id,player_id,added_ban),
+            ).fetchone()
         discipline_changes[player_id] = {
             "yellow_cards": old_yellows + added_yellows,
             "red_cards": old_reds + added_reds,
             "suspension_matches": old_suspensions + added_ban,
             "added_ban": added_ban,
+            "suspension_reason": ban_reason,
+            "suspension_return_date": return_row["return_date"] if return_row else None,
         }
     if discipline_changes:
         with conn.cursor() as cursor:
             cursor.executemany(
                 """INSERT INTO player_competition_discipline
-                       (game_state_id,tournament_id,season,player_id,yellow_cards,red_cards,suspension_matches)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s)
+                       (game_state_id,tournament_id,season,player_id,yellow_cards,red_cards,suspension_matches,
+                        suspension_reason,suspension_return_date)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
                    ON CONFLICT (game_state_id,tournament_id,season,player_id)
                    DO UPDATE SET yellow_cards=EXCLUDED.yellow_cards,
                                  red_cards=EXCLUDED.red_cards,
                                  suspension_matches=EXCLUDED.suspension_matches,
+                                 suspension_reason=coalesce(EXCLUDED.suspension_reason,player_competition_discipline.suspension_reason),
+                                 suspension_return_date=coalesce(EXCLUDED.suspension_return_date,player_competition_discipline.suspension_return_date),
                                  updated_at=now()""",
                 [
                     (save["id"], fixture["tournament_id"], fixture["season"], player_id,
-                     values["yellow_cards"], values["red_cards"], values["suspension_matches"])
+                     values["yellow_cards"], values["red_cards"], values["suspension_matches"],
+                     values["suspension_reason"], values["suspension_return_date"])
                     for player_id, values in discipline_changes.items()
                 ],
             )
-        ban_updates = [(values["added_ban"], player_id) for player_id, values in discipline_changes.items() if values["added_ban"]]
+        ban_updates = [
+            (values["added_ban"],values["suspension_reason"],values["suspension_return_date"],player_id)
+            for player_id,values in discipline_changes.items() if values["added_ban"]
+        ]
         if ban_updates:
             with conn.cursor() as cursor:
                 cursor.executemany(
-                    "UPDATE players SET suspension_matches=suspension_matches+%s,updated_at=now() WHERE id=%s",
+                    """UPDATE players SET suspension_matches=suspension_matches+%s,
+                       suspension_reason=%s,suspension_return_date=%s,updated_at=now() WHERE id=%s""",
                     ban_updates,
                 )
 
