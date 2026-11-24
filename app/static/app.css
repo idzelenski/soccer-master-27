@@ -1037,3 +1037,27 @@ button:disabled {
 .squad-table td {
   vertical-align: middle;
 }
+
+
+/* Condition-adjusted ratings: show the original value and the temporary match value. */
+.rating-adjustment,
+.attribute-adjustment {
+  display: inline-block;
+  margin-left: 3px;
+  font-size: 10px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+.rating-adjustment,
+.attribute-adjustment.down { color: #f08b83; }
+.attribute-adjustment.up { color: #6fd7a0; }
+.attribute-item strong s {
+  color: var(--muted);
+  opacity: .72;
+  font-size: 11px;
+  font-weight: 500;
+}
+.attribute-item strong .attribute-adjustment {
+  font-style: normal;
+  font-size: 12px;
+}
