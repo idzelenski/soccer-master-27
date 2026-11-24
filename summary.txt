@@ -355,3 +355,12 @@ SM27 — футбольный менеджер / симулятор карьер
 - Каталог содержит 99 комбинаций league_code/league_name/country. В engine.py есть отдельные календарные профили для основных лиг и региональные fallback-правила; не все 99 комбинаций имеют уникальный отдельный профиль. Это остаётся известным незавершённым пунктом и требует расширения по фактическому списку лиг.
 - Все 4 турнира, существующие в production сейчас, имеют HTTPS logo_url. Это проверка наличия URL в БД, не визуальная проверка загрузки каждого внешнего файла.
 - Neon проверялся только read-only запросами; пользовательские данные не изменялись вручную.
+
+
+31. ИСПРАВЛЕНИЕ ОШИБКИ СОЗДАНИЯ КАРЬЕРЫ (2026-11-24)
+- По Render logs точно установлена причина POST /api/saves: psycopg TypeError "Object of type date is not JSON serializable", поле JSONB raw_data.market_value_as_of при cursor.executemany(player_insert_sql, player_inserts), app/main.py около строки 1203.
+- Исправлено в app/main.py: добавлена _json_safe_date(value), которая преобразует date/datetime в ISO-8601 строку при помещении market_value_as_of в JSONB raw_data. Отдельный SQL-параметр market_value_as_of для DATE-колонки оставлен как native date.
+- Добавлены tests/test_json_serialization.py: date, datetime, None и str.
+- PR #7 merged squash: b6c3675e96aa6b48670d46c9ec5f300ba58389d8. CI run 45408520801 success: compileall, pytest -q, node --check app/static/app.js.
+- Ошибка была на этапе пакетной записи реальных игроков. Не требует миграции; Neon schema и существующие карьеры не менялись.
+- После merge проверить Render deploy commit, startup logs и повторный POST /api/saves. До этого нельзя считать исправление доступным в production.
