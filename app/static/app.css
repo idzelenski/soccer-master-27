@@ -790,3 +790,17 @@ button, [role="button"] { touch-action: manipulation; }
 @media (max-width: 760px) {
   .tournament-fixtures { grid-template-columns: minmax(0,1fr); }
 }
+
+
+/* Immediate pointer feedback; network actions may continue after the click. */
+button {
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+button:active:not(:disabled) {
+  transform: translateY(1px) scale(.99);
+  filter: brightness(1.1);
+}
+button:disabled {
+  cursor: progress;
+}
