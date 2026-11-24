@@ -1075,10 +1075,11 @@ async function showMatchDetails(fixtureId) {
       const assist = event.assist_name ? ' · пас: ' + esc(event.assist_name) : '';
       const injuryName = detail.name ? ' · ' + esc(detail.name) : '';
       const days = detail.days_out ? ' · выбыл на ' + detail.days_out + ' дн.' : '';
+      const returnDate = detail.return_date ? ' · возвращение ' + dateLabel(detail.return_date) : '';
       return `<div class="match-timeline-event event-${esc(event.event_type)}">
         <b>${Number(event.minute || 0)}'${event.added_time ? '+' + event.added_time : ''}</b>
         <span><strong>${esc(timelineLabels[event.event_type] || eventTitle)}</strong>
-        <small>${esc(event.player_name || event.club_name || '')}${injuryName}${assist}${days}</small></span>
+        <small>${esc(event.player_name || event.club_name || '')}${injuryName}${assist}${days}${returnDate}</small></span>
         <em>${esc(event.club_name || '')}</em>
       </div>`;
     }).join('');
