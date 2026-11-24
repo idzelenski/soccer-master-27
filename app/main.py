@@ -590,7 +590,7 @@ def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list
             )
             for role in roles
         ]
-        for player in ordered
+        for player_index, player in enumerate(ordered)
     ]
 
     # Hungarian algorithm for n rows >= m columns, minimizing negative score.
