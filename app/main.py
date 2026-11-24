@@ -231,7 +231,7 @@ FLAG_SPECIAL_CODES = {
     "syria": "sy", "taiwan": "tw",
     "por": "pt", "prt": "pt", "ned": "nl", "nld": "nl", "ger": "de", "deu": "de", "sui": "ch", "che": "ch",
     "rsa": "za", "crc": "cr", "uru": "uy", "ury": "uy", "cro": "hr", "hrv": "hr",
-    "gre": "gr", "grc": "gr", "den": "dk", "dnk": "dk", "ksa": "sa", "uae": "ae", "alg": "dz", "gui": "gn", "glp": "gp", "lit": "lt", "ser": "rs", "tog": "tg", "nig": "ng", "nir": "gb-nir", "civ": "ci", "slo": "si", "svn": "si", "rom": "ro", "rou": "ro", "chi": "cl", "par": "py", "ner": "ne", "ang": "ao", "zam": "zm", "hai": "ht", "hon": "hn", "gam": "gm", "ngr": "ng", "swi": "ch", "ire": "ie", "wal": "gb-wls", "sco": "gb-sct", "inglaterra": "gb-eng", "españa": "es", "francia": "fr", "brasil": "br", "turquía": "tr", "uruguay": "uy", "marruecos": "ma", "bélgica": "be", "países bajos": "nl", "ucrania": "ua", "alemania": "de", "costa de marfil": "ci", "portugal": "pt",
+    "gre": "gr", "grc": "gr", "den": "dk", "dnk": "dk", "ksa": "sa", "uae": "ae", "alg": "dz", "gui": "gn", "glp": "gp", "lit": "lt", "ser": "rs", "tog": "tg", "nig": "ne", "nir": "gb-nir", "civ": "ci", "slo": "si", "svn": "si", "rom": "ro", "rou": "ro", "chi": "cl", "par": "py", "ner": "ne", "ang": "ao", "zam": "zm", "hai": "ht", "hon": "hn", "gam": "gm", "ngr": "ng", "swi": "ch", "ire": "ie", "wal": "gb-wls", "sco": "gb-sct", "inglaterra": "gb-eng", "españa": "es", "francia": "fr", "brasil": "br", "turquía": "tr", "uruguay": "uy", "marruecos": "ma", "bélgica": "be", "países bajos": "nl", "ucrania": "ua", "alemania": "de", "costa de marfil": "ci", "portugal": "pt",
 }
 
 
