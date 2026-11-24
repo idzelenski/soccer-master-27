@@ -1129,24 +1129,31 @@ function renderTournamentPlayers(players) {
     <td>${player.goals}</td><td>${player.assists}</td><td><b>${player.goal_contributions}</b></td><td>${player.mvp}</td><td>${player.yellow_cards}</td><td>${player.red_cards}</td><td>${player.clean_sheets}</td>
   </tr>`).join('') || '<tr><td colspan="11">Статистика появится после первых матчей</td></tr>'}</tbody></table></div>`;
 }
-function renderTable(tournaments, detail = null) {
+function renderTable(tournaments, detail = null, detailError = '') {
+  const rows = tournaments || [];
+  if (!rows.length) {
+    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Турниры текущего сезона и их статистика.')}
+      <section class="panel"><div class="empty-state"><strong>Турниры не найдены</strong>Для этого сохранения не найден турнир текущего сезона.</div></section>`;
+  }
+  const selectedId = String(state.selectedTournamentId || rows[0].id);
+  const options = rows.map(t => `<option value="${esc(t.id)}" ${String(t.id) === selectedId ? 'selected' : ''}>${esc(t.name)} · ${esc(t.season)}</option>`).join('');
+  const selector = `<section class="panel tournament-selector">
+    <div><div class="eyebrow">ТЕКУЩИЙ СЕЗОН</div><h3>Выбор турнира</h3><p>Таблица, статистика игроков и результаты выбранного соревнования.</p></div>
+    <select class="select-input" id="tournament-select" aria-label="Выбрать турнир">${options}</select>
+  </section>`;
   if (!detail) {
-    const cards = (tournaments || []).map(t => `<button type="button" class="competition-card" data-tournament="${esc(t.id)}">
-      ${tournamentMark(t.name,t.logo_url)}
-      <span><b>${esc(t.name)}</b><small>${esc(t.country || t.continent || 'Турнир')} · ${esc(t.season)}</small>
-      <em>${t.teams} команд · ${t.played_fixtures}/${t.fixtures} матчей</em></span><i>Открыть →</i>
-    </button>`).join('');
-    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Выбери турнир, чтобы открыть таблицу и подробную статистику.')}
-      <section class="panel"><div class="competition-grid">${cards || '<div class="empty-state">В этом сезоне пока нет турниров</div>'}</div></section>`;
+    return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Турнирная таблица и подробная статистика сезона.')}
+      ${selector}
+      <section class="panel"><div class="empty-state">${detailError ? '<strong>Не удалось загрузить статистику</strong>' + esc(detailError) : '<strong>Загружаем турнир</strong>Получаем таблицу, статистику и матчи…'}</div></section>`;
   }
   const t = detail.tournament || {};
   const totals = detail.totals || {};
-  const teamCount = (tournaments || []).find(item => String(item.id) === String(t.id))?.teams || '';
+  const teamCount = rows.find(item => String(item.id) === String(t.id))?.teams || '';
   const topGoals = [...(detail.teams || [])].sort((a,b)=>b.goals-a.goals).slice(0,5);
   const topTeamsRating = [...(detail.teams || [])].filter(team=>team.average_rating!=null)
     .sort((a,b)=>b.average_rating-a.average_rating).slice(0,5);
-  return `${pageHead('СОРЕВНОВАНИЯ',t.name || 'Турнир',t.season || state.save?.season || '',
-      '<button type="button" class="btn-secondary" id="tournament-back">← Все турниры</button>')}
+  return `${pageHead('СОРЕВНОВАНИЯ','Таблицы','Турнирная таблица и подробная статистика сезона.')}
+    ${selector}
     <section class="panel tournament-hero">
       ${tournamentMark(t.name,t.logo_url)}
       <div><h2>${esc(t.name)}</h2><span>${esc(t.country || t.continent || '')} · ${esc(t.season || '')}</span></div>
@@ -1155,7 +1162,7 @@ function renderTable(tournaments, detail = null) {
     <section class="panel"><div class="panel-head"><h3>Турнирная таблица</h3><span>${teamCount} КОМАНД</span></div>
       ${renderTournamentStandings(detail.standings)}
     </section>
-    <section class="panel"><div class="panel-head"><h3>Статистика игроков</h3><span>СРЕДНЯЯ ОЦЕНКА · G+A · MVP</span></div>
+    <section class="panel"><div class="panel-head"><h3>Статистика игроков</h3><span>ОЦЕНКА · ГОЛЫ · АССИСТЫ · MVP · КАРТОЧКИ · СУХИЕ МАТЧИ</span></div>
       ${renderTournamentPlayers(detail.players)}
     </section>
     <section class="panel"><div class="panel-head"><h3>Матчи турнира</h3><span>${(detail.matches || []).length} МАТЧЕЙ · НАЖМИ ДЛЯ ОТЧЁТА</span></div>
@@ -1215,20 +1222,24 @@ async function renderCurrent() {
       setupCalendarInteractions();
     } else if (tab === 'table') {
       const rows = await loadTabData('tournaments', () => api('/api/tournaments'));
-      let detail = null;
-      if (state.selectedTournamentId) {
-        detail = await loadTabData(
-          'tournament:' + state.selectedTournamentId,
-          () => api('/api/tournaments/' + encodeURIComponent(state.selectedTournamentId))
-        );
+      if (rows.length && !rows.some(item => String(item.id) === String(state.selectedTournamentId))) {
+        state.selectedTournamentId = String(rows[0].id);
       }
-      shell(renderTable(rows, detail), 'Таблицы');
-      document.querySelectorAll('[data-tournament]').forEach(button => button.addEventListener('click', () => {
-        state.selectedTournamentId = button.dataset.tournament;
-        renderCurrent();
-      }));
-      document.getElementById('tournament-back')?.addEventListener('click', () => {
-        state.selectedTournamentId = null;
+      let detail = null;
+      let detailError = '';
+      if (state.selectedTournamentId) {
+        try {
+          detail = await loadTabData(
+            'tournament:' + state.selectedTournamentId,
+            () => api('/api/tournaments/' + encodeURIComponent(state.selectedTournamentId))
+          );
+        } catch (error) {
+          detailError = error.message;
+        }
+      }
+      shell(renderTable(rows, detail, detailError), 'Таблицы');
+      document.getElementById('tournament-select')?.addEventListener('change', event => {
+        state.selectedTournamentId = event.target.value;
         renderCurrent();
       });
       document.querySelectorAll('[data-fixture-id]').forEach(button => button.addEventListener('click', () => {
