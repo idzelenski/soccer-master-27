@@ -283,17 +283,22 @@ def test_best_lineup_uses_global_role_assignment_for_wingers():
     assert by_role["RW"] == "elite-rw"
 
 
-def test_calendar_context_menu_really_simulates_to_target_date():
+def test_calendar_context_menu_simulates_complete_tournament_rounds_to_target_date():
     from pathlib import Path
 
     backend = Path("app/main.py").read_text(encoding="utf-8")
     endpoint = backend.split('@app.post("/api/game/advance-to-date")', 1)[1].split(
-        '@app.get("/api/standings")', 1
+        '@app.get("/api/matches/', 1
     )[0]
+    frontend = Path("app/static/app.js").read_text(encoding="utf-8")
     assert "status='scheduled'" in endpoint
-    assert "match_date::date>%s AND match_date::date<=%s" in endpoint
-    assert 'simulate_matchday(conn, save, row["match_date"])' in endpoint
+    assert "GROUP BY tournament_id,matchday" in endpoint
+    assert "HAVING max(match_date::date)<=%s" in endpoint
+    assert 'simulate_matchday(' in endpoint
+    assert 'row["match_date"], int(row["matchday"]), str(row["tournament_id"])' in endpoint
     assert "game_date=%s,simulation_cursor=%s" in endpoint
+    assert "contextmenu" in frontend
+    assert "/api/game/advance-to-date?target_date=" in frontend
 
 
 def test_calendar_and_tour_notifications_only_show_managers_match():
@@ -368,35 +373,32 @@ def test_importer_expands_broad_source_roles_into_real_wide_positions():
 
 
 
-def test_match_simulation_uses_the_same_wide_role_penalties_as_lineup_selection():
+def test_match_simulation_uses_the_same_role_penalty_helper_as_lineup_selection():
     from pathlib import Path
 
     source = Path("app/main.py").read_text(encoding="utf-8")
-    advance = source.split('def simulate_matchday(', 1)[1].split(
-        '@app.post("/api/game/advance")', 1
+    lineup = source.split("def _match_lineups(", 1)[1].split(
+        "def _record_match_detail(", 1
     )[0]
-    assert "WHEN p.position='RM' THEN CASE role.target_position" in advance
-    assert "WHEN p.position='LM' THEN CASE role.target_position" in advance
-    assert "WHEN 'RW' THEN -2" in advance
-    assert "WHEN 'LW' THEN -2" in advance
-    assert "WHEN 'CM' THEN -3" in advance
+    assert "role_penalty = position_penalty(" in lineup
+    assert "player[\"effective_overall\"]" in lineup
 
 
-def test_match_simulation_sql_mirrors_all_position_penalty_rules():
-    from pathlib import Path
+def test_match_simulation_role_penalties_cover_all_outfield_positions():
+    from app.main import position_penalty
 
-    source = Path("app/main.py").read_text(encoding="utf-8")
-    advance = source.split('def simulate_matchday(', 1)[1].split(
-        '@app.post("/api/game/advance")', 1
-    )[0]
-    for position in ("RB", "LB", "CB", "CDM", "CM", "CAM", "RM", "LM",
-                     "RW", "LW", "ST", "CF", "RWB", "LWB"):
-        assert f"WHEN p.position='{position}' THEN CASE role.target_position" in advance
-    for mapping in (
-        "WHEN 'LW' THEN -2", "WHEN 'RW' THEN -2",
-        "WHEN 'RM' THEN -2", "WHEN 'LM' THEN -2",
-        "WHEN 'CF' THEN -2", "WHEN 'ST' THEN -2",
-        "WHEN 'ST' THEN -5", "WHEN 'CM' THEN -10",
-        "WHEN 'RWB' THEN -5", "WHEN 'LWB' THEN -5",
-    ):
-        assert mapping in advance
+    positions = ("RB", "LB", "CB", "CDM", "CM", "CAM", "RM", "LM",
+                 "RW", "LW", "ST", "CF", "RWB", "LWB")
+    for position in positions:
+        assert position_penalty(position, [], position) == 0
+        assert position_penalty(position, [], "GK") == -40
+
+    assert position_penalty("RM", [], "RW") == -2
+    assert position_penalty("LM", [], "LW") == -2
+    assert position_penalty("RW", [], "RM") == -2
+    assert position_penalty("LW", [], "LM") == -2
+    assert position_penalty("ST", [], "CF") == -2
+    assert position_penalty("CF", [], "ST") == -2
+    assert position_penalty("CM", [], "ST") == -10
+    assert position_penalty("RWB", [], "CB") == -5
+    assert position_penalty("LWB", [], "CB") == -5
