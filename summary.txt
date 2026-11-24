@@ -314,4 +314,13 @@ SM27 — футбольный менеджер / симулятор карьер
 - Проверена предыдущая ошибка CI run 45396408890: compileall прошёл, pytest имел 3 отказа (46 passed). Причина — тесты проверяли старые inline SQL CASE/query строки, тогда как реализация корректно вынесла position penalty в position_penalty/_match_lineups и симуляцию полного matchday по tournament_id+matchday.
 - Исправлены тесты в tests/test_fc27_features.py: проверяют фактическую передачу tournament_id/matchday, отбор завершённых к target_date туров, вызов contextmenu API и применение общего position_penalty helper; добавлены проверки конкретных значений штрафов. CI run 45401934860 (run 118) для commit 80cb81855c515ddb053a1fffbc1ad36c1f4468e9 завершился success: compileall, pytest (49 passed) и node --check app/static/app.js — все шаги успешны.
 - Проверена sql/004_match_center.sql: миграция additive/idempotent; DROP/TRUNCATE/DELETE отсутствуют. Она добавляет структуру match stats/discipline, backfill только для market_value=0 и статистики старых сыгранных матчей с отметкой estimate; scores, dates и match events не переписываются.
-- Дублирующий PR #4 закрыт; все дальнейшие изменения и проверки ведутся в PR #3. Neon и Render production пока не изменялись; деплой запрещён до полного CI, проверки миграции и проверки merge diff.
+- Дублирующий PR #4 закрыт; PR #3 проверен и влит в main. Neon production не изменялся. После merge Render autoDeploy не создал новый deploy на момент последней проверки; текущий live deploy всё ещё на 28b7a2c. Ручной deploy не запускался.
+
+
+27. MERGE PR #3 И ПРОВЕРКА CI (2026-11-24)
+- PR #3 https://github.com/idzelenski/soccer-master-27/pull/3 влит в main squash-коммитом ab233b95ec23636517227fff7f33073026dee861.
+- GitHub Actions run 45402178460 (run 120) для кода PR #3 завершился success: python compileall, pytest 49 passed, node --check app/static/app.js — все проверки зелёные.
+- Ветка PR содержала batch inserts для клубов и игроков (меньше round-trip к Neon), мгновенный overlay выбора клуба, transfer-value estimation, реалистичные расписания по лигам, календарные сезоны, травмы/дисквалификации, match centre и player analytics.
+- SQL migration 004_match_center.sql просмотрена: только additive/idempotent изменения и безопасные backfill для нулевой стоимости и старых сыгранных матчей; DROP/TRUNCATE/DELETE отсутствуют. Production Neon migration ещё не запускалась.
+- Render workspace My Workspace / service soccer-master-27 подтверждены. autoDeploy=yes, branch=main, plan=free, Frankfurt. После merge новый deploy не появился в Render deploy history/events; последний live остаётся dep-dc1t7f6c6qcc73bq66og (commit 28b7a2c). Не запускать повторный/ручной deploy, пока не выяснена причина отсутствия autoDeploy. Production app и Neon не изменялись.
+- PR #4 (дублирующий) закрыт без merge.
