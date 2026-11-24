@@ -158,6 +158,9 @@ async def lifespan(_: FastAPI):
         start_fc27_import = False
         with connection() as conn:
             migrate(conn)
+            repaired_flags = backfill_player_nationality_flags(conn)
+            if repaired_flags:
+                LOGGER.info("Backfilled %s missing player nationality flags", repaired_flags)
             repaired_fixtures = repair_legacy_schedules(conn)
             if repaired_fixtures:
                 LOGGER.info("Repaired %s legacy scheduled fixtures", repaired_fixtures)
@@ -316,6 +319,57 @@ def flag_for_nationality(value: str | None) -> str:
         return (country.alpha_2 or "").lower()
     except (ImportError, LookupError, AttributeError):
         return ""
+
+
+def backfill_player_nationality_flags(conn: Connection) -> int:
+    """Persist normalized ISO flag codes for existing career players with blank flags."""
+    rows = conn.execute(
+        """SELECT id,nationality FROM players
+           WHERE coalesce(nationality_flag,'')='' AND coalesce(nationality,'')<>''"""
+    ).fetchall()
+    updates = []
+    for row in rows:
+        flag = flag_for_nationality(row.get("nationality"))
+        if flag:
+            updates.append((flag, row["id"]))
+    if updates:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """UPDATE players SET nationality_flag=%s,updated_at=now()
+                   WHERE id=%s AND coalesce(nationality_flag,'')=''""",
+                updates,
+            )
+    return len(updates)
+
+
+def player_condition_modifier(player: dict) -> int:
+    """Temporary overall/attribute modifier; zero values must remain real zeroes."""
+    def value(field: str, default: float) -> float:
+        raw = player.get(field)
+        return float(default if raw is None else raw)
+
+    return round(
+        (value("form", 50) - 50) * 0.08
+        + (value("morale", 70) - 70) * 0.06
+        + (value("sharpness", 85) - 85) * 0.10
+        - value("fatigue", 0) * 0.10
+    )
+
+
+def player_available_for_match(player: dict, match_date: date) -> bool:
+    """Injured or suspended players cannot be selected until they are eligible again."""
+    until = player.get("injury_until")
+    if isinstance(until, datetime):
+        until = until.date()
+    elif isinstance(until, str) and until:
+        try:
+            until = date.fromisoformat(until[:10])
+        except ValueError:
+            return False
+    if until and until > match_date:
+        return False
+    return int(player.get("suspension_matches") or 0) <= 0
+
 
 
 def normalise_player_position(position: str | None, source_id: str = "") -> str:
@@ -1482,12 +1536,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         player["injury_name"] = injury["name"] if injury else player.get("injury_type")
         player["injury_return_date"] = injury_until.isoformat() if injury_until else None
         player["suspension_matches"] = int(player.get("suspension_matches") or 0)
-        player["condition_modifier"] = round(
-            (float(player.get("form") or 50) - 50) * 0.08
-            + (float(player.get("morale") or 70) - 70) * 0.06
-            + (float(player.get("sharpness") or 85) - 85) * 0.10
-            - float(player.get("fatigue") or 0) * 0.10
-        )
+        player["condition_modifier"] = player_condition_modifier(player)
         result.append(player)
     return serialise(result)
 
@@ -1637,33 +1686,50 @@ def update_table(conn: Connection, fixture: dict) -> None:
 def update_player_condition(
     conn: Connection, game_state_id: str, club_id: str, fixture_id: str, result: str
 ) -> None:
-    """Update condition by actual minutes, not by club participation alone."""
-    morale_delta = 4 if result == "win" else -4 if result == "loss" else 1
-    form_delta = 4 if result == "win" else -4 if result == "loss" else 1
+    """Update form, morale, sharpness and fatigue using each player's real minutes."""
+    form_delta = 2 if result == "win" else -2 if result == "loss" else 1
+    morale_delta = 2 if result == "win" else -2 if result == "loss" else 0
+    short_form_delta = 1 if result == "win" else -1 if result == "loss" else 0
+    short_morale_delta = 1 if result == "win" else -1 if result == "loss" else 0
     conn.execute(
         """WITH played AS (
                SELECT player_id,max(minutes_played)::int AS minutes_played
                FROM fixture_player_stats WHERE fixture_id=%s GROUP BY player_id
            )
            UPDATE players p SET
-             fatigue=CASE WHEN coalesce(participation.minutes_played,0)>0
-                          THEN LEAST(100,p.fatigue+GREATEST(1,round(12*participation.minutes_played/90.0)::int))
-                          ELSE GREATEST(0,p.fatigue-6) END,
-             sharpness=CASE WHEN coalesce(participation.minutes_played,0)>0
-                            THEN LEAST(100,p.sharpness+1)
-                            ELSE GREATEST(0,p.sharpness-2) END,
-             form=CASE WHEN coalesce(participation.minutes_played,0)>0
-                       THEN GREATEST(0,LEAST(100,p.form+%s))
-                       ELSE GREATEST(0,p.form-1) END,
-             morale=CASE WHEN coalesce(participation.minutes_played,0)>0
-                         THEN GREATEST(0,LEAST(100,p.morale+%s))
-                         ELSE GREATEST(0,p.morale-2) END,
+             fatigue=CASE
+               WHEN coalesce(participation.minutes_played,0)>=60 THEN LEAST(100,p.fatigue+2)
+               WHEN coalesce(participation.minutes_played,0)>=30 THEN GREATEST(0,p.fatigue-2)
+               WHEN coalesce(participation.minutes_played,0)>0 THEN GREATEST(0,p.fatigue-5)
+               ELSE GREATEST(0,p.fatigue-8) END,
+             sharpness=CASE
+               WHEN coalesce(participation.minutes_played,0)>=60 THEN LEAST(100,p.sharpness+1)
+               WHEN coalesce(participation.minutes_played,0)>=30 THEN p.sharpness
+               WHEN coalesce(participation.minutes_played,0)>0 THEN GREATEST(0,p.sharpness-1)
+               ELSE GREATEST(0,p.sharpness-2) END,
+             form=CASE
+               WHEN coalesce(participation.minutes_played,0)>=60 THEN GREATEST(0,LEAST(100,p.form+%s))
+               WHEN coalesce(participation.minutes_played,0)>=30 THEN GREATEST(0,LEAST(100,p.form+%s))
+               ELSE GREATEST(0,p.form-1) END,
+             morale=CASE
+               WHEN coalesce(participation.minutes_played,0)>=60 THEN GREATEST(0,LEAST(100,p.morale+%s))
+               WHEN coalesce(participation.minutes_played,0)>=30 THEN GREATEST(0,LEAST(100,p.morale+%s))
+               WHEN coalesce(participation.minutes_played,0)>0 THEN GREATEST(0,p.morale-1)
+               ELSE GREATEST(0,p.morale-2) END,
              updated_at=now()
            FROM (SELECT p2.id,coalesce(played.minutes_played,0) AS minutes_played
                  FROM players p2 LEFT JOIN played ON played.player_id=p2.id
                  WHERE p2.game_state_id=%s AND p2.club_id=%s) participation
            WHERE p.id=participation.id""",
-        (fixture_id,form_delta,morale_delta,game_state_id,club_id),
+        (
+            fixture_id,
+            form_delta,
+            short_form_delta,
+            morale_delta,
+            short_morale_delta,
+            game_state_id,
+            club_id,
+        ),
     )
 
 
@@ -1743,7 +1809,7 @@ def _match_lineups(
     rows = conn.execute(
         """SELECT p.id,p.club_id,p.name,p.position,p.secondary_positions,p.overall,p.attributes,
                   p.injury_until,p.injury_type,
-                  coalesce(d.suspension_matches,p.suspension_matches,0) AS suspension_matches,
+                  GREATEST(coalesce(d.suspension_matches,0),coalesce(p.suspension_matches,0)) AS suspension_matches,
                   p.form,p.morale,p.sharpness,p.fatigue,
                   coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi,
                   role.target_position
@@ -1775,28 +1841,17 @@ def _match_lineups(
 
     selected: dict[str, list[dict]] = {}
     for club_id, squad in by_club.items():
-        available = []
-        for player in squad:
-            until = player.get("injury_until")
-            if isinstance(until, datetime):
-                until = until.date()
-            if until and until > match_date:
-                continue
-            if int(player.get("suspension_matches") or 0) > 0:
-                continue
-            available.append(player)
+        available = [
+            player for player in squad
+            if player_available_for_match(player, match_date)
+        ]
         xi_ids = next((player["starting_xi"] for player in squad if player["starting_xi"]), [])
         by_id = {player["id"]: player for player in available}
         starters = [by_id[player_id] for player_id in xi_ids if player_id in by_id][:11]
         used = {player["id"] for player in starters}
         starters.extend(player for player in available if player["id"] not in used and len(starters) < 11)
         for player in starters:
-            condition_delta = round(
-                (float(player.get("form") or 50) - 50) * 0.08
-                + (float(player.get("morale") or 70) - 70) * 0.06
-                + (float(player.get("sharpness") or 85) - 85) * 0.10
-                - float(player.get("fatigue") or 0) * 0.10
-            )
+            condition_delta = player_condition_modifier(player)
             role_penalty = position_penalty(
                 str(player.get("position") or "CM"),
                 list(player.get("secondary_positions") or []),
