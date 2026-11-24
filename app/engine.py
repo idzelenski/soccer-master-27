@@ -96,7 +96,12 @@ def round_robin(team_ids: list[str]) -> list[list[tuple[str, str]]]:
 
 
 def schedule_dates(start: date, rounds: int, interval_days: int = 7) -> list[date]:
-    return [start + timedelta(days=interval_days * index) for index in range(rounds)]
+    """Spread matchdays across realistic Friday-to-Tuesday slots without changing round order."""
+    weekday_offsets = (0, -1, 1, 2, 0, -2, 1)
+    return [
+        start + timedelta(days=interval_days * index + weekday_offsets[index % len(weekday_offsets)])
+        for index in range(rounds)
+    ]
 
 
 def overall_from_market_value(
