@@ -697,8 +697,8 @@ button, [role="button"] { touch-action: manipulation; }
 .match-modal-section h3 { margin: 0 0 12px; }
 .match-stat-row {
   display: grid;
-  grid-template-columns: minmax(36px,.5fr) minmax(60px,1fr) minmax(110px,1.2fr) minmax(60px,1fr) minmax(36px,.5fr);
-  gap: 9px;
+  grid-template-columns: minmax(34px,.55fr) minmax(70px,1fr) minmax(110px,1.2fr) minmax(70px,1fr) minmax(34px,.55fr);
+  gap: 12px;
   align-items: center;
   min-height: 30px;
   border-top: 1px solid rgba(194,223,204,.06);
@@ -713,10 +713,11 @@ button, [role="button"] { touch-action: manipulation; }
   height: 5px;
   overflow: hidden;
   border-radius: 8px;
-  background: rgba(255,255,255,.08);
+  background: rgba(255,255,255,.12);
 }
-.stat-track i:first-child { display: block; height: 100%; background: var(--green); }
-.stat-track i:last-child { display: block; height: 100%; background: #73899c; }
+.stat-track i { display:block; height:100%; border-radius:8px; background:var(--green); }
+.home-track { justify-content:flex-end; }
+.away-track { justify-content:flex-start; }
 .match-timeline { display: grid; gap: 0; }
 .match-timeline-event {
   display: grid;
@@ -803,4 +804,46 @@ button:active:not(:disabled) {
 }
 button:disabled {
   cursor: progress;
+}
+
+/* League position zones and tournament leaderboards */
+.league-standings tbody tr.zone-ucl td:first-child { box-shadow:inset 3px 0 #2f91ff; }
+.league-standings tbody tr.zone-ucl { background:rgba(47,145,255,.095); }
+.league-standings tbody tr.zone-ucl-playoff { background:rgba(47,145,255,.045); }
+.league-standings tbody tr.zone-uel { background:rgba(255,151,48,.10); }
+.league-standings tbody tr.zone-uecl { background:rgba(57,190,116,.11); }
+.league-standings tbody tr.zone-europe-playoff { background:rgba(153,116,231,.12); }
+.league-standings tbody tr.zone-promotion { background:rgba(57,190,116,.13); }
+.league-standings tbody tr.zone-promotion-playoff { background:rgba(57,190,116,.055); }
+.league-standings tbody tr.zone-relegation-playoff { background:rgba(244,164,65,.10); }
+.league-standings tbody tr.zone-relegation { background:rgba(235,76,84,.105); }
+.table-zone-legend { display:flex; flex-wrap:wrap; gap:9px 16px; padding:12px 2px 2px; color:var(--muted); font-size:10px; }
+.table-zone-legend span { display:inline-flex; align-items:center; gap:6px; }
+.table-zone-legend i { width:9px; height:9px; border-radius:2px; display:inline-block; }
+.table-zone-legend .zone-ucl { background:#2f91ff; }
+.table-zone-legend .zone-ucl-playoff { background:#78b8ff; }
+.table-zone-legend .zone-uel { background:#ff9730; }
+.table-zone-legend .zone-uecl { background:#39be74; }
+.table-zone-legend .zone-europe-playoff { background:#9974e7; }
+.table-zone-legend .zone-promotion { background:#39be74; }
+.table-zone-legend .zone-promotion-playoff { background:#8ad5a8; }
+.table-zone-legend .zone-relegation-playoff { background:#f4a441; }
+.table-zone-legend .zone-relegation { background:#eb4c54; }
+.tournament-statistics-heading { margin-top:14px; }
+.tournament-statistics-heading h2 { margin:4px 0; }
+.tournament-statistics-heading p { margin:0; color:var(--muted); font-size:11px; }
+.player-leaderboards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:14px; }
+.team-leaderboards { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:14px; }
+.top-ten-card { min-width:0; }
+.top-ten-card .panel-head { margin-bottom:8px; }
+.top-ten-list { display:grid; }
+.top-ten-row { display:flex; align-items:center; gap:10px; min-height:42px; border-top:1px solid var(--line); font-size:11px; }
+.top-ten-rank { width:18px; color:var(--muted); }
+.top-ten-player { display:grid; flex:1; min-width:0; gap:3px; }
+.top-ten-player strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.top-ten-player small { color:var(--muted); font-size:9px; }
+.top-ten-value { color:var(--green-bright); font-variant-numeric:tabular-nums; }
+@media(max-width:760px) {
+  .player-leaderboards,.team-leaderboards { grid-template-columns:minmax(0,1fr); }
+  .match-stat-row { grid-template-columns:34px minmax(35px,1fr) minmax(76px,1.1fr) minmax(35px,1fr) 34px; gap:6px; }
 }
