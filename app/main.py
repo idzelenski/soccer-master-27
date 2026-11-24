@@ -304,7 +304,7 @@ def estimated_contract_end(age: int, source_id: str) -> date:
 
 def require_save(conn: Connection, manager_id: str) -> dict:
     row = conn.execute(
-        """SELECT gs.id, gs.game_date, gs.season, gs.save_name, gs.managed_club_id,
+        """SELECT gs.id, gs.game_date, gs.season, gs.save_name, gs.managed_club_id, gs.game_settings,
                   c.name AS club_name, c.league, c.country, c.logo_url, c.reputation,
                   m.manager_name
            FROM game_states gs
@@ -359,7 +359,15 @@ def make_club(conn: Connection, game_state_id: str, pool_row: dict) -> str:
     return str(row["id"])
 
 
-def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_name: str, reputation: int) -> None:
+def ensure_demo_roster(
+    conn: Connection,
+    game_state_id: str,
+    club_id: str,
+    club_name: str,
+    reputation: int,
+    league: str = "",
+    country: str = "",
+) -> None:
     existing = conn.execute(
         "SELECT count(*) AS n FROM players WHERE game_state_id=%s AND club_id=%s",
         (game_state_id, club_id),
@@ -372,20 +380,27 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
         age = 18 + (index % 12)
         overall = max(40, min(82, reputation - 8 + (index % 7)))
         potential = min(92, overall + 4 + (index % 7))
+        attributes = player_attributes(overall, position, source_id)
+        market_value = estimated_market_value(overall, potential, age, league, country, attributes)
         conn.execute(
             """INSERT INTO players (
                    game_state_id,club_id,external_id,name,age,position,secondary_positions,
                    overall,potential,market_value,weekly_wage,contract_end,attributes,
                    original_data,source_name,profile_source,market_value_source,form,morale,sharpness
-               ) VALUES (%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,0,%s,%s,%s,%s,
-                         'SM27 generated roster','SM27 generated academy player','not_available',50,70,85)""",
+               ) VALUES (%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,
+                         'SM27 generated roster','SM27 generated academy player','SM27 estimate',50,70,85)""",
             (
                 game_state_id, club_id, source_id, f"Игрок академии {index:02d}", age, position,
-                overall, potential,
+                overall, potential, market_value,
                 estimated_weekly_wage(overall, age, reputation, generated=True),
                 estimated_contract_end(age, source_id),
-                Jsonb(player_attributes(overall, position, source_id)),
-                Jsonb({"generated": True, "note": "Fictional game placeholder, not a real player"}),
+                Jsonb(attributes),
+                Jsonb({
+                    "generated": True,
+                    "note": "Fictional game placeholder, not a real player",
+                    "market_value_source": "SM27 estimate",
+                    "market_value_model": "league-age-ovr-potential-attributes-v1",
+                }),
             ),
         )
 
@@ -823,6 +838,14 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         teams.append(selected)
 
     league_name = selected.get("league_name") or "SM27 League"
+    calendar_year_season = league_code in {"USA-MLS", "BRA-SA", "ARG-PD"}
+    season_label = "2026" if calendar_year_season else "2026/27"
+    career_start_date = (
+        date(2026, 2, 1) if league_code == "USA-MLS"
+        else date(2026, 1, 1) if calendar_year_season
+        else date(2026, 7, 1)
+    )
+    age_reference_date = career_start_date
     tournament_code = f"SM27-{league_code}"[:64]
     tournament = conn.execute(
         """INSERT INTO tournaments (
@@ -837,18 +860,22 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         (
             tournament_code, league_name, selected.get("country"),
             selected.get("continent") or "UEFA", selected.get("league_level") or 1,
-            Jsonb({"points_win": 3, "points_draw": 1, "season": "2026/27"}),
+            Jsonb({"points_win": 3, "points_draw": 1, "season": season_label, "calendar_year": calendar_year_season}),
             tournament_logo_url(league_name, selected.get("country")),
         ),
     ).fetchone()
     game_state = conn.execute(
         """INSERT INTO game_states (manager_id,save_slot,game_date,season,difficulty,status,save_name,game_settings)
            VALUES (%s,(SELECT coalesce(max(save_slot),0)+1 FROM game_states WHERE manager_id=%s),
-                   DATE '2026-07-01','2026/27','normal','active',%s,%s)
+                   %s,%s,'normal','active',%s,%s)
            RETURNING id""",
         (
-            manager["id"], manager["id"], body.save_name.strip(),
-            Jsonb({"source_snapshot": selected["source_snapshot"].isoformat()}),
+            manager["id"], manager["id"], career_start_date, season_label, body.save_name.strip(),
+            Jsonb({
+                "source_snapshot": selected["source_snapshot"].isoformat(),
+                "calendar_year_season": calendar_year_season,
+                "calendar_start_date": career_start_date.isoformat(),
+            }),
         ),
     ).fetchone()
     game_state_id = str(game_state["id"])
@@ -872,8 +899,8 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     with conn.cursor() as cursor:
         cursor.executemany(
             """INSERT INTO club_tournaments (game_state_id,tournament_id,club_id,season)
-               VALUES (%s,%s,%s,'2026/27') ON CONFLICT DO NOTHING""",
-            [(game_state_id, tournament["id"], team["id"]) for team in team_records],
+               VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+            [(game_state_id, tournament["id"], team["id"], season_label) for team in team_records],
         )
 
     # One catalogue query replaces a separate player SELECT per club.
@@ -912,7 +939,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         for player in players_for_club[:30]:
             dob = player["date_of_birth"]
             age = (
-                max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425)))
+                max(16, min(43, int((age_reference_date - dob).days / 365.2425)))
                 if dob else 24
             )
             external_id = str(player["source_id"])
@@ -1003,7 +1030,10 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
 
     # Lineup queries remain club-scoped, but player catalogue lookups/inserts are batched.
     for team in team_records:
-        ensure_demo_roster(conn, game_state_id, team["id"], team["name"], team["reputation"])
+        ensure_demo_roster(
+            conn, game_state_id, team["id"], team["name"], team["reputation"],
+            team.get("league") or league_name, team.get("country") or selected.get("country") or "",
+        )
         lineup_rows = conn.execute(
             """SELECT id,position,secondary_positions,overall
                FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC,name""",
@@ -1029,7 +1059,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         row["id"] for row in team_records if str(row["source_id"]) == str(selected["source_id"])
     )
     conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
-    create_schedule(conn, game_state_id, str(tournament["id"]), team_records)
+    create_schedule(conn, game_state_id, str(tournament["id"]), team_records, season=season_label, start_date=career_start_date)
     return {
         "ok": True,
         "save_id": game_state_id,
