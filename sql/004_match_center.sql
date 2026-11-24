@@ -70,16 +70,30 @@ SET logo_url = CASE
       'https://commons.wikimedia.org/wiki/Special:FilePath/Saudi%20Pro%20League%20Logo.svg'
     WHEN lower(name) LIKE '%champions league%' THEN
       'https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Champions%20League%20logo.svg'
-    WHEN lower(name) LIKE '%europa league%' THEN
-      'https://commons.wikimedia.org/wiki/Special:FilePath/Europa%20League%202021.svg'
     WHEN lower(name) LIKE '%conference league%' THEN
       'https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Conference%20League%20logo.svg'
+    WHEN lower(name) LIKE '%europa league%' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Europa%20League%202021.svg'
     WHEN lower(name) LIKE '%bundesliga%' THEN
       'https://commons.wikimedia.org/wiki/Special:FilePath/Bundesliga%20logo.svg'
     WHEN lower(name) LIKE '%serie a%' THEN
       'https://commons.wikimedia.org/wiki/Special:FilePath/Serie%20A%20logo%202022.svg'
     WHEN lower(name) LIKE '%ligue 1%' THEN
       'https://commons.wikimedia.org/wiki/Special:FilePath/Ligue%201%20McDonald%27s%20logo.svg'
+    WHEN lower(name) LIKE '%eredivisie%' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Eredivisie%20nieuw%20logo%202017-.svg'
+    WHEN lower(name) LIKE '%primeira liga%' OR lower(name) LIKE '%liga portugal%' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Liga%20Portugal%20Betclic%20logo.svg'
+    WHEN lower(name) LIKE '%major league soccer%' OR lower(name) = 'mls' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Major%20League%20Soccer%20Crest%20Logo%20Black%20Transparent%202024.svg'
+    WHEN lower(name) LIKE '%campeonato brasileiro%' OR lower(name) LIKE '%série a%' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Campeonato_Brasileiro_S%C3%A9rie_A_logo_%282026%29.svg'
+    WHEN lower(name) LIKE '%liga profesional%' OR lower(name) LIKE '%primera división%' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/Liga_Profesional_de_F%C3%BAtbol_%28Argentina%29_wordmark.svg'
+    WHEN lower(name) LIKE '%championship%' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/EFL_Championship_Wordmark.svg'
+    WHEN lower(name) LIKE '%j1 league%' OR lower(name) LIKE '%j league%' THEN
+      'https://commons.wikimedia.org/wiki/Special:FilePath/J1_league_logo_2026.svg'
     ELSE logo_url
 END
 WHERE logo_url IS NULL OR logo_url = '';
