@@ -191,16 +191,21 @@ event_stats AS (
     SELECT fixture_id, player_id,
            count(*) FILTER (WHERE event_type IN ('goal','penalty_goal'))::smallint AS goals,
            count(*) FILTER (WHERE event_type = 'yellow_card')::smallint AS yellow_cards,
-           count(*) FILTER (WHERE event_type = 'red_card')::smallint AS red_cards,
-           count(*) FILTER (WHERE assist_player_id = player_id)::smallint AS assists
+           count(*) FILTER (WHERE event_type = 'red_card')::smallint AS red_cards
     FROM public.match_events
     GROUP BY fixture_id, player_id
+),
+assist_stats AS (
+    SELECT fixture_id, assist_player_id AS player_id, count(*)::smallint AS assists
+    FROM public.match_events
+    WHERE assist_player_id IS NOT NULL
+    GROUP BY fixture_id, assist_player_id
 ),
 base AS (
     SELECT
         x.*,
         coalesce(e.goals,0)::smallint AS goals,
-        coalesce(e.assists,0)::smallint AS assists,
+        coalesce(a.assists,0)::smallint AS assists,
         coalesce(e.yellow_cards,0)::smallint AS yellow_cards,
         coalesce(e.red_cards,0)::smallint AS red_cards,
         CASE
@@ -212,6 +217,7 @@ base AS (
         (1 + abs(hashtext(x.fixture_id::text || x.player_id::text)) % 4)::smallint AS base_shots
     FROM participants x
     LEFT JOIN event_stats e ON e.fixture_id = x.fixture_id AND e.player_id = x.player_id
+    LEFT JOIN assist_stats a ON a.fixture_id = x.fixture_id AND a.player_id = x.player_id
     WHERE x.squad_rank <= 11
 ),
 rated AS (
