@@ -145,3 +145,18 @@ def test_northern_european_calendar_is_spring_to_autumn():
     assert min(norway).month <= 4 and max(norway).month >= 10
     assert min(sweden).month <= 4 and max(sweden).month >= 10
 
+def test_argentine_primera_calendar_fits_32_rounds_in_one_year():
+    dates = league_schedule_dates("Argentine Primera División", "Argentine", 2026, 32)
+    assert len(dates) == 32
+    assert min(dates) >= date(2026, 2, 1)
+    assert max(dates) <= date(2026, 12, 6)
+    assert sum(day.weekday() == 2 for day in dates) == 2
+
+
+def test_2_bundesliga_uses_august_to_may_and_keeps_december_weekend():
+    dates = league_schedule_dates("2. Bundesliga", "Allemagne", 2026, 34)
+    assert len(dates) == 34
+    assert min(dates) >= date(2026, 8, 8)
+    assert max(dates) <= date(2027, 5, 16)
+    assert any(day.month == 12 and day.day == 19 for day in dates)
+
