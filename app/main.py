@@ -2292,7 +2292,7 @@ def match_details(
 def tournaments(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
     save = require_save(conn, str(manager["id"]))
     rows = conn.execute(
-        """SELECT t.id,t.code,t.name,t.country,t.continent,t.tournament_type,t.logo_url,
+        """SELECT t.id,t.code,t.name,t.country,t.continent,t.tournament_type,t.tier,t.logo_url,
                   ct.season,
                   count(DISTINCT ct.club_id)::int AS teams,
                   count(DISTINCT f.id)::int AS fixtures,
@@ -2351,8 +2351,7 @@ def tournament_details(
            JOIN clubs c ON c.id=s.club_id
            WHERE s.game_state_id=%s AND s.tournament_id=%s AND f.season=%s
            GROUP BY p.id,p.name,p.position,c.name,c.logo_url
-           ORDER BY average_rating DESC,goal_contributions DESC,goals DESC,p.name
-           LIMIT 100""",
+           ORDER BY average_rating DESC,goal_contributions DESC,goals DESC,p.name""",
         (save["id"], tournament_id, save["season"]),
     ).fetchall()
     team_rows = conn.execute(
