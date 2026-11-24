@@ -375,10 +375,10 @@ function renderSquad(players) {
     const valueLabel = hasValue ? money(player.market_value) : '—';
     const status = [
       Number(player.injury_days_remaining || 0) > 0
-        ? `<span class="player-status injury-status">Травма · ${player.injury_days_remaining} дн. · до ${dateLabel(player.injury_return_date)}</span>`
+        ? '<span class="player-status injury-status">Травма</span>'
         : '',
       Number(player.suspension_matches || 0) > 0
-        ? `<span class="player-status suspension-status">Дисквалификация · ${player.suspension_matches} матч. · ${esc(player.suspension_reason || "причина не записана")} · до ${dateLabel(player.suspension_return_date)}</span>`
+        ? '<span class="player-status suspension-status">Дисквалификация</span>'
         : ''
     ].filter(Boolean).join('');
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
@@ -393,8 +393,8 @@ function renderSquad(players) {
       <td class="value">${valueLabel}</td>
       <td>${player.contract_end ? new Date(player.contract_end).toLocaleDateString('ru-RU',{month:'short',year:'numeric'}) : '—'}</td>
       <td>${money(player.weekly_wage)}<div class="data-source">/ нед.</div></td>
-      <td>${renderToneCrystals(player.sharpness)}</td>
-      <td>${renderMoodFaces(player.morale)}</td>
+      <td>${renderToneCrystals(player.sharpness)} <small class="condition-value">${Number(player.sharpness ?? 85)}</small></td>
+      <td>${renderMoodFaces(player.morale)} <small class="condition-value">${Number(player.morale ?? 70)}</small></td>
     </tr>`;
   }).join('');
   return `${pageHead('ПЕРВАЯ КОМАНДА','Состав',`${players.length} игроков · нажми на игрока, чтобы открыть полный профиль`)}
@@ -646,7 +646,7 @@ function redrawTactics() {
 function playerTag(player, slotIndex = null) {
   if (!player) return "";
   return `<div class="pitch-player-card" draggable="true" data-player-id="${esc(player.id)}" ${slotIndex !== null ? `data-pitch-slot="${slotIndex}"` : ""}>
-    <b>${player.overall}</b><small>${esc(player.name.split(" ").slice(-1)[0])}</small>
+    <b>${player.overall}</b><small>${esc(player.name)}</small>
   </div>`;
 }
 function currentReserveIds() {
@@ -667,7 +667,7 @@ function renderTactics(players, tactics) {
     const selected = state.selectedTacticSlot === index;
     const rating = player ? (player.dynamic_overall ?? player.overall) + positionPenalty(player,slot.role) : null;
     return `<button class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
-      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? flagIcon(player.nationality_flag,player.nationality || "Флаг страны") + esc(player.name.split(" ").slice(-1)[0]) : "Выбрать"}</em>
+      <strong>${player ? rating : "+"}</strong><small>${esc(slot.role)}</small><em>${player ? flagIcon(player.nationality_flag,player.nationality || "Флаг страны") + esc(player.name) : "Выбрать"}</em>
     </button>`;
   }).join("");
   const benchIds = new Set(state.tacticBench);
@@ -898,6 +898,7 @@ function renderFixtures(rows) {
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key).push(row);
   });
+  const gameDate = String(state.save?.game_date || "2026-07-01").slice(0,10);
   const offset = (month.getDay()+6)%7;
   const days = new Date(month.getFullYear(), month.getMonth()+1, 0).getDate();
   const cells = [];
@@ -908,6 +909,8 @@ function renderFixtures(rows) {
     const result = match?.result || "scheduled";
     let cell = '<button class="calendar-day ' +
       (state.selectedCalendarDate===key ? "selected " : "") +
+      (key === gameDate ? "game-current " : "") +
+      (key < gameDate ? "past-day " : "") +
       (match ? "has-event" : "") + '" data-calendar-date="' + key + '" title="' +
       (match ? esc(match.opponent_name) : "") + '"><b>' + day + '</b>';
     if (match) {
@@ -953,6 +956,19 @@ function renderFixtures(rows) {
     '<aside class="calendar-selected"><div class="eyebrow">ВЫБРАННЫЙ ДЕНЬ</div><h3>' +
     dateLabel(selected + "T12:00:00") + '</h3>' + selectedContent + '</aside></div>';
 }
+function applyCalendarResults(results) {
+  for (const result of results || []) {
+    const fixture = state.fixtures.find(row => String(row.id) === String(result.fixture_id));
+    if (!fixture) continue;
+    fixture.status = "completed";
+    fixture.home_score = result.home_score;
+    fixture.away_score = result.away_score;
+    const clubScore = fixture.is_home ? result.home_score : result.away_score;
+    const opponentScore = fixture.is_home ? result.away_score : result.home_score;
+    fixture.result = clubScore > opponentScore ? "win" : clubScore < opponentScore ? "loss" : "draw";
+  }
+  state.tabCache.fixtures = state.fixtures;
+}
 function setupCalendarInteractions() {
   document.getElementById("calendar-prev")?.addEventListener("click", () => {
     state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth()-1, 1);
@@ -970,17 +986,21 @@ function setupCalendarInteractions() {
     button.addEventListener("contextmenu", async event => {
       event.preventDefault();
       const targetDate = button.dataset.calendarDate;
-      const currentDate = String(state.save?.game_date || "2026-07-01").slice(0,10);
-      if (targetDate < currentDate) {
+      const initialDate = String(state.save?.game_date || "2026-07-01").slice(0,10);
+      if (targetDate < initialDate) {
         toast("Нельзя перемотать карьеру назад. Выбери текущую или будущую дату.",true);
         return;
       }
-      const start = new Date(currentDate + "T12:00:00");
+      const start = new Date(initialDate + "T12:00:00");
       const end = new Date(targetDate + "T12:00:00");
       if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
       state.calendarMonth = new Date(start.getFullYear(),start.getMonth(),1);
-      state.selectedCalendarDate = currentDate;
+      state.selectedCalendarDate = initialDate;
       await renderCurrent();
+      const matchDates = new Set((state.fixtures || [])
+        .map(row => String(row.match_date || "").slice(0,10))
+        .filter(day => day > initialDate && day <= targetDate));
+      let advancedDate = initialDate;
       let cursor = new Date(start);
       while (cursor <= end) {
         const key = cursor.getFullYear() + "-" + String(cursor.getMonth()+1).padStart(2,"0") + "-" + String(cursor.getDate()).padStart(2,"0");
@@ -989,37 +1009,53 @@ function setupCalendarInteractions() {
           state.calendarMonth = new Date(cursor.getFullYear(),cursor.getMonth(),1);
           await renderCurrent();
         }
-        document.querySelectorAll("[data-calendar-date]").forEach(cell => cell.classList.toggle("selected",cell.dataset.calendarDate===key));
         state.selectedCalendarDate = key;
+        document.querySelectorAll("[data-calendar-date]").forEach(cell => cell.classList.toggle("selected",cell.dataset.calendarDate===key));
         await new Promise(resolve => setTimeout(resolve,28));
+        // Reveal the user's match as soon as its calendar day is reached.
+        // Only match dates are sent to the server, not every calendar day.
+        if (matchDates.has(key) && key > advancedDate) {
+          try {
+            const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(key), {method:'POST',body:'{}'});
+            if (state.save) state.save.game_date = result.game_date;
+            advancedDate = result.game_date;
+            applyCalendarResults(result.results || []);
+            const ownMatch = result.manager_result || (result.results || []).slice(-1)[0];
+            if (ownMatch) toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
+            await renderCurrent();
+          } catch (err) {
+            toast(err.message,true);
+            await renderCurrent();
+            return;
+          }
+        }
         cursor.setDate(cursor.getDate()+1);
       }
-      const activeButton = document.querySelector('[data-calendar-date="' + targetDate + '"]');
-      if (activeButton) activeButton.disabled = true;
-      try {
-        const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(targetDate), {
-          method: 'POST', body: '{}'
-        });
-        if (state.save) state.save.game_date = result.game_date;
-        invalidateCareerTabs();
-        const ownMatch = result.manager_result || (result.results || []).slice(-1)[0];
-        if (ownMatch) {
-          toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
-        } else {
-          toast('Дата обновлена: ' + dateLabel(targetDate) + '. Твой клуб в этот день не играл.');
+      if (targetDate > advancedDate) {
+        try {
+          const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(targetDate), {method:'POST',body:'{}'});
+          if (state.save) state.save.game_date = result.game_date;
+          applyCalendarResults(result.results || []);
+          if (result.manager_result) {
+            const ownMatch = result.manager_result;
+            toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
+          } else {
+            toast('Дата обновлена: ' + dateLabel(targetDate) + '. Твой клуб в этот день не играл.');
+          }
+        } catch (err) {
+          toast(err.message,true);
         }
-        await renderCurrent();
-      } catch (err) {
-        toast(err.message,true);
-        await renderCurrent();
       }
+      state.selectedCalendarDate = targetDate;
+      invalidateCareerTabs();
+      state.tabCache.fixtures = state.fixtures;
+      await renderCurrent();
     });
   });
   document.querySelectorAll("[data-fixture-id]").forEach(button => {
     button.addEventListener("click", () => showMatchDetails(button.dataset.fixtureId));
   });
 }
-
 
 function tournamentMark(name, logo) {
   const safe = typeof logo === 'string' && /^https:\/\//i.test(logo) ? logo : '';
@@ -1106,17 +1142,17 @@ async function showMatchDetails(fixtureId) {
       ${data.historical_estimate ? '<div class="catalog-note estimate-note">Историческая реконструкция статистики. Итог матча сохранён, индивидуальные показатели и рейтинг рассчитаны приблизительно.</div>' : ''}
       ${!hasStats ? '<div class="empty-state"><strong>Матч ещё не сыгран</strong>После симуляции появятся события, рейтинги и полная статистика.</div>' : ''}
       ${hasStats ? `<section class="match-modal-section"><h3>Статистика матча</h3>
+        ${matchStatRow('Владение',home.possession,away.possession,'%')}
         ${matchStatRow('Удары',home.shots,away.shots)}
         ${matchStatRow('В створ',home.shots_on_target,away.shots_on_target)}
         ${matchStatRow('Передачи',home.passes,away.passes)}
         ${matchStatRow('Точность передач',home.pass_accuracy,away.pass_accuracy,'%')}
         ${matchStatRow('Ожидаемые голы xG',home.xg,away.xg)}
-        ${matchStatRow('Владение',home.possession,away.possession,'%')}
-        ${matchStatRow('Жёлтые карточки',home.yellow_cards,away.yellow_cards)}
-        ${matchStatRow('Красные карточки',home.red_cards,away.red_cards)}
         ${matchStatRow('Офсайды',home.offsides,away.offsides)}
         ${matchStatRow('Угловые',home.corners,away.corners)}
         ${matchStatRow('Фолы',home.fouls,away.fouls)}
+        ${matchStatRow('Жёлтые карточки',home.yellow_cards,away.yellow_cards)}
+        ${matchStatRow('Красные карточки',home.red_cards,away.red_cards)}
       </section>
       <section class="match-modal-section"><h3>Игроки и оценки</h3><div class="table-wrap"><table class="match-player-table">
         <thead><tr><th>Игрок</th><th>Клуб</th><th>Оценка</th><th>Мин.</th><th>Г</th><th>А</th><th>У</th><th>П</th><th>Точн.</th><th>Карточки</th></tr></thead>
