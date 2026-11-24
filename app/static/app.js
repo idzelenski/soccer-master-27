@@ -87,7 +87,7 @@ async function preloadCareerTabs() {
       return {players, tactics};
     }).then(data => { state.tactics = data.tactics; }),
     loadTabData('fixtures', () => api('/api/fixtures?limit=400')).then(rows => { state.fixtures = rows; }),
-    loadTabData('table', () => api('/api/standings'))
+    loadTabData('tournaments', () => api('/api/tournaments'))
   ];
   const results = await Promise.allSettled(tasks);
   if (results.some(result => result.status === 'rejected')) state.preloadStarted = false;
@@ -301,7 +301,7 @@ async function selectClub(sourceId) {
 }
 function navItems() {
   return [
-    ['home','⌂','Обзор'],['squad','♟','Состав'],['tactics','⌖','Тактика'],['fixtures','▦','Календарь'],['table','≡','Таблица']
+    ['home','⌂','Обзор'],['squad','♟','Состав'],['tactics','⌖','Тактика'],['fixtures','▦','Календарь'],['table','≡','Таблицы']
   ];
 }
 function shell(content, title = 'Обзор') {
@@ -332,7 +332,7 @@ async function restartCareer() {
   const button=document.getElementById('restart-career'); if(button) button.disabled=true;
   try {
     await api('/api/saves/restart',{method:'POST',body:'{}'});
-    state.save=null;state.tab='home';state.tactics=null;state.squad=[];state.fixtures=[];
+    state.save=null;state.tab='home';state.tactics=null;state.squad=[];state.fixtures=[];state.selectedTournamentId=null;
     await loadClubPage();
     toast('Карьера завершена. Выбери новый клуб.');
   } catch(err){toast(err.message,true);if(button)button.disabled=false;}
@@ -1183,8 +1183,23 @@ async function renderCurrent() {
       shell(renderFixtures(rows), 'Календарь');
       setupCalendarInteractions();
     } else if (tab === 'table') {
-      const rows = await loadTabData('table', () => api('/api/standings'));
-      shell(renderTable(rows), 'Таблица');
+      const rows = await loadTabData('tournaments', () => api('/api/tournaments'));
+      let detail = null;
+      if (state.selectedTournamentId) {
+        detail = await loadTabData(
+          'tournament:' + state.selectedTournamentId,
+          () => api('/api/tournaments/' + encodeURIComponent(state.selectedTournamentId))
+        );
+      }
+      shell(renderTable(rows, detail), 'Таблицы');
+      document.querySelectorAll('[data-tournament]').forEach(button => button.addEventListener('click', () => {
+        state.selectedTournamentId = button.dataset.tournament;
+        renderCurrent();
+      }));
+      document.getElementById('tournament-back')?.addEventListener('click', () => {
+        state.selectedTournamentId = null;
+        renderCurrent();
+      });
     }
     if (state.save && !state.preloadStarted) void preloadCareerTabs();
   } catch (err) {
@@ -1218,12 +1233,12 @@ async function advanceGame() {
 }
 async function logout() {
   try { await api('/api/auth/logout',{method:'POST',body:'{}'}); } catch (_) { /* clear local screen anyway */ }
-  state.manager=null;state.save=null;renderAuth('login');
+  state.manager=null;state.save=null;state.selectedTournamentId=null;renderAuth('login');
 }
 async function start() {
   try {
     const me = await api('/api/me'); state.manager=me.manager; state.save=me.save;
-    if (!state.save) { await loadClubPage(); return; }
+    if (!state.save) { state.selectedTournamentId=null; await loadClubPage(); return; }
     state.tab='home'; await renderCurrent();
   } catch (_) { renderAuth('login'); }
 }
