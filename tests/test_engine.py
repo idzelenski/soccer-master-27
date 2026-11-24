@@ -1,6 +1,6 @@
 from collections import Counter
 
-from app.engine import expected_goals, overall_from_market_value, round_robin, simulate_score
+from app.engine import expected_goals, overall_from_market_value, round_robin, schedule_dates, simulate_score
 
 
 def test_round_robin_has_every_pair_twice():
@@ -82,3 +82,12 @@ def test_ten_point_starting_xi_gap_is_meaningful_when_reputation_is_equal():
     assert strong_at_home[1] < equal[1] - 0.10
     assert strong_away[0] < equal[0] - 0.10
     assert strong_away[1] >= equal[1] + 0.15
+
+
+def test_schedule_dates_are_not_all_on_the_same_weekday_and_stay_ordered():
+    from datetime import date
+
+    dates = schedule_dates(date(2026, 8, 15), 14)
+    assert len({day.weekday() for day in dates}) >= 5
+    assert all(left < right for left, right in zip(dates, dates[1:]))
+    assert dates[0] == date(2026, 8, 15)
