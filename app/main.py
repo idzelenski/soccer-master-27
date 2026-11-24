@@ -262,22 +262,52 @@ FLAG_SPECIAL_CODES = {
     "serbia": "rs", "ukraine": "ua", "morocco": "ma", "algeria": "dz",
     "senegal": "sn", "cameroon": "cm", "ivory coast": "ci",
     "vlag van frankrijk": "fr", "drapeau de la france": "fr",
-
+    "equateur": "ec", "géorgie": "ge", "georgie": "ge", "etats-unis": "us",
+    "états-unis": "us", "islande": "is", "algerie": "dz", "algérie": "dz",
+    "arabie saoudite": "sa", "centrafrique": "cf", "république centrafricaine": "cf",
+    "republique centrafricaine": "cf", "benin": "bj", "bénin": "bj",
+    "burkina faso": "bf", "burundi": "bi", "comores": "km", "république du congo": "cg",
+    "republique du congo": "cg", "costa rica": "cr", "finlande": "fi",
+    "gabon": "ga", "guinée-bissau": "gw", "guinee-bissau": "gw",
+    "haïti": "ht", "haiti": "ht", "indonésie": "id", "indonesie": "id",
+    "mauritanie": "mr", "nigéria": "ng", "niger": "ne",
+    "paraguay": "py", "république démocratique du congo": "cd",
+    "republique democratique du congo": "cd", "rd congo": "cd", "rdc": "cd",
+    "drapeau de l'angleterre": "gb-eng", "drapeau de la belgique": "be",
+    "drapeau de la côte d'ivoire": "ci", "drapeau de la cote d'ivoire": "ci",
+    "drapeau de la france": "fr", "drapeau de la mauritanie": "mr",
+    "drapeau de la norvège": "no", "drapeau de la norvege": "no",
+    "drapeau de la république populaire de chine": "cn",
+    "drapeau de la republique populaire de chine": "cn",
+    "drapeau de la suisse": "ch", "drapeau de la république du congo": "cg",
+    "drapeau de la republique du congo": "cg",
+    "drapeau de la république démocratique du congo": "cd",
+    "drapeau de la republique democratique du congo": "cd",
+    "drapeau du cameroun": "cm", "drapeau du chili": "cl",
+    "drapeau du ghana": "gh", "drapeau du maroc": "ma", "drapeau du sénégal": "sn",
+    "drapeau du senegal": "sn",
 }
 
 
 def flag_for_nationality(value: str | None) -> str:
-    """Return an ISO flag-icon code for a rectangular SVG flag, never an emoji."""
+    """Resolve ISO-2/ISO-3 codes and localized country labels to rectangular flag codes."""
     key = (value or "").strip().casefold()
     if not key:
         return ""
-    if key in FLAG_SPECIAL_CODES:
-        return FLAG_SPECIAL_CODES[key]
+    key = re.sub(r"^(?:drapeau de |drapeau du |drapeau des |flag of )", "", key).strip()
+    ascii_key = unicodedata.normalize("NFKD", key).encode("ascii", "ignore").decode("ascii")
+    for candidate in (key, ascii_key):
+        if candidate in FLAG_SPECIAL_CODES:
+            return FLAG_SPECIAL_CODES[candidate]
     try:
         import pycountry
-        country = pycountry.countries.get(alpha_3=key.upper()) if len(key) == 3 else None
+        country = None
+        if len(key) == 3 and key.isalpha():
+            country = pycountry.countries.get(alpha_3=key.upper())
+        elif len(key) == 2 and key.isalpha():
+            country = pycountry.countries.get(alpha_2=key.upper())
         if country is None:
-            country = pycountry.countries.lookup(value or "")
+            country = pycountry.countries.lookup(ascii_key or key)
         return (country.alpha_2 or "").lower()
     except (ImportError, LookupError, AttributeError):
         return ""
@@ -1401,7 +1431,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         """SELECT p.id,p.name,p.nationality,p.birth_date,p.age,p.position,p.secondary_positions,
                   p.nationality_flag,
                   p.overall,GREATEST(1,LEAST(99,p.overall + ROUND(
-                    (p.form-50)*0.06 + (p.morale-70)*0.04 + (p.sharpness-85)*0.04 - p.fatigue*0.08
+                    (p.form-50)*0.08 + (p.morale-70)*0.06 + (p.sharpness-85)*0.10 - p.fatigue*0.10
                   )::int)) AS dynamic_overall,
                   p.potential,p.market_value,p.market_value_source,p.weekly_wage,p.contract_end,
                   p.fatigue,p.form,p.morale,p.sharpness,p.position_training_target,
@@ -1447,6 +1477,12 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         player["injury_name"] = injury["name"] if injury else player.get("injury_type")
         player["injury_return_date"] = injury_until.isoformat() if injury_until else None
         player["suspension_matches"] = int(player.get("suspension_matches") or 0)
+        player["condition_modifier"] = round(
+            (float(player.get("form") or 50) - 50) * 0.08
+            + (float(player.get("morale") or 70) - 70) * 0.06
+            + (float(player.get("sharpness") or 85) - 85) * 0.10
+            - float(player.get("fatigue") or 0) * 0.10
+        )
         result.append(player)
     return serialise(result)
 
@@ -1494,7 +1530,7 @@ def get_tactics(manager: dict = Depends(manager_dep), conn: Connection = Depends
     squad = conn.execute(
         """SELECT id,position,secondary_positions,
                   GREATEST(1,LEAST(99,overall + ROUND(
-                    (form-50)*0.06 + (morale-70)*0.04 + (sharpness-85)*0.04 - fatigue*0.08
+                    (form-50)*0.08 + (morale-70)*0.06 + (sharpness-85)*0.10 - fatigue*0.10
                   )::int)) AS overall
            FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC""",
         (save["id"], save["managed_club_id"]),
@@ -1593,18 +1629,36 @@ def update_table(conn: Connection, fixture: dict) -> None:
 
 
 
-def update_player_condition(conn: Connection, game_state_id: str, club_id: str, result: str) -> None:
+def update_player_condition(
+    conn: Connection, game_state_id: str, club_id: str, fixture_id: str, result: str
+) -> None:
+    """Update condition by actual minutes, not by club participation alone."""
     morale_delta = 4 if result == "win" else -4 if result == "loss" else 1
     form_delta = 4 if result == "win" else -4 if result == "loss" else 1
     conn.execute(
-        """UPDATE players SET
-             fatigue=LEAST(100,fatigue+12),
-             sharpness=GREATEST(20,LEAST(100,sharpness-5)),
-             form=GREATEST(0,LEAST(100,form+%s)),
-             morale=GREATEST(0,LEAST(100,morale+%s)),
+        """WITH played AS (
+               SELECT player_id,max(minutes_played)::int AS minutes_played
+               FROM fixture_player_stats WHERE fixture_id=%s GROUP BY player_id
+           )
+           UPDATE players p SET
+             fatigue=CASE WHEN coalesce(participation.minutes_played,0)>0
+                          THEN LEAST(100,p.fatigue+GREATEST(1,round(12*participation.minutes_played/90.0)::int))
+                          ELSE GREATEST(0,p.fatigue-6) END,
+             sharpness=CASE WHEN coalesce(participation.minutes_played,0)>0
+                            THEN LEAST(100,p.sharpness+1)
+                            ELSE GREATEST(0,p.sharpness-2) END,
+             form=CASE WHEN coalesce(participation.minutes_played,0)>0
+                       THEN GREATEST(0,LEAST(100,p.form+%s))
+                       ELSE GREATEST(0,p.form-1) END,
+             morale=CASE WHEN coalesce(participation.minutes_played,0)>0
+                         THEN GREATEST(0,LEAST(100,p.morale+%s))
+                         ELSE GREATEST(0,p.morale-2) END,
              updated_at=now()
-           WHERE game_state_id=%s AND club_id=%s""",
-        (form_delta,morale_delta,game_state_id,club_id),
+           FROM (SELECT p2.id,coalesce(played.minutes_played,0) AS minutes_played
+                 FROM players p2 LEFT JOIN played ON played.player_id=p2.id
+                 WHERE p2.game_state_id=%s AND p2.club_id=%s) participation
+           WHERE p.id=participation.id""",
+        (fixture_id,form_delta,morale_delta,game_state_id,club_id),
     )
 
 
@@ -1684,7 +1738,7 @@ def _match_lineups(
     rows = conn.execute(
         """SELECT p.id,p.club_id,p.name,p.position,p.secondary_positions,p.overall,p.attributes,
                   p.injury_until,p.injury_type,
-                  coalesce(d.suspension_matches,0) AS suspension_matches,
+                  coalesce(d.suspension_matches,p.suspension_matches,0) AS suspension_matches,
                   p.form,p.morale,p.sharpness,p.fatigue,
                   coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi,
                   role.target_position
@@ -1733,10 +1787,10 @@ def _match_lineups(
         starters.extend(player for player in available if player["id"] not in used and len(starters) < 11)
         for player in starters:
             condition_delta = round(
-                (float(player.get("form") or 50) - 50) * 0.06
-                + (float(player.get("morale") or 70) - 70) * 0.04
-                + (float(player.get("sharpness") or 85) - 85) * 0.04
-                - float(player.get("fatigue") or 0) * 0.08
+                (float(player.get("form") or 50) - 50) * 0.08
+                + (float(player.get("morale") or 70) - 70) * 0.06
+                + (float(player.get("sharpness") or 85) - 85) * 0.10
+                - float(player.get("fatigue") or 0) * 0.10
             )
             role_penalty = position_penalty(
                 str(player.get("position") or "CM"),
@@ -2185,19 +2239,7 @@ def simulate_matchday(
             (save["id"], match_date),
         ).fetchall()
 
-    participating_clubs = sorted({
-        str(club_id)
-        for row in rows
-        for club_id in (row["home_club_id"], row["away_club_id"])
-    })
-    if participating_clubs:
-        conn.execute(
-            """UPDATE players SET fatigue=GREATEST(0,fatigue-6),
-                      sharpness=LEAST(100,sharpness+3),updated_at=now()
-               WHERE game_state_id=%s AND club_id=ANY(%s)""",
-            (save["id"], participating_clubs),
-        )
-
+    # Condition changes are applied after the match, individually by recorded minutes.
     completed: list[dict] = []
     manager_results: list[dict] = []
     managed_club_id = str(save["managed_club_id"])
@@ -2238,8 +2280,8 @@ def simulate_matchday(
         update_table(conn, fixture)
         home_condition = "win" if result["home_score"] > result["away_score"] else "loss" if result["home_score"] < result["away_score"] else "draw"
         away_condition = "win" if result["away_score"] > result["home_score"] else "loss" if result["away_score"] < result["home_score"] else "draw"
-        update_player_condition(conn, str(save["id"]), str(fixture["home_club_id"]), home_condition)
-        update_player_condition(conn, str(save["id"]), str(fixture["away_club_id"]), away_condition)
+        update_player_condition(conn, str(save["id"]), str(fixture["home_club_id"]), str(fixture["id"]), home_condition)
+        update_player_condition(conn, str(save["id"]), str(fixture["away_club_id"]), str(fixture["id"]), away_condition)
         advance_position_training(conn, str(save["id"]), str(fixture["home_club_id"]))
         advance_position_training(conn, str(save["id"]), str(fixture["away_club_id"]))
         match_result = {
@@ -2318,7 +2360,8 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
 
     match_date = next_round["match_date"]
     completed, manager_results = simulate_matchday(
-        conn, save, match_date, int(next_round["matchday"]), str(next_round["tournament_id"])
+        conn, save, match_date, int(next_round["matchday"]), str(next_round["tournament_id"]),
+        through_date=match_date,
     )
     return {
         "ok": True,
