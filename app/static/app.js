@@ -1186,7 +1186,7 @@ function leagueZone(tournament, position, teamCount) {
   if (position === 6) return 'zone-uecl';
   return '';
 }
-function renderZoneLegend(tournament) {
+function renderZoneLegend(tournament, standings = []) {
   const labels = [
     ['zone-ucl','Лига чемпионов'],['zone-ucl-playoff','Квалификация ЛЧ'],
     ['zone-uel','Лига Европы'],['zone-uecl','Лига конференций'],
@@ -1194,9 +1194,7 @@ function renderZoneLegend(tournament) {
     ['zone-promotion','Повышение'],['zone-promotion-playoff','Плей-офф за повышение'],
     ['zone-relegation-playoff','Переходные матчи'],['zone-relegation','Вылет']
   ];
-  const isEurope = /champions league|europa league|conference league|лига чемпионов|лига европы|лига конференций/i.test(tournament?.name || '');
-  const rows = document.querySelectorAll('.league-standings tbody tr');
-  const activeZones = new Set([...rows].flatMap(row => [...row.classList]));
+  const activeZones = new Set((standings || []).map((row,index)=>leagueZone(tournament,index+1,standings.length)));
   const visible = labels.filter(([zone]) => activeZones.has(zone));
   return visible.length ? `<div class="table-zone-legend">${visible.map(([zone,label])=>`<span><i class="${zone}"></i>${label}</span>`).join('')}</div>` : '';
 }
@@ -1206,7 +1204,7 @@ function renderTournamentStandings(rows, tournament) {
     <tbody>${(rows || []).map((r,i)=>{const zone=leagueZone(tournament,i+1,teamCount);return `<tr class="${zone} ${r.name===state.save?.club_name?'me-row':''}">
       <td><span class="table-position">${i+1}</span></td><td><div class="team-cell">${crest(r.name,r.logo_url)}${esc(r.name)}</div></td>
       <td>${r.played}</td><td>${r.won}</td><td>${r.drawn}</td><td>${r.lost}</td><td>${r.goals_for}</td><td>${r.goals_against}</td><td>${r.goal_difference}</td><td><b>${r.points}</b></td>
-    </tr>`;}).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div>${renderZoneLegend(tournament)}`;
+    </tr>`;}).join('') || '<tr><td colspan="10">Таблица пока пустая</td></tr>'}</tbody></table></div>${renderZoneLegend(tournament,rows)}`;
 }
 function renderTopTen(title, players, field, formatter = value => value, minimumAppearances = 0) {
   const sorted = [...(players || [])].filter(p => Number(p[field] || 0) > 0 || field === 'average_rating')
