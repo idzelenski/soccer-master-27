@@ -217,7 +217,7 @@ SECONDARY_POSITIONS = {
     "LW": ("LM", "ST"), "ST": ("CF", "LW"), "CF": ("ST", "CAM"),
 }
 FLAG_SPECIAL_CODES = {
-    "england": "gb-eng", "eng": "gb-eng",
+    "england": "gb-eng", "eng": "gb-eng", "bul": "bg", "bgr": "bg", "kos": "xk",
     "scotland": "gb-sct", "sco": "gb-sct",
     "wales": "gb-wls", "wal": "gb-wls",
     "northern ireland": "gb-nir", "nir": "gb-nir",
@@ -226,9 +226,9 @@ FLAG_SPECIAL_CODES = {
     "north korea": "kp", "iran": "ir", "ivory coast": "ci",
     "czech republic": "cz", "bolivia": "bo", "vietnam": "vn",
     "syria": "sy", "taiwan": "tw",
-    "por": "pt", "ned": "nl", "ger": "de", "sui": "ch",
-    "rsa": "za", "crc": "cr", "uru": "uy", "cro": "hr",
-    "gre": "gr", "den": "dk", "ksa": "sa", "uae": "ae",
+    "por": "pt", "prt": "pt", "ned": "nl", "nld": "nl", "ger": "de", "deu": "de", "sui": "ch", "che": "ch",
+    "rsa": "za", "crc": "cr", "uru": "uy", "ury": "uy", "cro": "hr", "hrv": "hr",
+    "gre": "gr", "grc": "gr", "den": "dk", "dnk": "dk", "ksa": "sa", "uae": "ae", "civ": "ci", "slo": "si", "svn": "si", "rom": "ro", "rou": "ro", "chi": "cl", "par": "py", "nig": "ne", "ner": "ne", "ang": "ao", "zam": "zm", "hai": "ht", "hon": "hn", "gam": "gm", "ngr": "ng", "swi": "ch", "ire": "ie", "wal": "gb-wls", "sco": "gb-sct", "inglaterra": "gb-eng", "españa": "es", "francia": "fr", "brasil": "br", "turquía": "tr", "uruguay": "uy", "marruecos": "ma", "bélgica": "be", "países bajos": "nl", "ucrania": "ua", "alemania": "de", "costa de marfil": "ci", "portugal": "pt",
 }
 
 
@@ -1371,7 +1371,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                   p.potential,p.market_value,p.market_value_source,p.weekly_wage,p.contract_end,
                   p.fatigue,p.form,p.morale,p.sharpness,p.position_training_target,
                   p.position_training_progress,p.fc27_player_id,p.injury_type,p.injury_until,
-                  p.suspension_matches,
+                  p.suspension_matches,p.suspension_reason,p.suspension_return_date,
                   p.attributes,p.original_data,p.profile_source,p.source_url,
                   fc.source_url AS fc27_source_url
            FROM players p
@@ -1396,6 +1396,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         player["injury_days_remaining"] = max(0, (injury_until - game_date).days) if injury_until and game_date else 0
         injury = INJURY_BY_KEY.get(player.get("injury_type"))
         player["injury_name"] = injury["name"] if injury else player.get("injury_type")
+        player["injury_return_date"] = injury_until.isoformat() if injury_until else None
         player["suspension_matches"] = int(player.get("suspension_matches") or 0)
         result.append(player)
     return serialise(result)
@@ -1628,14 +1629,21 @@ def _match_lineups(
     home_club_id: str,
     away_club_id: str,
     match_date: date,
+    tournament_id: str | None = None,
+    season: str | None = None,
 ) -> tuple[dict[str, list[dict]], list[str]]:
     rows = conn.execute(
         """SELECT p.id,p.club_id,p.name,p.position,p.secondary_positions,p.overall,p.attributes,
-                  p.injury_until,p.injury_type,p.suspension_matches,p.form,p.morale,p.sharpness,p.fatigue,
+                  p.injury_until,p.injury_type,
+                  coalesce(d.suspension_matches,p.suspension_matches,0) AS suspension_matches,
+                  p.form,p.morale,p.sharpness,p.fatigue,
                   coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi,
                   role.target_position
            FROM players p
            LEFT JOIN tactics t ON t.game_state_id=p.game_state_id AND t.club_id=p.club_id
+           LEFT JOIN player_competition_discipline d
+             ON d.game_state_id=p.game_state_id AND d.player_id=p.id
+            AND d.tournament_id=%s AND d.season=%s
            LEFT JOIN LATERAL (
              SELECT item->>'role' AS target_position
              FROM jsonb_array_elements(coalesce(t.style->'slot_roles','[]'::jsonb)) item
@@ -1644,7 +1652,7 @@ def _match_lineups(
            ) role ON true
            WHERE p.game_state_id=%s AND p.club_id IN (%s,%s)
            ORDER BY p.club_id,p.overall DESC,p.name""",
-        (game_state_id, home_club_id, away_club_id),
+        (tournament_id, season, game_state_id, home_club_id, away_club_id),
     ).fetchall()
     by_club: dict[str, list[dict]] = {str(home_club_id): [], str(away_club_id): []}
     suspended_ids: list[str] = []
@@ -2064,7 +2072,8 @@ def simulate_matchday(
         fixture_date = fixture["match_date"].date() if isinstance(fixture["match_date"], datetime) else fixture["match_date"]
         last_match_date = max(last_match_date, fixture_date)
         lineups, suspended_ids = _match_lineups(
-            conn, str(save["id"]), str(fixture["home_club_id"]), str(fixture["away_club_id"]), fixture_date
+            conn, str(save["id"]), str(fixture["home_club_id"]), str(fixture["away_club_id"]),
+            fixture_date, str(fixture.get("tournament_id") or ""), str(fixture.get("season") or save.get("season") or "")
         )
         home_players = lineups.get(str(fixture["home_club_id"]), [])
         away_players = lineups.get(str(fixture["away_club_id"]), [])
