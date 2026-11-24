@@ -312,9 +312,9 @@ tr.me-row td { color: var(--green-bright); background: rgba(65,217,139,.055); fo
 .calendar-empty { min-height: 78px; }
 .calendar-selected { padding: 12px; border-left: 1px solid var(--line); }
 .calendar-selected h3 { font: 800 19px Manrope; margin: 8px 0 18px; }
-.calendar-match-row { border-top: 1px solid var(--line); padding: 14px 0; }
-.calendar-match-row small { color: var(--muted); font-size: 8px; }
-.calendar-match-row b { display: block; margin-top: 7px; line-height: 1.7; font-size: 11px; }
+ .calendar-match-row { border-top:1px solid var(--line); padding:16px 10px; margin:0 -2px; overflow:hidden; }
+ .calendar-match-row small { display:block; color:var(--muted); font-size:9px; line-height:1.5; padding:0 2px; overflow-wrap:anywhere; }
+ .calendar-match-row b { display:block; margin-top:9px; padding:0 2px; line-height:1.7; font-size:11px; }
 .calendar-teams { display: grid; grid-template-columns: 32px minmax(0,1fr) auto minmax(0,1fr) 32px; align-items: center; gap: 6px; margin-top: 8px; }
 .calendar-teams .crest { width: 30px; height: 30px; flex-basis: 30px; border-radius: 7px; font-size: 9px; }
 .calendar-teams b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
@@ -696,28 +696,18 @@ button, [role="button"] { touch-action: manipulation; }
 .match-modal-section { margin-top: 22px; }
 .match-modal-section h3 { margin: 0 0 12px; }
 .match-stat-row {
-  display: grid;
-  grid-template-columns: minmax(34px,.55fr) minmax(70px,1fr) minmax(110px,1.2fr) minmax(70px,1fr) minmax(34px,.55fr);
-  gap: 12px;
-  align-items: center;
-  min-height: 30px;
-  border-top: 1px solid rgba(194,223,204,.06);
-  font-size: 10px;
+  display:grid; grid-template-columns:minmax(42px,.65fr) minmax(110px,1fr) minmax(42px,.65fr);
+  grid-template-rows:auto 6px; gap:7px 12px; align-items:center; min-height:43px;
+  padding:7px 0; border-top:1px solid rgba(194,223,204,.06); font-size:10px;
 }
-.home-stat { text-align: left; color: #d8f1e1; }
-.away-stat { text-align: right; color: #d8f1e1; }
-.stat-name { text-align: center; color: var(--muted); }
-.stat-track {
-  display: flex;
-  width: 100%;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 8px;
-  background: rgba(255,255,255,.12);
-}
-.stat-track i { display:block; height:100%; border-radius:8px; background:var(--green); }
-.home-track { justify-content:flex-end; }
-.away-track { justify-content:flex-start; }
+.home-stat { text-align:left; color:#d8f1e1; justify-self:start; grid-column:1; grid-row:1; }
+.away-stat { text-align:right; color:#d8f1e1; justify-self:end; grid-column:3; grid-row:1; }
+.stat-better { font-weight:900; color:#fff; }
+.stat-name { text-align:center; color:var(--muted); grid-row:1; grid-column:2; }
+.stat-track { display:flex; grid-column:1 / -1; grid-row:2; width:100%; height:5px; overflow:hidden; border-radius:8px; background:rgba(255,255,255,.10); }
+.stat-track i { display:block; height:100%; }
+.stat-home-fill { background:#42d994; }
+.stat-away-fill { background:#7791a8; }
 .match-timeline { display: grid; gap: 0; }
 .match-timeline-event {
   display: grid;
@@ -755,7 +745,7 @@ button, [role="button"] { touch-action: manipulation; }
   .tournament-hero .tournament-mark { width: 58px; height: 58px; flex-basis: 58px; }
   .tournament-totals { margin-left: 0; width: 100%; text-align: left; grid-template-columns: auto auto auto auto; justify-content: start; gap: 8px; }
   .match-modal { padding: 18px 12px; }
-  .match-stat-row { grid-template-columns: 36px minmax(42px,1fr) minmax(78px,1.25fr) minmax(42px,1fr) 36px; gap: 5px; font-size: 9px; }
+   .match-stat-row { grid-template-columns:minmax(34px,.6fr) minmax(78px,1fr) minmax(34px,.6fr); gap:6px 8px; font-size:9px; }
   .match-modal-scoreline > strong { font-size: 23px; }
   .match-modal-scoreline > div { font-size: 10px; }
   .match-timeline-event { grid-template-columns: 40px minmax(0,1fr); }
@@ -845,5 +835,11 @@ button:disabled {
 .top-ten-value { color:var(--green-bright); font-variant-numeric:tabular-nums; }
 @media(max-width:760px) {
   .player-leaderboards,.team-leaderboards { grid-template-columns:minmax(0,1fr); }
-  .match-stat-row { grid-template-columns:34px minmax(35px,1fr) minmax(76px,1.1fr) minmax(35px,1fr) 34px; gap:6px; }
+   .match-stat-row { grid-template-columns:minmax(30px,.6fr) minmax(70px,1fr) minmax(30px,.6fr); gap:6px 7px; }
 }
+
+.top-ten-player strong { display:flex; align-items:center; gap:7px; min-width:0; }
+.top-ten-player .player-flag { width:18px; height:13.5px; flex-basis:18px; }
+.top-ten-player .crest { width:19px; height:19px; flex-basis:19px; border-radius:4px; }
+.data-source { display:none !important; }
+.calendar-match-row { box-sizing:border-box; }
