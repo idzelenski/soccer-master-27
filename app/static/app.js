@@ -1,6 +1,6 @@
 const app = document.getElementById('app');
 const toastRoot = document.getElementById('toast-root');
-const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, selectedCalendarDate: null, selectedTournamentId: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {}, tabLoads: {}, cacheEpoch: 0, preloadStarted: false, creatingSave: false };
+const state = { manager: null, save: null, summary: null, clubs: [], leagues: [], tab: 'home', squad: [], fixtures: [], tactics: null, search: '', league: '', clubTotal: 0, clubOffset: 0, calendarMonth: null, calendarRefreshPending: false, selectedCalendarDate: null, selectedTournamentId: null, tacticSlots: [], tacticBench: [], selectedTacticSlot: null, selectedTacticPlayer: null, tacticReserve: [], tacticSettings: {}, tacticFormation: '4-3-3', tabCache: {}, tabLoads: {}, cacheEpoch: 0, preloadStarted: false, creatingSave: false };
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
@@ -364,9 +364,10 @@ function shell(content, title = 'Обзор') {
   document.querySelectorAll('[data-nav]').forEach((button) => button.addEventListener('click', () => {
     state.tab = button.dataset.nav;
     if (state.tab === 'fixtures') {
-      const currentDate = new Date(state.save?.game_date || new Date());
-      state.calendarMonth = new Date(currentDate.getFullYear(),currentDate.getMonth(),1);
+      state.calendarMonth = null;
       state.selectedCalendarDate = null;
+      state.calendarRefreshPending = true;
+      invalidateCareerTabs();
     }
     renderCurrent();
   }));
@@ -923,15 +924,14 @@ function renderFixtures(rows) {
       '<section class="panel"><div class="empty-state">Матчей пока нет</div></section>';
   }
   if (!state.calendarMonth) {
-    const initialDate = new Date(state.save?.game_date || "2026-07-01T12:00:00");
+    const gameDate = String(state.save?.game_date || "2026-07-01").slice(0,10);
+    const initialDate = new Date(gameDate + "T12:00:00");
     state.calendarMonth = new Date(initialDate.getFullYear(), initialDate.getMonth(), 1);
   }
   const month = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth(), 1);
   const monthLabel = month.toLocaleDateString("ru-RU", {month:"long", year:"numeric"});
-  const keyDate = value => {
-    const date = new Date(value);
-    return date.getFullYear() + "-" + String(date.getMonth()+1).padStart(2,"0") + "-" + String(date.getDate()).padStart(2,"0");
-  };
+  // API dates are ISO timestamps; use their calendar date, not the browser timezone.
+  const keyDate = value => String(value || "").slice(0,10);
   const byDate = new Map();
   rows.forEach(row => {
     const key = keyDate(row.match_date);
@@ -969,7 +969,15 @@ function renderFixtures(rows) {
     cell += '</button>';
     cells.push(cell);
   }
-  const selected = state.selectedCalendarDate || keyDate(state.save?.game_date || "2026-07-01T12:00:00");
+  const currentGameDate = keyDate(state.save?.game_date || "2026-07-01");
+  const latestCompletedDate = rows
+    .filter(row => row.status === "completed")
+    .map(row => keyDate(row.match_date))
+    .filter(day => day <= currentGameDate)
+    .sort()
+    .pop();
+  const selected = state.selectedCalendarDate ||
+    (byDate.has(currentGameDate) ? currentGameDate : (latestCompletedDate || currentGameDate));
   const selectedRows = byDate.get(selected) || [];
   const selectedContent = selectedRows.length ? selectedRows.map(f => {
     const score = f.status === "completed"
@@ -1408,7 +1416,19 @@ async function renderCurrent() {
       shell(renderTactics(data.players, data.tactics), 'Тактика');
       setupTacticsInteractions();
     } else if (tab === 'fixtures') {
-      const rows = await loadTabData('fixtures', () => api('/api/fixtures?limit=400'));
+      let rows;
+      if (state.calendarRefreshPending) {
+        const [me, freshRows] = await Promise.all([
+          api('/api/me'),
+          api('/api/fixtures?limit=400')
+        ]);
+        if (me.save) state.save = { ...(state.save || {}), ...me.save };
+        rows = freshRows;
+        state.tabCache.fixtures = rows;
+        state.calendarRefreshPending = false;
+      } else {
+        rows = await loadTabData('fixtures', () => api('/api/fixtures?limit=400'));
+      }
       state.fixtures = rows;
       shell(renderFixtures(rows), 'Календарь');
       setupCalendarInteractions();
