@@ -509,8 +509,8 @@ def position_penalty(primary: str, secondary: list[str], target: str) -> int:
     if primary == "GK" or target == "GK":
         return -40
     close = {
-        "RB": {"LB": -2, "RWB": -2, "LWB": -5, "CB": -3, "RM": -5, "CDM": -7},
-        "LB": {"RB": -2, "LWB": -2, "RWB": -5, "CB": -3, "LM": -5, "CDM": -7},
+        "RB": {"LB": -2, "RWB": 0, "LWB": -5, "CB": -3, "RM": -5, "CDM": -7},
+        "LB": {"RB": -2, "LWB": 0, "RWB": -5, "CB": -3, "LM": -5, "CDM": -7},
         "CB": {"LB": -3, "RB": -3, "CDM": -3, "RWB": -5, "LWB": -5, "CM": -7},
         "CDM": {"CM": -2, "CB": -3, "CAM": -5, "RM": -7, "LM": -7},
         "CM": {"CDM": -2, "CAM": -2, "RM": -3, "LM": -3, "CB": -7, "ST": -10},
@@ -521,8 +521,8 @@ def position_penalty(primary: str, secondary: list[str], target: str) -> int:
         "LW": {"LM": -2, "ST": -3, "CF": -5, "RW": -7, "LB": -7},
         "ST": {"CF": -2, "CAM": -5, "RW": -7, "LW": -7, "CM": -10},
         "CF": {"ST": -2, "CAM": -3, "RW": -5, "LW": -5, "CM": -7},
-        "RWB": {"RB": -2, "RM": -3, "LB": -5, "CB": -5},
-        "LWB": {"LB": -2, "LM": -3, "RB": -5, "CB": -5},
+        "RWB": {"RB": 0, "RM": -3, "LB": -5, "CB": -5},
+        "LWB": {"LB": 0, "LM": -3, "RB": -5, "CB": -5},
     }
     return close.get(primary, {}).get(target, -7)
 
@@ -1363,7 +1363,7 @@ def dashboard(manager: dict = Depends(manager_dep), conn: Connection = Depends(d
 def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
     save = require_save(conn, str(manager["id"]))
     rows = conn.execute(
-        """SELECT p.id,p.name,p.nationality,p.birth_date,p.age,p.position,p.secondary_positions,
+        """SELECT p.id,p.name,p.nationality,p.nationality_flag,p.birth_date,p.age,p.position,p.secondary_positions,
                   p.overall,GREATEST(1,LEAST(99,p.overall + ROUND(
                     (p.form-50)*0.06 + (p.morale-70)*0.04 + (p.sharpness-85)*0.04 - p.fatigue*0.08
                   )::int)) AS dynamic_overall,
@@ -1376,8 +1376,10 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
            FROM players p
            LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=p.fc27_player_id
            WHERE p.game_state_id=%s AND p.club_id=%s
-           ORDER BY CASE p.position WHEN 'GK' THEN 0 WHEN 'CB' THEN 1 WHEN 'RB' THEN 1 WHEN 'LB' THEN 1
-                     WHEN 'CDM' THEN 2 WHEN 'CM' THEN 2 WHEN 'CAM' THEN 2 ELSE 3 END,
+           ORDER BY CASE p.position WHEN 'GK' THEN 0
+                     WHEN 'CB' THEN 1 WHEN 'RB' THEN 1 WHEN 'LB' THEN 1 WHEN 'RWB' THEN 1 WHEN 'LWB' THEN 1
+                     WHEN 'CDM' THEN 2 WHEN 'CM' THEN 2 WHEN 'CAM' THEN 2
+                     WHEN 'RM' THEN 3 WHEN 'LM' THEN 3 WHEN 'RW' THEN 4 WHEN 'LW' THEN 4 ELSE 5 END,
                     p.overall DESC, p.name""",
         (save["id"], save["managed_club_id"]),
     ).fetchall()
@@ -1385,7 +1387,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
     game_date = save["game_date"].date() if isinstance(save["game_date"], datetime) else save["game_date"]
     for row in rows:
         player = dict(row)
-        player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
+        player["nationality_flag"] = player.get("nationality_flag") or flag_for_nationality(player.get("nationality"))
         player["secondary_positions"] = list(player.get("secondary_positions") or [])
         injury_until = player.get("injury_until")
         if isinstance(injury_until, datetime):
@@ -2281,7 +2283,10 @@ def match_details(
     return serialise({
         "fixture": fixture,
         "stats": match_stats,
-        "players": [dict(row) for row in player_rows],
+        "players": [
+            {**dict(row), "nationality_flag": row["nationality_flag"] or flag_for_nationality(row["nationality"])}
+            for row in player_rows
+        ],
         "events": [dict(row) for row in event_rows],
         "historical_estimate": bool(match_stats and match_stats.get("historical_estimate")),
         "stats_available": bool(player_rows),
@@ -2337,7 +2342,8 @@ def tournament_details(
         (save["id"], tournament_id, save["season"]),
     ).fetchall()
     player_rows = conn.execute(
-        """SELECT p.id AS player_id,p.name,p.position,c.name AS club_name,c.logo_url AS club_logo,
+        """SELECT p.id AS player_id,p.name,p.position,p.nationality,p.nationality_flag,
+                  c.name AS club_name,c.logo_url AS club_logo,
                   count(*)::int AS appearances,
                   round(avg(s.rating)::numeric,2)::float AS average_rating,
                   sum(s.goals)::int AS goals,sum(s.assists)::int AS assists,
