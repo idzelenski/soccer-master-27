@@ -1363,7 +1363,8 @@ def dashboard(manager: dict = Depends(manager_dep), conn: Connection = Depends(d
 def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
     save = require_save(conn, str(manager["id"]))
     rows = conn.execute(
-        """SELECT p.id,p.name,p.nationality,p.nationality_flag,p.birth_date,p.age,p.position,p.secondary_positions,
+        """SELECT p.id,p.name,p.nationality,p.birth_date,p.age,p.position,p.secondary_positions,
+                  p.nationality_flag,
                   p.overall,GREATEST(1,LEAST(99,p.overall + ROUND(
                     (p.form-50)*0.06 + (p.morale-70)*0.04 + (p.sharpness-85)*0.04 - p.fatigue*0.08
                   )::int)) AS dynamic_overall,
