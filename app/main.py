@@ -1720,6 +1720,7 @@ def _record_match_detail(
     injury_updates: list[tuple] = []
     yellow_by_player: dict[str, int] = {}
     red_by_player: dict[str, int] = {}
+    red_reason_by_player: dict[str, str] = {}
     team_details: dict[str, dict] = {}
     team_cards: dict[str, dict[str, int]] = {
         home_id: {"yellow": 0, "red": 0},
@@ -1838,11 +1839,18 @@ def _record_match_detail(
             record["red_cards"] += 1
             record["rating"] -= 1.1
             team_cards[club_id]["red"] += 1
-            red_by_player[red_player["id"]] = 2 if rng.random() < 0.22 else 1
+            second_yellow = red_player["id"] in yellow_by_player
+            ban_matches = 1 if second_yellow else (2 if rng.random() < 0.22 else 1)
+            red_by_player[red_player["id"]] = ban_matches
+            red_reason_by_player[red_player["id"]] = (
+                "Вторая жёлтая карточка" if second_yellow
+                else "Прямая красная карточка за грубое нарушение" if ban_matches == 2
+                else "Прямая красная карточка"
+            )
             minute = rng.randint(22, 89)
             event_rows.append((
                 fixture["id"], minute, "red_card", club_id, red_player["id"], None,
-                Jsonb({"simulated": True, "reason": "Удаление"}),
+                Jsonb({"simulated": True, "reason": red_reason_by_player[red_player["id"]]}),
             ))
 
         # About two to four time-loss injuries per club across a 30–38 match season.
@@ -1932,7 +1940,7 @@ def _record_match_detail(
         added_reds = 1 if player_id in red_by_player else 0
         added_ban = max(0, (old_yellows + added_yellows) // 5 - old_yellows // 5) + red_by_player.get(player_id, 0)
         ban_reason = (
-            "Красная карточка" if player_id in red_by_player
+            red_reason_by_player.get(player_id) if player_id in red_by_player
             else "Пятая жёлтая карточка в турнире" if added_ban else None
         )
         return_row = None
