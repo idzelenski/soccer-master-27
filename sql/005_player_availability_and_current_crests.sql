@@ -19,6 +19,33 @@ WHERE d.game_state_id=p.game_state_id AND d.player_id=p.id
   AND d.suspension_matches>0 AND p.suspension_matches>0
   AND p.suspension_reason IS NULL;
 
+-- Backfill the next eligible date for existing bans using the affected competition's fixture list.
+UPDATE player_competition_discipline d
+SET suspension_return_date = (
+    SELECT f.match_date::date
+    FROM fixtures f
+    JOIN players p ON p.id=d.player_id
+    JOIN game_states gs ON gs.id=d.game_state_id
+    WHERE f.game_state_id=d.game_state_id
+      AND f.tournament_id=d.tournament_id
+      AND f.season=d.season
+      AND f.status='scheduled'
+      AND f.match_date::date>gs.game_date::date
+      AND (f.home_club_id=p.club_id OR f.away_club_id=p.club_id)
+    ORDER BY f.match_date
+    OFFSET d.suspension_matches
+    LIMIT 1
+)
+WHERE d.suspension_matches>0 AND d.suspension_return_date IS NULL;
+
+UPDATE players p
+SET suspension_return_date = d.suspension_return_date
+FROM player_competition_discipline d
+WHERE d.game_state_id=p.game_state_id AND d.player_id=p.id
+  AND d.suspension_matches>0 AND p.suspension_matches>0
+  AND d.suspension_return_date IS NOT NULL
+  AND p.suspension_return_date IS NULL;
+
 -- Current AS Roma 2025+ crest and current S.S. Lazio eagle/shield crest.
 UPDATE world_club_catalog
 SET logo_url='https://www.footylogos.com/downloads/logo/roma-logo-footylogos.png',
