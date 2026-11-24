@@ -349,8 +349,7 @@ def league_schedule_dates(
     if "2. bundesliga" in name:
         start, end = date(year, 8, 8), date(year + 1, 5, 16)
         blocked = {
-            date(year, 12, 19), date(year, 12, 26),
-            date(year + 1, 1, 2), date(year + 1, 1, 9),
+            date(year, 12, 26), date(year + 1, 1, 2), date(year + 1, 1, 9),
         }
         weekends = _window_dates(start, end, (5,), blocked)
         midweeks = [date(year, 10, 21), date(year + 1, 2, 24)]
