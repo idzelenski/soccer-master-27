@@ -425,4 +425,5 @@ SM27 — футбольный менеджер / симулятор карьер
 - Player condition now responds visibly to matches: sharpness decreases after a match, fatigue increases, and form/morale respond to the result. Pre-match recovery was reduced so playing does not paradoxically improve fatigue/sharpness overall. Squad table displays numeric sharpness/morale alongside icons so small changes are visible.
 - Calendar highlights the current in-game date distinctly and dims past dates in an FC-style treatment.
 - Added a regression test for win/draw/loss condition deltas. No schema changes or destructive database operations.
-- Pending verification: GitHub Actions, Render deployment and production UI/health checks.
+- GitHub Actions run 45464137380 completed successfully: compileall, pytest (including the new condition regression test), and node --check app/static/app.js all passed. Earlier code commits for the same change set also passed runs 45464030311, 45464057007 and 45464094233.
+- Render deployment dep-dc2tqfp7lnhs73ffcqtg built successfully and reached status live at 2026-11-24 18:54:37 UTC on commit 40dbbed0af77d1bf6ceb90fd47b8def4cf3ca518. Render logs confirmed successful build and service live. Direct external fetch of /api/health was unavailable from the verification client; no database schema or saved career data was changed.
