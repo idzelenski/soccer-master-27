@@ -269,72 +269,242 @@ def _evenly_spaced(values: list[date], amount: int) -> list[date]:
     return [values[index] for index in indexes]
 
 
+def _window_dates(
+    start: date,
+    end: date,
+    weekdays: tuple[int, ...] = (5,),
+    blocked: set[date] | None = None,
+) -> list[date]:
+    blocked_dates = blocked or set()
+    days: list[date] = []
+    current = start
+    while current <= end:
+        if current.weekday() in weekdays and current not in blocked_dates:
+            days.append(current)
+        current += timedelta(days=1)
+    return days
+
+
+def _combine_round_dates(
+    weekend_dates: list[date],
+    midweek_dates: list[date],
+    round_count: int,
+) -> list[date]:
+    if round_count <= 0:
+        return []
+    extras = sorted(set(midweek_dates))[:round_count]
+    weekend_count = max(0, round_count - len(extras))
+    selected = _evenly_spaced(sorted(set(weekend_dates)), weekend_count)
+    result = sorted(set(selected + extras))
+    if len(result) < round_count:
+        candidates = sorted(set(weekend_dates + midweek_dates))
+        result = _evenly_spaced(candidates, round_count)
+    return result[:round_count]
+
+
 def league_schedule_dates(
     tournament_name: str,
     country: str,
     season_start_year: int,
     round_count: int,
 ) -> list[date]:
-    """Build a league-specific domestic calendar and keep most midweeks free for cups/UEFA."""
+    """League-specific calendar; reserve most midweeks for domestic cups and UEFA."""
     name = (tournament_name or "").casefold()
     nation = (country or "").casefold()
     year = int(season_start_year)
     if round_count <= 0:
         return []
 
+    # Russia: 15 rounds before the winter break, 15 after it.
     if "russian premier" in name or "рпл" in name or "российская премьер" in name or nation in {"russia", "россия"}:
         first = _dates_between(date(year, 7, 25), date(year, 12, 6), 5)
         second = _dates_between(date(year + 1, 2, 27), date(year + 1, 5, 29), 5)
         second += [date(year + 1, 3, 17), date(year + 1, 4, 14)]
-        second = sorted(set(second))
         first_rounds = round_count // 2
         second_rounds = round_count - first_rounds
-        return _evenly_spaced(first, first_rounds) + _evenly_spaced(second, second_rounds)
+        return _evenly_spaced(first, first_rounds) + _evenly_spaced(sorted(set(second)), second_rounds)
 
+    # Premier League: 33 weekend rounds plus five designated midweek rounds.
     if "premier league" in name and ("england" in nation or "royaume" in nation or "kingdom" in nation):
         start, end = date(year, 8, 22), date(year + 1, 5, 29)
-        weekends = [
-            day for day in _dates_between(start, end, 5)
-            if not (date(year, 12, 19) <= day <= date(year + 1, 1, 9))
-            and day not in {
-                date(year, 9, 5), date(year, 10, 10), date(year, 11, 14), date(year + 1, 3, 20)
-            }
-        ]
+        blocked = {
+            date(year, 12, 26), date(year + 1, 1, 2),
+            date(year, 9, 5), date(year, 10, 10), date(year, 11, 14), date(year + 1, 3, 20),
+        }
+        weekends = _window_dates(start, end, (5,), blocked)
         midweeks = [
             date(year, 9, 16), date(year, 10, 28), date(year, 12, 2),
             date(year + 1, 1, 27), date(year + 1, 4, 21),
         ]
-        return sorted(_evenly_spaced(weekends, max(0, round_count - len(midweeks))) + midweeks[:round_count])
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    # German Bundesliga: 2026/27 begins Aug 28; winter pause Dec 18-Jan 8.
+    if "bundesliga" in name and "2." not in name and "zweite" not in name:
+        start, end = date(year, 8, 29), date(year + 1, 5, 22)
+        blocked = {date(year, 12, 26), date(year + 1, 1, 2)}
+        weekends = _window_dates(start, end, (5,), blocked)
+        midweeks = [date(year, 10, 28), date(year + 1, 3, 3)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "2. bundesliga" in name:
+        start, end = date(year, 8, 8), date(year + 1, 5, 16)
+        blocked = {
+            date(year, 12, 19), date(year, 12, 26),
+            date(year + 1, 1, 2), date(year + 1, 1, 9),
+        }
+        weekends = _window_dates(start, end, (5,), blocked)
+        midweeks = [date(year, 10, 21), date(year + 1, 2, 24)]
+        return _combine_round_dates(weekends, midweeks, round_count)
 
     if "la liga" in name or "laliga" in name:
         start, end = date(year, 8, 16), date(year + 1, 5, 30)
-        weekends = [
-            day for day in _dates_between(start, end, 6)
-            if not (date(year, 12, 20) <= day <= date(year + 1, 1, 3))
-            and day not in {
-                date(year, 9, 6), date(year, 10, 11), date(year, 11, 15), date(year + 1, 3, 28)
-            }
-        ]
+        blocked = {
+            date(year, 12, 20), date(year, 12, 27), date(year + 1, 1, 3),
+            date(year, 9, 6), date(year, 10, 11), date(year, 11, 15), date(year + 1, 3, 28),
+        }
+        weekends = _window_dates(start, end, (6,), blocked)
         weekends.append(date(year + 1, 5, 29))
         midweeks = [date(year, 9, 16), date(year + 1, 4, 22)]
-        return sorted(_evenly_spaced(sorted(set(weekends)), max(0, round_count - len(midweeks))) + midweeks[:round_count])
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "serie a" in name or "serie b" in name:
+        start, end = date(year, 8, 22), date(year + 1, 5, 30)
+        blocked = {date(year, 12, 26), date(year + 1, 1, 2)}
+        weekends = _window_dates(start, end, (5,), blocked)
+        midweeks = [date(year, 10, 28), date(year + 1, 3, 3)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "ligue 1" in name or "ligue 2" in name:
+        start, end = date(year, 8, 15), date(year + 1, 5, 22)
+        blocked = {date(year, 12, 26), date(year + 1, 1, 2)}
+        weekends = _window_dates(start, end, (5,), blocked)
+        midweeks = [date(year, 10, 21), date(year + 1, 2, 24)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "eredivisie" in name:
+        start, end = date(year, 8, 8), date(year + 1, 5, 16)
+        blocked = {date(year, 12, 26), date(year + 1, 1, 2), date(year + 1, 1, 9)}
+        weekends = _window_dates(start, end, (5,), blocked)
+        midweeks = [date(year, 10, 28), date(year + 1, 3, 10)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "primeira liga" in name:
+        start, end = date(year, 8, 8), date(year + 1, 5, 16)
+        blocked = {date(year, 12, 26), date(year + 1, 1, 2)}
+        weekends = _window_dates(start, end, (5,), blocked)
+        midweeks = [date(year, 11, 4), date(year + 1, 2, 10)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "süper lig" in name or "super lig" in name:
+        start, end = date(year, 8, 15), date(year + 1, 5, 23)
+        blocked = {date(year, 12, 26), date(year + 1, 1, 2), date(year + 1, 1, 9)}
+        weekends = _window_dates(start, end, (5,), blocked)
+        midweeks = [date(year, 10, 28), date(year + 1, 3, 17)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "efl championship" in name or "championship" in name:
+        start, end = date(year, 8, 8), date(year + 1, 5, 8)
+        weekends = _window_dates(start, end, (5,))
+        midweeks = [
+            date(year, 9, 16), date(year, 10, 21), date(year, 12, 9),
+            date(year + 1, 1, 20), date(year + 1, 2, 24),
+            date(year + 1, 3, 24), date(year + 1, 4, 21),
+        ]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    # MLS is a calendar-year competition with an explicit FIFA World Cup pause.
+    if "major league soccer" in name or name == "mls":
+        pre_break = _window_dates(date(year, 2, 21), date(year, 5, 23), (5,))
+        post_break = _window_dates(date(year, 7, 18), date(year, 11, 7), (5,))
+        weekends = pre_break + post_break
+        midweeks = [date(year, 3, 11), date(year, 4, 22), date(year, 9, 16)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    # Brazilian Série A runs through the calendar year and finishes in early December.
+    if "campeonato brasileiro" in name or "série a" in name or "serie a" in name and "ital" not in nation:
+        start, end = date(year, 1, 31), date(year, 12, 2)
+        weekends = _window_dates(start, end, (5,))
+        midweeks = [
+            date(year, 2, 11), date(year, 3, 11), date(year, 4, 8), date(year, 5, 13),
+            date(year, 8, 12), date(year, 9, 16), date(year, 10, 14), date(year, 12, 2),
+        ]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "argentine primera" in name:
+        start, end = date(year, 2, 1), date(year, 12, 6)
+        weekends = _window_dates(start, end, (5,))
+        midweeks = [
+            date(year, 3, 11), date(year, 4, 8), date(year, 5, 13), date(year, 6, 10),
+            date(year, 7, 22), date(year, 8, 19), date(year, 9, 16), date(year, 10, 14),
+            date(year, 11, 11), date(year, 12, 2),
+        ]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "norway" in nation or "norwegian" in name or "eliteserien" in name:
+        start, end = date(year, 3, 15), date(year, 11, 15)
+        weekends = _window_dates(start, end, (6,))
+        midweeks = [date(year, 5, 20), date(year, 7, 1), date(year, 8, 12)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "sweden" in nation or "allsvenskan" in name:
+        start, end = date(year, 4, 5), date(year, 11, 29)
+        weekends = _window_dates(start, end, (6,))
+        midweeks = [date(year, 5, 20), date(year, 7, 1)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "finland" in nation or "finland top" in name:
+        start, end = date(year, 4, 4), date(year, 10, 31)
+        weekends = _window_dates(start, end, (5,))
+        midweeks = [date(year, 6, 10), date(year, 7, 22)]
+        return _combine_round_dates(weekends, midweeks, round_count)
 
     if "saudi" in name or "arabie" in nation or "saudi arabia" in nation:
         start, end = date(year, 8, 14), date(year + 1, 5, 28)
-        Fridays = [
-            day for day in _dates_between(start, end, 4)
-            if not (date(year, 12, 18) <= day <= date(year + 1, 1, 8))
-            and not (date(year + 1, 2, 12) <= day <= date(year + 1, 3, 5))
-        ]
-        return _evenly_spaced(Fridays, round_count)
+        fridays = _window_dates(
+            start, end, (4,),
+            {
+                date(year, 12, 18), date(year, 12, 25),
+                date(year + 1, 1, 1), date(year + 1, 1, 8),
+                date(year + 1, 2, 12), date(year + 1, 2, 19), date(year + 1, 2, 26),
+            },
+        )
+        return _evenly_spaced(fridays, round_count)
 
+    # Southern-hemisphere competitions use their domestic calendar rather than an August-May season.
+    if nation in {"brésil", "brazil", "argentine", "argentina", "chili", "chile", "colombie", "colombia"}:
+        start, end = date(year, 2, 1), date(year, 12, 6)
+        weekends = _window_dates(start, end, (5, 6))
+        midweeks = [
+            date(year, 3, 11), date(year, 4, 8), date(year, 5, 13), date(year, 6, 10),
+            date(year, 7, 22), date(year, 8, 19), date(year, 9, 16), date(year, 10, 14),
+            date(year, 11, 11),
+        ]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "a-league" in name:
+        start, end = date(year, 10, 10), date(year + 1, 5, 23)
+        weekends = _window_dates(start, end, (4, 5))
+        midweeks = [date(year + 1, 2, 10), date(year + 1, 3, 17)]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    if "j1 league" in name or "k league" in name:
+        start, end = date(year, 2, 14), date(year, 11, 28)
+        weekends = _window_dates(start, end, (5, 6))
+        midweeks = [
+            date(year, 4, 15), date(year, 6, 10), date(year, 8, 12), date(year, 9, 23),
+        ]
+        return _combine_round_dates(weekends, midweeks, round_count)
+
+    # Default European calendar: weekend rounds, winter pause, a few midweeks only if needed.
     start, end = date(year, 8, 15), date(year + 1, 5, 29)
-    weekends = [
-        day for day in _dates_between(start, end, 5)
-        if not (date(year, 12, 19) <= day <= date(year + 1, 1, 9))
+    weekends = _window_dates(
+        start, end, (5,),
+        {date(year, 12, 26), date(year + 1, 1, 2)},
+    )
+    midweeks = [
+        date(year, 10, 21), date(year + 1, 2, 24), date(year + 1, 3, 24),
+        date(year + 1, 4, 21), date(year + 1, 5, 5),
     ]
-    if len(weekends) < round_count:
-        midweek = _dates_between(start, end, 2)
-        weekends = sorted(set(weekends + midweek))
-    return _evenly_spaced(weekends, round_count)
+    return _combine_round_dates(weekends, midweeks, round_count)
+
 
