@@ -5,7 +5,7 @@ const state = { manager: null, save: null, summary: null, clubs: [], leagues: []
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (ch) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map((part) => part[0] || '').join('').toUpperCase();
 function flagAssetUrl(code) {
-  const value = String(code || '').trim().toLowerCase();
+  let value = String(code || '').trim().toLowerCase();
   const aliases = {
     eng:'gb-eng', sco:'gb-sct', wal:'gb-wls', nir:'gb-nir',
     bul:'bg', bgr:'bg', kos:'xk', xk:'xk',
@@ -34,9 +34,22 @@ function flagAssetUrl(code) {
     'pays de galles':'gb-wls','wales':'gb-wls','irlande':'ie','ireland':'ie',
     'kosovo':'xk','russie':'ru','russia':'ru','ukraine':'ua','côte d’ivoire':'ci',
     "côte d'ivoire":'ci','ivory coast':'ci','république démocratique du congo':'cd',
-    'democratic republic of the congo':'cd','rd congo':'cd','congo dr':'cd'
+    'democratic republic of the congo':'cd','rd congo':'cd','congo dr':'cd',
+    'equateur':'ec','georgie':'ge','etats-unis':'us','islande':'is','algerie':'dz',
+    'arabie saoudite':'sa','centrafrique':'cf','republique centrafricaine':'cf',
+    'benin':'bj','burkina faso':'bf','burundi':'bi','comores':'km','republique du congo':'cg',
+    'costa rica':'cr','finlande':'fi','gabon':'ga','guinee-bissau':'gw','haiti':'ht',
+    'indonesie':'id','mauritanie':'mr','nigeria':'ng','niger':'ne','paraguay':'py',
+    'drapeau de l angleterre':'gb-eng','drapeau de la belgique':'be','drapeau de la cote d ivoire':'ci',
+    'drapeau de la france':'fr','drapeau de la mauritanie':'mr','drapeau de la norvege':'no',
+    'drapeau de la republique populaire de chine':'cn','drapeau de la suisse':'ch',
+    'drapeau de la republique du congo':'cg','drapeau de la republique democratique du congo':'cd',
+    'drapeau du cameroun':'cm','drapeau du chili':'cl','drapeau du ghana':'gh',
+    'drapeau du maroc':'ma','drapeau du senegal':'sn'
   };
-  const normalized = aliases[value] || names[value] || value;
+  value = value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[’']/g, ' ').replace(/\\s+/g, ' ').trim();
+  const stripped = value.replace(/^drapeau (?:de |du |des )?/, '');
+  const normalized = aliases[value] || aliases[stripped] || names[value] || names[stripped] || value;
   const safe = /^[a-z]{2}$|^gb-(?:eng|sct|wls|nir)$/.test(normalized) ? normalized : '';
   return safe ? 'https://flagcdn.com/w80/' + safe + '.png' : '';
 }
@@ -413,8 +426,12 @@ function renderSquad(players) {
         ? '<span class="player-status suspension-status">Дисквалификация</span>'
         : ''
     ].filter(Boolean).join('');
+    const currentOverall = Number(player.dynamic_overall ?? player.overall);
+    const overallLabel = currentOverall === Number(player.overall)
+      ? String(player.overall)
+      : String(player.overall) + ' <small class="rating-adjustment">↓ ' + currentOverall + '</small>';
     return `<tr class="player-row" data-player-details="${esc(player.id)}">
-      <td><span class="rating">${player.overall}</span></td>
+      <td><span class="rating">${overallLabel}</span></td>
       <td><div class="player-identity"><span class="player-name">${flagIcon(player.nationality_flag || player.nationality, player.nationality || 'Флаг страны')} ${esc(player.name)}</span><span class="player-status-group">${status}</span></div></td>
       <td><span class="position-tag">${esc(player.position)}</span></td>
       <td>${(player.secondary_positions || []).map(pos => `<span class="secondary-position">${esc(pos)}</span>`).join(' ') || '—'}</td>
@@ -446,7 +463,14 @@ function showPlayerDetails(playerId) {
   const labels = keeper
     ? [['DIV','Отражение'],['HAN','Игра руками'],['KIC','Удар'],['REF','Реакция'],['SPE','Скорость'],['POS','Позиционирование']]
     : [['PAC','Скорость'],['SHO','Удар'],['PAS','Пас'],['DRI','Дриблинг'],['DEF','Защита'],['PHY','Физика']];
-  const bars = labels.map(([code,label]) => `<div class="attribute-item"><div><b>${code}</b><span>${label}</span><strong>${stats[code] ?? player.overall}</strong></div><i><span style="width:${stats[code] ?? player.overall}%"></span></i></div>`).join('');
+  const conditionModifier = Number(player.condition_modifier || 0);
+  const bars = labels.map(([code,label]) => {
+    const base = Number(stats[code] ?? player.overall);
+    const current = Math.max(1, Math.min(99, base + conditionModifier));
+    const changed = current !== base;
+    const indicator = current < base ? '↓' : '↑';
+    return `<div class="attribute-item"><div><b>${code}</b><span>${label}</span><strong>${changed ? `<s>${base}</s> <em class="attribute-adjustment ${current < base ? 'down' : 'up'}">${indicator} ${current}</em>` : base}</strong></div><i><span style="width:${current}%"></span></i></div>`;
+  }).join('');
   const trainOptions = (POSITION_TRAINING_OPTIONS[player.position] || [])
     .filter(position => !(player.secondary_positions || []).includes(position));
   const isTraining = Boolean(player.position_training_target);
@@ -465,7 +489,7 @@ function showPlayerDetails(playerId) {
       <div class="player-modal-head">
         <div class="player-modal-flag">${flagIcon(player.nationality_flag || player.nationality, player.nationality || 'Флаг страны')}</div>
         <div><div class="eyebrow">ПРОФИЛЬ ФУТБОЛИСТА</div><h2>${esc(player.name)}</h2><p>${esc(player.nationality || 'Национальность не указана')} · ${player.age} лет · ${esc(player.position)}</p></div>
-        <div class="player-modal-ratings"><b>${player.overall}</b><span>OVR</span><b>${player.potential}</b><span>POT</span></div>
+        <div class="player-modal-ratings"><b>${player.dynamic_overall ?? player.overall}</b><span>ОВР ${player.dynamic_overall !== player.overall ? `(база ${player.overall})` : ''}</span><b>${player.potential}</b><span>POT</span></div>
       </div>
       <div class="player-modal-grid">
         <div class="player-metric"><small>Дополнительные позиции</small><b>${(player.secondary_positions || []).map(esc).join(' · ') || 'Не освоены'}</b></div>
@@ -692,7 +716,9 @@ function renderTactics(players, tactics) {
   const slots = formationSlots(formation);
   const byId = new Map(players.map(player => [String(player.id),player]));
   const pitchPlayers = slots.map((slot,index) => {
-    const player = byId.get(state.tacticSlots[index]);
+    const storedPlayer = byId.get(state.tacticSlots[index]);
+    const unavailable = storedPlayer && (Number(storedPlayer.injury_days_remaining || 0) > 0 || Number(storedPlayer.suspension_matches || 0) > 0);
+    const player = unavailable ? null : storedPlayer;
     const selected = state.selectedTacticSlot === index;
     const rating = player ? (player.dynamic_overall ?? player.overall) + positionPenalty(player,slot.role) : null;
     return `<button type="button" class="pitch-player ${selected ? "selected" : ""} ${player ? "" : "empty"}" style="left:${slot.left}%;top:${slot.top}%" data-pitch-slot="${index}" data-drop-slot="${index}" draggable="${Boolean(player)}" ${player ? `data-player-id="${esc(player.id)}"` : ""}>
@@ -703,7 +729,7 @@ function renderTactics(players, tactics) {
   const reserveIds = currentReserveIds();
   const bench = state.tacticBench.map(id => {
     const p=byId.get(id);
-    return p ? '<div class="tactic-roster-item"><button class="tactic-player-row bench-player ' +
+    return p && !Number(p.injury_days_remaining || 0) && !Number(p.suspension_matches || 0) ? '<div class="tactic-roster-item"><button class="tactic-player-row bench-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
       (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag || p.nationality,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
@@ -711,7 +737,7 @@ function renderTactics(players, tactics) {
   }).join("");
   const reserves = reserveIds.map(id=>{
     const p=byId.get(id);
-    return p ? '<div class="tactic-roster-item"><button class="tactic-player-row reserve-player ' +
+    return p && !Number(p.injury_days_remaining || 0) && !Number(p.suspension_matches || 0) ? '<div class="tactic-roster-item"><button class="tactic-player-row reserve-player ' +
       (state.selectedTacticPlayer===String(id) ? 'selected' : '') +
       '" draggable="true" data-player-id="' + esc(id) + '"><b>' +
       (p.dynamic_overall ?? p.overall) + '</b><span>' + flagIcon(p.nationality_flag || p.nationality,p.nationality || "Флаг страны") + esc(playerSurname(p.name)) +
