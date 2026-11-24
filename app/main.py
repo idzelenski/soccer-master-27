@@ -1082,6 +1082,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                   p.potential,p.market_value,p.market_value_source,p.weekly_wage,p.contract_end,
                   p.fatigue,p.form,p.morale,p.sharpness,p.position_training_target,
                   p.position_training_progress,p.fc27_player_id,p.injury_type,p.injury_until,
+                  p.suspension_matches,
                   p.attributes,p.original_data,p.profile_source,p.source_url,
                   fc.source_url AS fc27_source_url
            FROM players p
@@ -1093,10 +1094,18 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         (save["id"], save["managed_club_id"]),
     ).fetchall()
     result = []
+    game_date = save["game_date"].date() if isinstance(save["game_date"], datetime) else save["game_date"]
     for row in rows:
         player = dict(row)
         player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
         player["secondary_positions"] = list(player.get("secondary_positions") or [])
+        injury_until = player.get("injury_until")
+        if isinstance(injury_until, datetime):
+            injury_until = injury_until.date()
+        player["injury_days_remaining"] = max(0, (injury_until - game_date).days) if injury_until and game_date else 0
+        injury = INJURY_BY_KEY.get(player.get("injury_type"))
+        player["injury_name"] = injury["name"] if injury else player.get("injury_type")
+        player["suspension_matches"] = int(player.get("suspension_matches") or 0)
         result.append(player)
     return serialise(result)
 
