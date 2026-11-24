@@ -1140,6 +1140,16 @@ function renderTable(tournaments, detail = null) {
     <section class="panel"><div class="panel-head"><h3>Статистика игроков</h3><span>СРЕДНЯЯ ОЦЕНКА · G+A · MVP</span></div>
       ${renderTournamentPlayers(detail.players)}
     </section>
+    <section class="panel"><div class="panel-head"><h3>Матчи турнира</h3><span>${(detail.matches || []).length} МАТЧЕЙ · НАЖМИ ДЛЯ ОТЧЁТА</span></div>
+      <div class="tournament-fixtures">${(detail.matches || []).map(match => `
+        <button type="button" class="tournament-match-card" data-fixture-id="${esc(match.id)}">
+          <span class="tournament-match-meta">${match.matchday ? 'ТУР ' + match.matchday : esc(match.stage || 'МАТЧ')} · ${dateLabel(match.match_date)}</span>
+          <span class="tournament-match-team">${crest(match.home_name,match.home_logo)}<b>${esc(match.home_name)}</b></span>
+          <strong class="tournament-match-score">${match.status === 'completed' ? match.home_score + ' : ' + match.away_score : '— : —'}</strong>
+          <span class="tournament-match-team away">${crest(match.away_name,match.away_logo)}<b>${esc(match.away_name)}</b></span>
+          <span class="tournament-match-open">${match.status === 'completed' ? 'ОТЧЁТ ↗' : 'ПРЕВЬЮ ↗'}</span>
+        </button>`).join('') || '<div class="empty-state">Матчи пока не созданы</div>'}</div>
+    </section>
     <div class="tournament-analytics">
       <section class="panel"><h3>Больше всего голов</h3>${topGoals.map((team,index)=>`<div class="analytics-row"><b>${index+1}</b>${crest(team.name,team.logo_url)}<span>${esc(team.name)}</span><strong>${team.goals}</strong></div>`).join('') || '<div class="empty-state">Пока нет голов</div>'}</section>
       <section class="panel"><h3>Высший средний рейтинг</h3>${topTeamsRating.map((team,index)=>`<div class="analytics-row"><b>${index+1}</b>${crest(team.name,team.logo_url)}<span>${esc(team.name)}</span><strong>${Number(team.average_rating).toFixed(2)}</strong></div>`).join('') || '<div class="empty-state">Рейтинги появятся после матчей</div>'}</section>
@@ -1149,7 +1159,8 @@ async function renderCurrent() {
   const tab = state.tab;
   const titles = {home:'Обзор',squad:'Состав',tactics:'Тактика',fixtures:'Календарь',table:'Таблицы'};
   const title = titles[tab] || 'SM27';
-  const cached = Object.prototype.hasOwnProperty.call(state.tabCache, tab);
+  const cacheKey = tab === 'table' ? 'tournaments' : tab;
+  const cached = Object.prototype.hasOwnProperty.call(state.tabCache, cacheKey);
   if (!cached) {
     shell(pageHead('ЦЕНТР УПРАВЛЕНИЯ', 'Загружаем ' + title.toLowerCase(), 'Получаем данные карьеры…') +
       '<section class="panel"><div class="empty-state"><strong>Загрузка…</strong>Загружаем данные карьеры…</div></section>', title);
@@ -1202,6 +1213,9 @@ async function renderCurrent() {
         state.selectedTournamentId = null;
         renderCurrent();
       });
+      document.querySelectorAll('[data-fixture-id]').forEach(button => button.addEventListener('click', () => {
+        showMatchDetails(button.dataset.fixtureId);
+      }));
     }
     if (state.save && !state.preloadStarted) void preloadCareerTabs();
   } catch (err) {
