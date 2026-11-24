@@ -768,6 +768,18 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                VALUES (%s,%s,%s,'2026/27') ON CONFLICT DO NOTHING""",
             (game_state_id, tournament["id"], club_id),
         )
+        player_insert_sql = """INSERT INTO players (
+                   game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
+                   secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
+                   attributes,original_data,source_name,source_url,data_verified_at,
+                   form,morale,sharpness,nationality_flag,profile_source,fc27_player_id,
+                   market_value_source
+               ) VALUES (
+                   %s,%s,%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+                   50,70,85,%s,%s,%s,%s
+               )
+               ON CONFLICT (game_state_id,external_id) DO NOTHING"""
+        player_inserts = []
         player_rows = conn.execute(
             """SELECT wp.source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
                       wp.market_value_eur,wp.market_value_as_of,wp.source_url,wp.raw_data,
@@ -840,27 +852,16 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 )
             raw["market_value_source"] = market_value_source
             raw["market_value_as_of"] = market_value_as_of
-            conn.execute(
-                """INSERT INTO players (
-                       game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
-                       secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
-                       attributes,original_data,source_name,source_url,data_verified_at,
-                       form,morale,sharpness,nationality_flag,profile_source,fc27_player_id,
-                       market_value_source
-                   ) VALUES (
-                       %s,%s,%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       50,70,85,%s,%s,%s,%s
-                   )
-                   ON CONFLICT (game_state_id,external_id) DO NOTHING""",
-                (
-                    game_state_id, club_id, source_id, player["name"], player["nationality"], dob, age, position,
-                    overall, potential, market_value, weekly_wage, contract_end,
-                    Jsonb(attributes), Jsonb(raw),
-                    "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
-                    researched["source_url"] if researched else player["source_url"], market_value_as_of,
-                    flag_for_nationality(player["nationality"]), profile_source, fc27_id, market_value_source,
-                ),
-            )
+            player_inserts.append((
+                game_state_id, club_id, source_id, player["name"], player["nationality"], dob, age, position,
+                overall, potential, market_value, weekly_wage, contract_end,
+                Jsonb(attributes), Jsonb(raw),
+                "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
+                researched["source_url"] if researched else player["source_url"], market_value_as_of,
+                flag_for_nationality(player["nationality"]), profile_source, fc27_id, market_value_source,
+            ))
+        if player_inserts:
+            conn.executemany(player_insert_sql, player_inserts)
     for team in team_records:
         ensure_demo_roster(conn, game_state_id, team["id"], team["name"], team["reputation"])
         lineup_rows = conn.execute(
