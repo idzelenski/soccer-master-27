@@ -1844,7 +1844,7 @@ def _record_match_detail(
 
         # About two to four time-loss injuries per club across a 30–38 match season.
         for player in starters:
-            if rng.random() >= 0.006:
+            if rng.random() >= 0.008:
                 continue
             injury = rng.choice(INJURY_CATALOG)
             days_out = rng.randint(int(injury["min_days"]), int(injury["max_days"]))
@@ -1853,7 +1853,7 @@ def _record_match_detail(
             injury_updates.append((injury["key"], return_date, player["id"]))
             event_rows.append((
                 fixture["id"], minute, "injury", club_id, player["id"], None,
-                Jsonb({"simulated": True, "injury": injury["key"], "name": injury["name"], "days_out": days_out}),
+                Jsonb({"simulated": True, "injury": injury["key"], "name": injury["name"], "days_out": days_out, "return_date": return_date.isoformat(), "reason": "Повреждение во время матча"}),
             ))
             record_by_id[player["id"]]["minutes_played"] = minute
             break
@@ -2035,8 +2035,9 @@ def simulate_matchday(
     match_date: date,
     matchday: int | None = None,
     tournament_id: str | None = None,
+    through_date: date | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    """Simulate every fixture in a tournament round, even if it spans Fri/Sat/Sun."""
+    """Simulate only fixtures through a date; matchdays may span multiple dates."""
     conn.execute(
         """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
                   sharpness=LEAST(100,sharpness+4),updated_at=now()
@@ -2050,8 +2051,9 @@ def simulate_matchday(
                FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
                WHERE f.game_state_id=%s AND f.status='scheduled'
                  AND f.matchday=%s AND f.tournament_id=%s
+                 AND (%s IS NULL OR f.match_date::date<=%s)
                ORDER BY f.match_date,f.id""",
-            (save["id"], matchday, tournament_id),
+            (save["id"], matchday, tournament_id, through_date, through_date),
         ).fetchall()
     else:
         rows = conn.execute(
@@ -2216,7 +2218,7 @@ def advance_game_to_date(
            FROM fixtures
            WHERE game_state_id=%s AND status='scheduled'
            GROUP BY tournament_id,matchday
-           HAVING max(match_date::date)<=%s
+           HAVING min(match_date::date)<=%s
            ORDER BY min(match_date),matchday""",
         (save["id"], target_date),
     ).fetchall()
@@ -2224,7 +2226,8 @@ def advance_game_to_date(
     manager_results: list[dict] = []
     for row in rounds:
         completed, own_results = simulate_matchday(
-            conn, save, row["match_date"], int(row["matchday"]), str(row["tournament_id"])
+            conn, save, row["match_date"], int(row["matchday"]), str(row["tournament_id"]),
+            through_date=target_date
         )
         matches_simulated += len(completed)
         manager_results.extend(own_results)
