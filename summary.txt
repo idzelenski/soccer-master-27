@@ -343,3 +343,15 @@ SM27 — футбольный менеджер / симулятор карьер
 - Добавлена немедленная визуальная обратная связь для нажатия кнопок (active-state, touch-action); это не отменяет задержку сетевого ответа или пробуждения бесплатного Render-инстанса.
 - В production Render по-прежнему обслуживает старый commit 28b7a2c; код из PR #3 и PR #5 ещё не подтверждён в live. До успешного deployment и проверки сайта нельзя считать новые механики включёнными в production.
 - Neon не менялся. SQL-миграция 004 уже присутствует в main, но её применение к production отдельно не подтверждено; перед релизом требуется проверить startup migration и Render logs.
+
+
+30. ПРОВЕРКА PRODUCTION ПОСЛЕ РЕЛИЗА MATCH FEEDBACK (2026-11-24)
+- PR #6 https://github.com/idzelenski/soccer-master-27/pull/6 влит squash-коммитом fc2de9689c0dd14af4439d809b852407bcc088e1.
+- GitHub Actions run 45407078492 (run 126) завершился success: compileall, pytest и node --check app/static/app.js.
+- Render deploy dep-dc2pb8ui0phs73bh5ekg для fc2de96 завершился live 2026-11-24 13:49:28 UTC. Логи: Application startup complete, Uvicorn running, GET / → 200 OK.
+- В app/static/app.js отчёт матча теперь открывает loading modal сразу по клику, не ожидая API; закрытие окна до ответа не позволяет позднему ответу открыть его повторно. В app/static/app.css добавлен мгновенный pressed-state кнопок. Это не устраняет cold start бесплатного Render после простоя.
+- Read-only проверка production Neon после релиза: players_without_market_value=0; tournaments_total=4; tournaments_with_https_logo=4; fixture_player_stats=37 840 строк; match_events=4 615 строк; все 3 поля injury_type/injury_until/suspension_matches присутствуют; player_competition_discipline существует.
+- Проверка расписания Russian Premier League в production: 240 запланированных матчей, 30 туров, 90 разных дат, 6 разных дней недели; диапазон 2026-07-24 — 2027-05-30. Следовательно, прежняя проблема окончания сезона в марте исправлена для RPL.
+- Каталог содержит 99 комбинаций league_code/league_name/country. В engine.py есть отдельные календарные профили для основных лиг и региональные fallback-правила; не все 99 комбинаций имеют уникальный отдельный профиль. Это остаётся известным незавершённым пунктом и требует расширения по фактическому списку лиг.
+- Все 4 турнира, существующие в production сейчас, имеют HTTPS logo_url. Это проверка наличия URL в БД, не визуальная проверка загрузки каждого внешнего файла.
+- Neon проверялся только read-only запросами; пользовательские данные не изменялись вручную.
