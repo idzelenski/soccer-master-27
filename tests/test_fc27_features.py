@@ -402,3 +402,26 @@ def test_match_simulation_role_penalties_cover_all_outfield_positions():
     assert position_penalty("CM", [], "ST") == -10
     assert position_penalty("RWB", [], "CB") == -5
     assert position_penalty("LWB", [], "CB") == -5
+
+
+def test_best_lineup_handles_full_30_player_squad_with_unique_starters_and_bench():
+    from app.main import best_lineup
+
+    positions = ["GK", "RB", "CB", "CB", "LB", "CDM", "CM", "CAM", "LM", "RM",
+                 "LW", "RW", "ST", "CF", "RWB", "LWB"]
+    squad = [
+        {
+            "id": f"player-{index:02d}",
+            "position": positions[index % len(positions)],
+            "secondary_positions": [],
+            "overall": 90 - (index % 25),
+        }
+        for index in range(30)
+    ]
+    starters, bench, roles = best_lineup(squad, "4-3-3")
+
+    assert len(starters) == 11
+    assert len(set(starters)) == 11
+    assert len(bench) == 7
+    assert not set(starters).intersection(bench)
+    assert len(roles) == 11
