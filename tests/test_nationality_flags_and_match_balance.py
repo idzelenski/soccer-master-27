@@ -43,6 +43,9 @@ def test_localised_country_names_resolve_to_flags():
         "Países Bajos": "nl",
         "Alemania": "de",
         "Ucrania": "ua",
+        "Holland": "nl",
+        "Republic of Ireland": "ie",
+        "Congo DR": "cd",
     }
     for nationality, flag_code in expected.items():
         assert flag_for_nationality(nationality) == flag_code
