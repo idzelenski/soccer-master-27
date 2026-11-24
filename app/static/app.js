@@ -1021,9 +1021,18 @@ function matchStatRow(label, homeValue, awayValue, suffix = '') {
   </div>`;
 }
 async function showMatchDetails(fixtureId) {
+  document.getElementById('match-detail-modal')?.remove();
+  const loadingModal = document.createElement('div');
+  loadingModal.id = 'match-detail-modal';
+  loadingModal.className = 'match-modal-backdrop';
+  loadingModal.innerHTML = '<section class="match-modal panel"><button type="button" class="modal-close" id="close-match-modal" aria-label="Закрыть">×</button><div class="empty-state"><span class="loading-spinner"></span><strong>Загружаем отчёт матча</strong>Получаем события, оценки и статистику…</div></section>';
+  loadingModal.addEventListener('click', event => { if (event.target === loadingModal) loadingModal.remove(); });
+  document.body.appendChild(loadingModal);
+  loadingModal.querySelector('#close-match-modal').addEventListener('click', () => loadingModal.remove());
   try {
     const data = await api('/api/matches/' + encodeURIComponent(fixtureId));
-    document.getElementById('match-detail-modal')?.remove();
+    if (!loadingModal.isConnected) return;
+    loadingModal.remove();
     const fixture = data.fixture || {};
     const stats = data.stats;
     const home = stats?.home || {};
@@ -1100,6 +1109,7 @@ async function showMatchDetails(fixtureId) {
     document.getElementById('close-match-modal').addEventListener('click', () => modal.remove());
     modal.addEventListener('click', event => { if (event.target === modal) modal.remove(); });
   } catch (error) {
+    document.getElementById('match-detail-modal')?.remove();
     toast(error.message, true);
   }
 }
