@@ -34,8 +34,8 @@ def expected_goals(
     home_strength = (home_reputation * 0.58 + home_overall * 0.42) / 100
     away_strength = (away_reputation * 0.58 + away_overall * 0.42) / 100
     difference = clamp(home_strength - away_strength, -0.55, 0.55)
-    home_xg = clamp(1.42 * math.exp(difference * 3.0) + home_advantage, 0.18, 3.6)
-    away_xg = clamp(1.18 * math.exp(-difference * 3.0), 0.12, 3.1)
+    home_xg = clamp(1.42 * math.exp(difference * 3.6) + home_advantage, 0.18, 3.6)
+    away_xg = clamp(1.18 * math.exp(-difference * 3.6), 0.12, 3.1)
     return round(home_xg, 2), round(away_xg, 2)
 
 
