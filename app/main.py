@@ -1884,9 +1884,10 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
         (save["id"],),
     ).fetchone()
     if not next_round:
+        calendar_year_season = bool((save.get("game_settings") or {}).get("calendar_year_season"))
         current_year = int(str(save.get("season") or "2026/27")[:4])
         next_year = current_year + 1
-        next_season = f"{next_year}/{(next_year + 1) % 100:02d}"
+        next_season = str(next_year) if calendar_year_season else f"{next_year}/{(next_year + 1) % 100:02d}"
         tournament_id = conn.execute(
             """SELECT tournament_id FROM club_tournaments
                WHERE game_state_id=%s AND season=%s
@@ -1906,11 +1907,15 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
                ON CONFLICT (game_state_id,tournament_id,club_id,season) DO NOTHING""",
             (next_season, save["id"], save["season"]),
         )
+        first_day = (
+            date(next_year, 2, 1) if calendar_year_season and save.get("club_league") == "Major League Soccer"
+            else date(next_year, 1, 1) if calendar_year_season
+            else date(next_year, 7, 1)
+        )
         create_schedule(
             conn, str(save["id"]), str(tournament_id["tournament_id"]),
-            [dict(club) for club in clubs], season=next_season,
+            [dict(club) for club in clubs], season=next_season, start_date=first_day,
         )
-        first_day = date(next_year, 7, 1)
         conn.execute(
             """UPDATE game_states SET season=%s,game_date=%s,simulation_cursor=%s,
                       last_autosave_at=now(),updated_at=now() WHERE id=%s""",
@@ -1942,8 +1947,9 @@ def advance_game_to_date(
     current_date = save["game_date"].date() if isinstance(save["game_date"], datetime) else save["game_date"]
     if target_date < current_date:
         raise HTTPException(status_code=409, detail="Нельзя перемотать карьеру назад")
+    calendar_year_season = bool((save.get("game_settings") or {}).get("calendar_year_season"))
     season_start_year = int(str(save.get("season") or "2026/27")[:4])
-    season_end = date(season_start_year + 1, 6, 30)
+    season_end = date(season_start_year, 12, 31) if calendar_year_season else date(season_start_year + 1, 6, 30)
     if target_date > season_end:
         raise HTTPException(status_code=422, detail="Выбери дату внутри текущего игрового сезона")
     rounds = conn.execute(
