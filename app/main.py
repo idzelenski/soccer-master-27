@@ -294,7 +294,12 @@ def flag_for_nationality(value: str | None) -> str:
     key = (value or "").strip().casefold()
     if not key:
         return ""
+    ascii_original = unicodedata.normalize("NFKD", key).encode("ascii", "ignore").decode("ascii")
+    for candidate in (key, ascii_original):
+        if candidate in FLAG_SPECIAL_CODES:
+            return FLAG_SPECIAL_CODES[candidate]
     key = re.sub(r"^(?:drapeau de |drapeau du |drapeau des |flag of )", "", key).strip()
+    key = re.sub(r"^(?:la |le |les |l['’])", "", key).strip()
     ascii_key = unicodedata.normalize("NFKD", key).encode("ascii", "ignore").decode("ascii")
     for candidate in (key, ascii_key):
         if candidate in FLAG_SPECIAL_CODES:
