@@ -894,7 +894,7 @@ button:disabled {
   display: flex;
   min-height: 38px;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
   gap: 4px;
 }
@@ -905,7 +905,7 @@ button:disabled {
   gap: 5px;
 }
 .player-identity .player-status {
-  align-self: flex-start;
+  align-self: center;
   margin: 0;
 }
 
