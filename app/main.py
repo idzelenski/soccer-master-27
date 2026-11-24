@@ -28,12 +28,93 @@ from app.auth import (
 )
 from app.config import settings
 from app.db import close_pool, connection, migrate
-from app.engine import overall_from_market_value, potential_from_overall, round_robin, simulate_score
+from app.engine import (
+    INJURY_CATALOG,
+    estimate_transfer_value,
+    league_schedule_dates,
+    overall_from_market_value,
+    potential_from_overall,
+    round_robin,
+    simulate_score,
+)
 from app.schemas import CreateSaveIn, LoginIn, PositionTrainingIn, RegisterIn, TacticIn
 from app.researched_profiles import get_researched_profile
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOGGER = logging.getLogger("sm27")
+
+
+def _round_kickoff(anchor: date, game_index: int) -> datetime:
+    """Spread fixtures across Fri/Sat/Sun, or Tue/Wed/Thu for a midweek round."""
+    slot = game_index % 3
+    if anchor.weekday() == 4:
+        match_day, hours = anchor + timedelta(days=(0, 1, 2)[slot]), (20, 17, 15)
+    elif anchor.weekday() == 5:
+        match_day, hours = anchor + timedelta(days=(-1, 0, 1)[slot]), (17, 14, 16)
+    elif anchor.weekday() == 6:
+        match_day, hours = anchor + timedelta(days=(-2, -1, 0)[slot]), (17, 14, 16)
+    else:
+        match_day, hours = anchor + timedelta(days=(-1, 0, 1)[slot]), (19, 19, 20)
+    return datetime.combine(match_day, datetime.min.time()).replace(tzinfo=timezone.utc) + timedelta(hours=hours[slot])
+
+
+def repair_legacy_schedules(conn: Connection) -> int:
+    """Re-date untouched legacy seasons that put every matchday on the same weekday."""
+    legacy = conn.execute(
+        """SELECT f.game_state_id,f.tournament_id,f.season,t.name,t.country,
+                  count(*) FILTER (WHERE f.status='completed')::int AS completed,
+                  count(*) FILTER (WHERE f.status='scheduled')::int AS scheduled,
+                  count(DISTINCT extract(dow FROM f.match_date)) FILTER (WHERE f.status='scheduled')::int AS weekdays,
+                  count(DISTINCT f.matchday)::int AS rounds,
+                  count(DISTINCT f.home_club_id)::int AS teams
+           FROM fixtures f
+           JOIN game_states gs ON gs.id=f.game_state_id
+           JOIN tournaments t ON t.id=f.tournament_id
+           WHERE gs.status='active' AND t.tournament_type='league'
+           GROUP BY f.game_state_id,f.tournament_id,f.season,t.name,t.country
+           HAVING count(*) FILTER (WHERE f.status='completed')=0
+              AND count(*) FILTER (WHERE f.status='scheduled')>0
+              AND count(DISTINCT extract(dow FROM f.match_date)) FILTER (WHERE f.status='scheduled')=1
+              AND count(DISTINCT f.home_club_id)>=6
+           ORDER BY f.game_state_id,t.name"""
+    ).fetchall()
+    updated = 0
+    for competition in legacy:
+        # The league must still have a complete untouched round-robin schedule.
+        round_rows = conn.execute(
+            """SELECT matchday,min(match_date)::date AS old_date,
+                      array_agg(id ORDER BY home_club_id,away_club_id) AS fixture_ids
+               FROM fixtures
+               WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND status='scheduled'
+               GROUP BY matchday ORDER BY matchday""",
+            (competition["game_state_id"],competition["tournament_id"],competition["season"]),
+        ).fetchall()
+        if len(round_rows) != int(competition["rounds"]):
+            continue
+        season_year = int(str(competition["season"])[:4])
+        anchors = league_schedule_dates(
+            competition["name"],competition["country"] or "",season_year,len(round_rows)
+        )
+        if len(anchors) != len(round_rows):
+            continue
+        updates: list[tuple[datetime,str]] = []
+        for round_index,(round_row,anchor) in enumerate(zip(round_rows,anchors)):
+            fixture_ids = [str(item) for item in round_row["fixture_ids"]]
+            for game_index,fixture_id in enumerate(fixture_ids):
+                updates.append((_round_kickoff(anchor,game_index),fixture_id))
+        if updates:
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    """UPDATE fixtures SET match_date=%s
+                       WHERE id=%s AND game_state_id=%s AND status='scheduled'""",
+                    [(kickoff,fixture_id,competition["game_state_id"]) for kickoff,fixture_id in updates],
+                )
+            updated += len(updates)
+            LOGGER.info(
+                "Repaired legacy calendar for save %s, competition %s: %s scheduled fixtures",
+                competition["game_state_id"],competition["name"],len(updates),
+            )
+    return updated
 
 
 def _run_fc27_rating_import() -> None:
@@ -69,6 +150,9 @@ async def lifespan(_: FastAPI):
         start_fc27_import = False
         with connection() as conn:
             migrate(conn)
+            repaired_fixtures = repair_legacy_schedules(conn)
+            if repaired_fixtures:
+                LOGGER.info("Repaired %s legacy scheduled fixtures", repaired_fixtures)
             state = conn.execute(
                 """SELECT status,(attempted_at < now()-interval '30 minutes') AS retryable
                    FROM fc27_import_state WHERE import_key='ratings'"""
@@ -200,12 +284,59 @@ def player_attributes(overall: int, position: str, source_id: str = "") -> dict[
     return {key: max(20, min(99, rating + offset)) for key, offset in offsets.items()}
 
 
-def estimated_market_value(overall: int, potential: int, age: int) -> int:
-    """Conservative fallback only; fictional academy players and unverified values stay blank."""
-    age_factor = 1.12 if age <= 21 else 1.05 if age <= 24 else 1.0 if age <= 29 else max(0.35, 1 - (age - 29) * 0.055)
-    potential_factor = 1 + max(0, potential - overall) * 0.008
-    value = 50_000 * math.exp(max(-1.0, min(4.2, (overall - 45) * 0.105))) * age_factor * potential_factor
-    return int(round(max(25_000, value) / 10_000) * 10_000)
+def estimated_market_value(
+    overall: int,
+    potential: int,
+    age: int,
+    league: str = "",
+    country: str = "",
+    attributes: dict[str, Any] | None = None,
+) -> int:
+    """SM27 transfer-value estimate calibrated by competition, age, OVR and role traits."""
+    return estimate_transfer_value(overall, potential, age, league, country, attributes)
+
+
+INJURY_BY_KEY = {item["key"]: item for item in INJURY_CATALOG}
+
+
+def tournament_logo_url(name: str | None, country: str | None = None) -> str | None:
+    title = (name or "").casefold()
+    nation = (country or "").casefold()
+    if "russian premier" in title or "российская премьер" in title or "рпл" in title:
+        return "https://fc-ural.ru/uploads/main/01d/a5b552980d57e977e8e3ab4d4c175d7f672e1ac8822ad6cc2892ff7a2f25f387/mir_rpl_01.png"
+    if "premier league" in title and ("royaume" in nation or "kingdom" in nation or "england" in nation):
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Premier%20League.svg"
+    if "champions league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Champions%20League%20logo.svg"
+    if "conference league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/UEFA%20Conference%20League%20logo.svg"
+    if "europa league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Europa%20League%202021.svg"
+    if "la liga" in title or "laliga" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/LaLiga%20logo%202023.svg"
+    if "bundesliga" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Bundesliga%20logo.svg"
+    if "serie a" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Serie%20A%20logo%202022.svg"
+    if "ligue 1" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Ligue%201%20McDonald%27s%20logo.svg"
+    if "eredivisie" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Eredivisie%20nieuw%20logo%202017-.svg"
+    if "primeira liga" in title or "liga portugal" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Liga%20Portugal%20Betclic%20logo.svg"
+    if "major league soccer" in title or title == "mls":
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Major%20League%20Soccer%20Crest%20Logo%20Black%20Transparent%202024.svg"
+    if "campeonato brasileiro" in title or "série a" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Campeonato_Brasileiro_S%C3%A9rie_A_logo_%282026%29.svg"
+    if "liga profesional" in title or "argentine primera" in title or "primera división" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Liga_Profesional_de_F%C3%BAtbol_%28Argentina%29_wordmark.svg"
+    if "championship" in title or "efl championship" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/EFL_Championship_Wordmark.svg"
+    if "j1 league" in title or "j league" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/J1_league_logo_2026.svg"
+    if "saudi" in title:
+        return "https://commons.wikimedia.org/wiki/Special:FilePath/Saudi%20Pro%20League%20Logo.svg"
+    return None
 
 
 FC27_WAGE_OVERRIDES = {
@@ -263,7 +394,7 @@ def estimated_contract_end(age: int, source_id: str) -> date:
 
 def require_save(conn: Connection, manager_id: str) -> dict:
     row = conn.execute(
-        """SELECT gs.id, gs.game_date, gs.season, gs.save_name, gs.managed_club_id,
+        """SELECT gs.id, gs.game_date, gs.season, gs.save_name, gs.managed_club_id, gs.game_settings,
                   c.name AS club_name, c.league, c.country, c.logo_url, c.reputation,
                   m.manager_name
            FROM game_states gs
@@ -318,7 +449,15 @@ def make_club(conn: Connection, game_state_id: str, pool_row: dict) -> str:
     return str(row["id"])
 
 
-def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_name: str, reputation: int) -> None:
+def ensure_demo_roster(
+    conn: Connection,
+    game_state_id: str,
+    club_id: str,
+    club_name: str,
+    reputation: int,
+    league: str = "",
+    country: str = "",
+) -> None:
     existing = conn.execute(
         "SELECT count(*) AS n FROM players WHERE game_state_id=%s AND club_id=%s",
         (game_state_id, club_id),
@@ -331,20 +470,27 @@ def ensure_demo_roster(conn: Connection, game_state_id: str, club_id: str, club_
         age = 18 + (index % 12)
         overall = max(40, min(82, reputation - 8 + (index % 7)))
         potential = min(92, overall + 4 + (index % 7))
+        attributes = player_attributes(overall, position, source_id)
+        market_value = estimated_market_value(overall, potential, age, league, country, attributes)
         conn.execute(
             """INSERT INTO players (
                    game_state_id,club_id,external_id,name,age,position,secondary_positions,
                    overall,potential,market_value,weekly_wage,contract_end,attributes,
                    original_data,source_name,profile_source,market_value_source,form,morale,sharpness
-               ) VALUES (%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,0,%s,%s,%s,%s,
-                         'SM27 generated roster','SM27 generated academy player','not_available',50,70,85)""",
+               ) VALUES (%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,
+                         'SM27 generated roster','SM27 generated academy player','SM27 estimate',50,70,85)""",
             (
                 game_state_id, club_id, source_id, f"Игрок академии {index:02d}", age, position,
-                overall, potential,
+                overall, potential, market_value,
                 estimated_weekly_wage(overall, age, reputation, generated=True),
                 estimated_contract_end(age, source_id),
-                Jsonb(player_attributes(overall, position, source_id)),
-                Jsonb({"generated": True, "note": "Fictional game placeholder, not a real player"}),
+                Jsonb(attributes),
+                Jsonb({
+                    "generated": True,
+                    "note": "Fictional game placeholder, not a real player",
+                    "market_value_source": "SM27 estimate",
+                    "market_value_model": "league-age-ovr-potential-attributes-v1",
+                }),
             ),
         )
 
@@ -480,24 +626,71 @@ def create_schedule(
     tournament_id: str,
     teams: list[dict],
     season: str = "2026/27",
-    start_date: date = date(2026, 8, 15),
+    start_date: date | None = None,
 ) -> None:
+    """Create a league calendar, keeping reserved midweeks clear for cups and UEFA."""
     ids = [str(team["id"]) for team in teams]
-    rounds = round_robin(ids)
-    for round_index, fixtures in enumerate(rounds):
-        match_date = datetime.combine(start_date + timedelta(days=7 * round_index), datetime.min.time()).replace(
-            tzinfo=timezone.utc
-        ) + timedelta(hours=14)
-        for home_id, away_id in fixtures:
-            conn.execute(
-                """INSERT INTO fixtures (game_state_id, tournament_id, season, match_date,
-                           matchday, home_club_id, away_club_id, status)
-                   VALUES (%s,%s,%s,%s,%s,%s,%s,'scheduled')
+    tournament = conn.execute(
+        "SELECT code,name,country FROM tournaments WHERE id=%s",
+        (tournament_id,),
+    ).fetchone()
+    league_name = tournament["name"] if tournament else ""
+    league_code = tournament["code"] if tournament else ""
+    first_leg_rounds = round_robin(ids)
+    leg_split = len(first_leg_rounds) // 2
+    rounds = first_leg_rounds
+
+    # MLS has 30 clubs and 34 fixtures per club, not a European home-and-away round robin.
+    if "major league soccer" in league_name.casefold() and len(ids) == 30:
+        first_leg = first_leg_rounds[:leg_split]
+        extra_count = max(0, 34 - len(first_leg))
+        repeat_indexes = [
+            round(index * (len(first_leg) - 1) / max(1, extra_count - 1))
+            for index in range(extra_count)
+        ]
+        additional = [
+            [(away, home) for home, away in first_leg[index]]
+            for index in repeat_indexes
+        ]
+        rounds = first_leg + additional
+        leg_split = len(first_leg)
+
+    elif (league_code == "ARG-PD" or "argentine primera" in league_name.casefold()) and len(ids) == 30:
+        first_leg = first_leg_rounds[:leg_split]
+        additional = [
+            [(away, home) for home, away in first_leg[index]]
+            for index in (0, 14, 28)
+        ]
+        rounds = first_leg + additional
+        leg_split = len(first_leg)
+
+    season_year = int(str(season)[:4])
+    round_dates = league_schedule_dates(league_name, tournament["country"] if tournament else "", season_year, len(rounds))
+    if len(round_dates) != len(rounds):
+        anchor = start_date or date(season_year, 8, 15)
+        round_dates = [anchor + timedelta(days=7 * index) for index in range(len(rounds))]
+
+    rows_to_insert: list[tuple] = []
+    for round_index, games in enumerate(rounds):
+        anchor = round_dates[round_index]
+        for game_index, (home_id, away_id) in enumerate(games):
+            kickoff = _round_kickoff(anchor, game_index)
+            rows_to_insert.append((
+                game_state_id, tournament_id, season, kickoff, round_index + 1,
+                "Регулярный чемпионат", 1 if round_index < leg_split else 2,
+                home_id, away_id,
+            ))
+    if rows_to_insert:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO fixtures (
+                       game_state_id,tournament_id,season,match_date,matchday,stage,leg,
+                       home_club_id,away_club_id,status
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'scheduled')
                    ON CONFLICT (game_state_id,tournament_id,season,match_date,home_club_id,away_club_id)
                    DO NOTHING""",
-                (game_state_id, tournament_id, season, match_date, round_index + 1, home_id, away_id),
+                rows_to_insert,
             )
-
 
 
 def refresh_ai_lineups() -> int:
@@ -700,18 +893,20 @@ def catalog_clubs(
 
 @app.post("/api/saves")
 def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
-    # Serialize career creation for this manager. Without the row lock, simultaneous
-    # requests can both calculate the same next save_slot before either transaction commits.
+    # Serialize career creation for this manager to prevent duplicate save slots.
     conn.execute("SELECT id FROM managers WHERE id=%s FOR UPDATE", (manager["id"],)).fetchone()
     active = conn.execute(
         "SELECT id FROM game_states WHERE manager_id=%s AND status='active' LIMIT 1", (manager["id"],)
     ).fetchone()
     if active:
         raise HTTPException(status_code=409, detail="У вас уже есть активное сохранение. Завершите его перед созданием нового.")
-    selected = conn.execute("SELECT * FROM sm27_club_pool WHERE source_id=%s", (body.club_source_id,)).fetchone()
-    if not selected:
+
+    selected_row = conn.execute(
+        "SELECT * FROM sm27_club_pool WHERE source_id=%s", (body.club_source_id,)
+    ).fetchone()
+    if not selected_row:
         raise HTTPException(status_code=404, detail="Клуб не найден в игровом каталоге")
-    selected = dict(selected)
+    selected = dict(selected_row)
     league_code = selected["league_code"]
     teams_rows = conn.execute(
         "SELECT * FROM sm27_club_pool WHERE league_code=%s ORDER BY sort_rank, club_name",
@@ -726,60 +921,165 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
         teams = [dict(row) for row in teams_rows]
     if selected["source_id"] not in {team["source_id"] for team in teams}:
         teams.append(selected)
+
+    league_name = selected.get("league_name") or "SM27 League"
+    calendar_year_season = league_code in {"USA-MLS", "BRA-SA", "ARG-PD"}
+    season_label = "2026" if calendar_year_season else "2026/27"
+    career_start_date = (
+        date(2026, 2, 1) if league_code == "USA-MLS"
+        else date(2026, 1, 1) if calendar_year_season
+        else date(2026, 7, 1)
+    )
+    age_reference_date = career_start_date
     tournament_code = f"SM27-{league_code}"[:64]
     tournament = conn.execute(
-        """INSERT INTO tournaments (code,name,country,continent,tournament_type,tier,format,active)
-           VALUES (%s,%s,%s,%s,'league',%s,%s,true)
-           ON CONFLICT(code) DO UPDATE SET name=EXCLUDED.name, country=EXCLUDED.country,
-             continent=EXCLUDED.continent, tier=EXCLUDED.tier, format=EXCLUDED.format
+        """INSERT INTO tournaments (
+               code,name,country,continent,tournament_type,tier,format,active,logo_url
+           )
+           VALUES (%s,%s,%s,%s,'league',%s,%s,true,%s)
+           ON CONFLICT(code) DO UPDATE SET
+             name=EXCLUDED.name,country=EXCLUDED.country,continent=EXCLUDED.continent,
+             tier=EXCLUDED.tier,format=EXCLUDED.format,
+             logo_url=coalesce(tournaments.logo_url,EXCLUDED.logo_url)
            RETURNING id""",
-        (tournament_code, selected.get("league_name") or "SM27 League", selected.get("country"),
-         selected.get("continent") or "UEFA", selected.get("league_level") or 1,
-         Jsonb({"points_win": 3, "points_draw": 1, "season": "2026/27"})),
+        (
+            tournament_code, league_name, selected.get("country"),
+            selected.get("continent") or "UEFA", selected.get("league_level") or 1,
+            Jsonb({"points_win": 3, "points_draw": 1, "season": season_label, "calendar_year": calendar_year_season}),
+            tournament_logo_url(league_name, selected.get("country")),
+        ),
     ).fetchone()
     game_state = conn.execute(
         """INSERT INTO game_states (manager_id,save_slot,game_date,season,difficulty,status,save_name,game_settings)
-           VALUES (%s,(SELECT coalesce(max(save_slot),0)+1 FROM game_states WHERE manager_id=%s),DATE '2026-07-01','2026/27','normal','active',%s,%s) RETURNING id""",
-        (manager["id"], manager["id"], body.save_name.strip(), Jsonb({"source_snapshot": selected["source_snapshot"].isoformat()})),
+           VALUES (%s,(SELECT coalesce(max(save_slot),0)+1 FROM game_states WHERE manager_id=%s),
+                   %s,%s,'normal','active',%s,%s)
+           RETURNING id""",
+        (
+            manager["id"], manager["id"], career_start_date, season_label, body.save_name.strip(),
+            Jsonb({
+                "source_snapshot": selected["source_snapshot"].isoformat(),
+                "calendar_year_season": calendar_year_season,
+                "calendar_start_date": career_start_date.isoformat(),
+                "calendar_league_code": league_code,
+            }),
+        ),
     ).fetchone()
     game_state_id = str(game_state["id"])
+
+    # Create all clubs in one round trip rather than inserting each club individually.
+    club_insert_rows: list[tuple] = []
+    for pool_row in teams:
+        stars = float(pool_row.get("fifa_stars") or 2.5)
+        reputation = max(10, min(100, int(
+            pool_row.get("team_strength") or round(stars * 20)
+        )))
+        capacity = pool_row.get("stadium_capacity") or 20000
+        budget = int(max(350_000, min(220_000_000, (reputation ** 2) * 22_000)))
+        colors = (pool_row.get("colors_hex") or "").split(" | ")
+        display_name = display_club_name(pool_row["club_name"])
+        club_insert_rows.append((
+            game_state_id, str(pool_row["source_id"]), display_name,
+            (display_name or "SM27")[:20], pool_row.get("country") or "—",
+            pool_row.get("league_name") or "Лига", pool_row.get("league_name") or "Лига",
+            pool_row.get("continent") or "UEFA", stars, budget, pool_row.get("stadium"),
+            capacity, pool_row.get("logo_url"), colors[0] or "#16A36A",
+            colors[1] if len(colors) > 1 else "#102B22", reputation,
+        ))
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """INSERT INTO clubs (
+                 game_state_id,external_id,name,short_name,country,league,original_league,
+                 continent,star_rating,budget,stadium_name,stadium_capacity,logo_url,
+                 primary_color,secondary_color,reputation
+               ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+               ON CONFLICT (game_state_id,external_id) DO UPDATE SET name=EXCLUDED.name""",
+            club_insert_rows,
+        )
+    source_ids = [str(team["source_id"]) for team in teams]
+    club_rows = conn.execute(
+        """SELECT id,external_id FROM clubs
+           WHERE game_state_id=%s AND external_id=ANY(%s)""",
+        (game_state_id, source_ids),
+    ).fetchall()
+    club_id_by_source = {str(row["external_id"]): str(row["id"]) for row in club_rows}
+
     team_records: list[dict] = []
     for pool_row in teams:
-        club_id = make_club(conn, game_state_id, pool_row)
-        team_records.append({"id": club_id, "source_id": pool_row["source_id"], "name": pool_row["club_name"], "reputation": int(pool_row.get("team_strength") or round(float(pool_row.get("fifa_stars") or 2.5) * 20))})
-        conn.execute(
-            """INSERT INTO club_tournaments (game_state_id,tournament_id,club_id,season)
-               VALUES (%s,%s,%s,'2026/27') ON CONFLICT DO NOTHING""",
-            (game_state_id, tournament["id"], club_id),
+        source_id = str(pool_row["source_id"])
+        reputation = int(
+            pool_row.get("team_strength")
+            or round(float(pool_row.get("fifa_stars") or 2.5) * 20)
         )
-        player_rows = conn.execute(
-            """SELECT wp.source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
-                      wp.market_value_eur,wp.market_value_as_of,wp.source_url,wp.raw_data,
-                      wp.fc27_player_id,fc.position AS fc27_position,fc.overall AS fc27_overall,
-                      fc.potential AS fc27_potential,fc.attributes AS fc27_attributes
-               FROM world_player_catalog wp
-               LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=wp.fc27_player_id
-               WHERE wp.club_source_id=%s
-               ORDER BY wp.market_value_eur DESC, wp.name LIMIT 30""",
-            (pool_row["source_id"],),
-        ).fetchall()
-        for player in player_rows:
+        team_records.append({
+            "id": club_id_by_source[source_id],
+            "source_id": source_id,
+            "name": pool_row["club_name"],
+            "country": pool_row.get("country"),
+            "league": pool_row.get("league_name") or league_name,
+            "reputation": reputation,
+        })
+
+    with conn.cursor() as cursor:
+        cursor.executemany(
+            """INSERT INTO club_tournaments (game_state_id,tournament_id,club_id,season)
+               VALUES (%s,%s,%s,%s) ON CONFLICT DO NOTHING""",
+            [(game_state_id, tournament["id"], team["id"], season_label) for team in team_records],
+        )
+
+    # One catalogue query replaces a separate player SELECT per club.
+    source_ids = [str(team["source_id"]) for team in team_records]
+    player_rows = conn.execute(
+        """SELECT wp.club_source_id,wp.source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
+                  wp.market_value_eur,wp.market_value_as_of,wp.source_url,wp.raw_data,
+                  wp.fc27_player_id,fc.position AS fc27_position,fc.overall AS fc27_overall,
+                  fc.potential AS fc27_potential,fc.attributes AS fc27_attributes
+           FROM world_player_catalog wp
+           LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=wp.fc27_player_id
+           WHERE wp.club_source_id=ANY(%s)
+           ORDER BY wp.club_source_id,wp.market_value_eur DESC,wp.name""",
+        (source_ids,),
+    ).fetchall()
+    players_by_source: dict[str, list[dict]] = {}
+    for row in player_rows:
+        players_by_source.setdefault(str(row["club_source_id"]), []).append(dict(row))
+
+    player_insert_sql = """INSERT INTO players (
+           game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
+           secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
+           attributes,original_data,source_name,source_url,data_verified_at,
+           form,morale,sharpness,nationality_flag,profile_source,fc27_player_id,
+           market_value_source
+       ) VALUES (
+           %s,%s,%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
+           50,70,85,%s,%s,%s,%s
+       )
+       ON CONFLICT (game_state_id,external_id) DO NOTHING"""
+    player_inserts: list[tuple] = []
+    teams_by_source = {str(team["source_id"]): team for team in team_records}
+
+    for source_id, players_for_club in players_by_source.items():
+        team = teams_by_source[source_id]
+        for player in players_for_club[:30]:
             dob = player["date_of_birth"]
-            age = max(16, min(43, int((date(2026, 7, 1) - dob).days / 365.2425))) if dob else 24
-            source_id = str(player["source_id"])
-            fc27_id = player.get("fc27_player_id")
-            researched = get_researched_profile(player["name"], pool_row["club_name"]) if not fc27_id else None
-            position = researched["position"] if researched else normalise_player_position(
-                player.get("fc27_position") or player["position"], source_id
+            age = (
+                max(16, min(43, int((age_reference_date - dob).days / 365.2425)))
+                if dob else 24
             )
+            external_id = str(player["source_id"])
+            fc27_id = player.get("fc27_player_id")
+            researched = get_researched_profile(player["name"], team["name"]) if not fc27_id else None
+            position = researched["position"] if researched else normalise_player_position(
+                player.get("fc27_position") or player["position"], external_id
+            )
+            source_market_value = int(player.get("market_value_eur") or 0)
             if player.get("fc27_overall") is not None:
                 overall = int(player["fc27_overall"])
             elif researched:
                 overall = int(researched["overall"])
             else:
                 overall = overall_from_market_value(
-                    0, age, int(team_records[-1]["reputation"]),
-                    int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)
+                    source_market_value, age, int(team["reputation"]),
+                    int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
                 )
             if player.get("fc27_potential") is not None:
                 potential = int(player["fc27_potential"])
@@ -788,84 +1088,163 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             else:
                 potential = max(
                     overall,
-                    potential_from_overall(overall, age, int(hashlib.sha1(source_id.encode()).hexdigest()[:8], 16)),
+                    potential_from_overall(
+                        overall, age, int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
+                    ),
                 )
-            market_value = int(researched["market_value"]) if researched and researched.get("market_value") is not None else 0
+
+            attributes = dict(player["fc27_attributes"] or {}) if fc27_id else {}
+            if researched:
+                attributes = dict(researched["attributes"])
+            if not attributes:
+                attributes = player_attributes(overall, position, external_id)
+
             if fc27_id:
                 profile_source = "EA SPORTS FC 27 official ratings database"
             elif researched:
                 profile_source = researched["profile_source"]
             else:
                 profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
-            market_value_source = "SofaScore" if researched and researched.get("market_value") is not None else "not_available"
-            market_value_as_of = researched.get("market_value_as_of") if market_value_source == "SofaScore" else None
+
+            researched_value = int(researched["market_value"]) if researched and researched.get("market_value") else 0
+            if researched_value > 0:
+                market_value = researched_value
+                market_value_source = "SofaScore"
+                market_value_as_of = researched.get("market_value_as_of")
+            elif source_market_value > 0:
+                market_value = source_market_value
+                market_value_source = "Transfermarkt"
+                market_value_as_of = player.get("market_value_as_of")
+            else:
+                market_value = estimated_market_value(
+                    overall, potential, age, team.get("league") or league_name,
+                    team.get("country") or selected.get("country"), attributes,
+                )
+                market_value_source = "SM27 estimate"
+                market_value_as_of = None
+
             raw = dict(player["raw_data"] or {})
             raw.update({
                 "market_value_source": market_value_source,
                 "market_value_as_of": market_value_as_of,
+                "market_value_model": "league-age-ovr-potential-attributes-v1" if market_value_source == "SM27 estimate" else None,
                 "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 researched estimate" if researched else "SM27 estimate",
                 "contract_source": "SM27 estimate",
                 "wage_source": "Capology 2026/27 estimate" if normalise_player_name(player["name"]).startswith(("cristianoronaldo", "inigomartinez")) else "SM27 career wage model",
                 "research": researched["research"] if researched else None,
                 "generated": False,
             })
-            contract_end = estimated_contract_end(age, source_id)
+            contract_end = estimated_contract_end(age, external_id)
             weekly_wage = estimated_weekly_wage(
-                overall, age, int(team_records[-1]["reputation"]), player["name"]
+                overall, age, int(team["reputation"]), player["name"]
             )
-            attributes = dict(player["fc27_attributes"] or {}) if fc27_id else {}
-            if researched:
-                attributes = dict(researched["attributes"])
-            if not attributes:
-                attributes = player_attributes(overall, position, source_id)
-            conn.execute(
-                """INSERT INTO players (
-                       game_state_id,club_id,external_id,name,nationality,birth_date,age,position,
-                       secondary_positions,overall,potential,market_value,weekly_wage,contract_end,
-                       attributes,original_data,source_name,source_url,data_verified_at,
-                       form,morale,sharpness,nationality_flag,profile_source,fc27_player_id,
-                       market_value_source
-                   ) VALUES (
-                       %s,%s,%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,
-                       50,70,85,%s,%s,%s,%s
-                   )
-                   ON CONFLICT (game_state_id,external_id) DO NOTHING""",
-                (
-                    game_state_id, club_id, source_id, player["name"], player["nationality"], dob, age, position,
-                    overall, potential, market_value, weekly_wage, contract_end,
-                    Jsonb(attributes), Jsonb(raw),
-                    "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
-                    researched["source_url"] if researched else player["source_url"], market_value_as_of,
-                    flag_for_nationality(player["nationality"]), profile_source, fc27_id, market_value_source,
-                ),
-            )
-    for team in team_records:
-        ensure_demo_roster(conn, game_state_id, team["id"], team["name"], team["reputation"])
-        lineup_rows = conn.execute(
-            """SELECT id,position,secondary_positions,overall
-               FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC,name""",
-            (game_state_id, team["id"]),
-        ).fetchall()
-        starters, bench, roles = best_lineup([dict(row) for row in lineup_rows], "4-3-3")
-        conn.execute(
-            """INSERT INTO tactics (game_state_id,club_id,formation,mentality,style,starting_xi,bench)
-               VALUES (%s,%s,'4-3-3','balanced',%s,%s,%s)
-               ON CONFLICT (game_state_id,club_id) DO NOTHING""",
-            (
-                game_state_id, team["id"],
-                Jsonb({"slot_roles": [
-                    {"player_id": player_id, "role": role}
-                    for player_id, role in zip(starters, roles)
-                ]}),
-                [uuid.UUID(player_id) for player_id in starters],
-                [uuid.UUID(player_id) for player_id in bench],
-            ),
-        )
-    selected_game_club = next(row["id"] for row in team_records if row["source_id"] == selected["source_id"])
-    conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
-    create_schedule(conn, game_state_id, str(tournament["id"]), team_records)
-    return {"ok": True, "save_id": game_state_id, "club": selected["club_name"], "league": selected.get("league_name"), "teams": len(team_records)}
+            player_inserts.append((
+                game_state_id, team["id"], external_id, player["name"], player["nationality"],
+                dob, age, position, overall, potential, market_value, weekly_wage, contract_end,
+                Jsonb(attributes), Jsonb(raw),
+                "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
+                researched["source_url"] if researched else player["source_url"], market_value_as_of,
+                flag_for_nationality(player["nationality"]), profile_source, fc27_id,
+                market_value_source,
+            ))
+    if player_inserts:
+        with conn.cursor() as cursor:
+            cursor.executemany(player_insert_sql, player_inserts)
 
+    # Add any missing academy placeholders in one batch.
+    positions = ["GK", "GK", "RB", "CB", "CB", "LB", "CB", "RB", "CDM", "CM", "CM", "CAM", "CM", "CM", "RW", "LW", "ST", "CF"]
+    club_ids = [team["id"] for team in team_records]
+    existing_counts = conn.execute(
+        """SELECT club_id,count(*)::int AS player_count
+           FROM players WHERE game_state_id=%s AND club_id=ANY(%s)
+           GROUP BY club_id""",
+        (game_state_id, club_ids),
+    ).fetchall()
+    player_count_by_club = {str(row["club_id"]): int(row["player_count"]) for row in existing_counts}
+    generated_rows: list[tuple] = []
+    for team in team_records:
+        existing = player_count_by_club.get(team["id"], 0)
+        for index, position in enumerate(positions[existing:], start=existing + 1):
+            source_id = f"generated:{team['id']}:{index}"
+            age = 18 + (index % 12)
+            overall = max(40, min(82, team["reputation"] - 8 + (index % 7)))
+            potential = min(92, overall + 4 + (index % 7))
+            attributes = player_attributes(overall, position, source_id)
+            value = estimated_market_value(
+                overall, potential, age, team.get("league") or league_name,
+                team.get("country") or selected.get("country") or "", attributes,
+            )
+            generated_rows.append((
+                game_state_id, team["id"], source_id, f"Игрок академии {index:02d}", age,
+                position, overall, potential, value,
+                estimated_weekly_wage(overall, age, team["reputation"], generated=True),
+                estimated_contract_end(age, source_id), Jsonb(attributes),
+                Jsonb({
+                    "generated": True,
+                    "note": "Fictional game placeholder, not a real player",
+                    "market_value_source": "SM27 estimate",
+                    "market_value_model": "league-age-ovr-potential-attributes-v1",
+                }),
+            ))
+    if generated_rows:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO players (
+                       game_state_id,club_id,external_id,name,age,position,secondary_positions,
+                       overall,potential,market_value,weekly_wage,contract_end,attributes,
+                       original_data,source_name,profile_source,market_value_source,form,morale,sharpness
+                   ) VALUES (%s,%s,%s,%s,%s,%s,ARRAY[]::text[],%s,%s,%s,%s,%s,%s,%s,
+                             'SM27 generated roster','SM27 generated academy player','SM27 estimate',50,70,85)""",
+                generated_rows,
+            )
+
+    # Fetch every squad once, then calculate all starting XIs and persist all tactics in a batch.
+    all_player_rows = conn.execute(
+        """SELECT id,club_id,position,secondary_positions,overall
+           FROM players
+           WHERE game_state_id=%s AND club_id=ANY(%s)
+           ORDER BY club_id,overall DESC,name""",
+        (game_state_id, club_ids),
+    ).fetchall()
+    players_by_club: dict[str, list[dict]] = {}
+    for row in all_player_rows:
+        player = dict(row)
+        players_by_club.setdefault(str(player["club_id"]), []).append(player)
+
+    tactic_rows: list[tuple] = []
+    for team in team_records:
+        starters, bench, roles = best_lineup(players_by_club.get(team["id"], []), "4-3-3")
+        tactic_rows.append((
+            game_state_id, team["id"],
+            Jsonb({"slot_roles": [
+                {"player_id": player_id, "role": role}
+                for player_id, role in zip(starters, roles)
+            ]}),
+            [uuid.UUID(player_id) for player_id in starters],
+            [uuid.UUID(player_id) for player_id in bench],
+        ))
+    if tactic_rows:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO tactics (game_state_id,club_id,formation,mentality,style,starting_xi,bench)
+                   VALUES (%s,%s,'4-3-3','balanced',%s,%s,%s)
+                   ON CONFLICT (game_state_id,club_id) DO NOTHING""",
+                tactic_rows,
+            )
+
+    selected_game_club = next(
+        row["id"] for row in team_records if str(row["source_id"]) == str(selected["source_id"])
+    )
+    conn.execute("UPDATE game_states SET managed_club_id=%s WHERE id=%s", (selected_game_club, game_state_id))
+    create_schedule(conn, game_state_id, str(tournament["id"]), team_records, season=season_label, start_date=career_start_date)
+    return {
+        "ok": True,
+        "save_id": game_state_id,
+        "club": selected["club_name"],
+        "league": league_name,
+        "teams": len(team_records),
+        "players_imported": len(player_inserts),
+    }
 
 
 @app.post("/api/saves/restart")
@@ -928,6 +1307,7 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
                   p.potential,p.market_value,p.market_value_source,p.weekly_wage,p.contract_end,
                   p.fatigue,p.form,p.morale,p.sharpness,p.position_training_target,
                   p.position_training_progress,p.fc27_player_id,p.injury_type,p.injury_until,
+                  p.suspension_matches,
                   p.attributes,p.original_data,p.profile_source,p.source_url,
                   fc.source_url AS fc27_source_url
            FROM players p
@@ -939,10 +1319,18 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
         (save["id"], save["managed_club_id"]),
     ).fetchall()
     result = []
+    game_date = save["game_date"].date() if isinstance(save["game_date"], datetime) else save["game_date"]
     for row in rows:
         player = dict(row)
         player["nationality_flag"] = flag_for_nationality(player.get("nationality"))
         player["secondary_positions"] = list(player.get("secondary_positions") or [])
+        injury_until = player.get("injury_until")
+        if isinstance(injury_until, datetime):
+            injury_until = injury_until.date()
+        player["injury_days_remaining"] = max(0, (injury_until - game_date).days) if injury_until and game_date else 0
+        injury = INJURY_BY_KEY.get(player.get("injury_type"))
+        player["injury_name"] = injury["name"] if injury else player.get("injury_type")
+        player["suspension_matches"] = int(player.get("suspension_matches") or 0)
         result.append(player)
     return serialise(result)
 
@@ -1042,7 +1430,7 @@ def fixtures(manager: dict = Depends(manager_dep), conn: Connection = Depends(db
     rows = conn.execute(
         """SELECT f.id,f.match_date,f.matchday,f.stage,f.status,f.home_score,f.away_score,
                   h.name AS home_name,a.name AS away_name,h.logo_url AS home_logo,a.logo_url AS away_logo,
-                  coalesce(t.name,%s) AS tournament_name,
+                  f.tournament_id,t.logo_url AS tournament_logo,coalesce(t.name,%s) AS tournament_name,
                   CASE WHEN f.stage IS NOT NULL AND btrim(f.stage)<>'' THEN f.stage
                        WHEN f.matchday IS NOT NULL THEN 'ТУР '||f.matchday::text
                        ELSE 'МАТЧ' END AS stage_label,
@@ -1128,148 +1516,513 @@ def advance_position_training(conn: Connection, game_state_id: str, club_id: str
     )
 
 
-def add_goal_events(conn: Connection, fixture: dict, result: dict) -> None:
-    for club_id, count in ((fixture["home_club_id"], result["home_score"]), (fixture["away_club_id"], result["away_score"])):
-        players = conn.execute(
-            "SELECT id FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC LIMIT 16",
-            (fixture["game_state_id"], club_id),
-        ).fetchall()
-        ids = [str(row["id"]) for row in players]
-        for _ in range(count):
-            minute = random.randint(3, 90)
-            scorer = random.choice(ids) if ids else None
+def _allocate_integer(total: int, weights: list[float]) -> list[int]:
+    if not weights:
+        return []
+    safe = [max(0.05, float(value)) for value in weights]
+    weight_sum = sum(safe)
+    exact = [max(0, int(total)) * value / weight_sum for value in safe]
+    result = [int(value) for value in exact]
+    remainder = max(0, int(total)) - sum(result)
+    order = sorted(range(len(exact)), key=lambda index: exact[index] - result[index], reverse=True)
+    for index in order[:remainder]:
+        result[index] += 1
+    return result
+
+
+def _allocate_bounded(total: int, capacities: list[int], weights: list[float], rng: random.Random) -> list[int]:
+    result = [0 for _ in capacities]
+    remaining = min(max(0, int(total)), sum(max(0, cap) for cap in capacities))
+    while remaining:
+        candidates = [index for index, cap in enumerate(capacities) if result[index] < max(0, cap)]
+        if not candidates:
+            break
+        chosen = rng.choices(candidates, weights=[max(0.05, weights[index]) for index in candidates], k=1)[0]
+        result[chosen] += 1
+        remaining -= 1
+    return result
+
+
+def _position_weight(position: str, group: str) -> float:
+    position = (position or "CM").upper()
+    if group == "shots":
+        return 0.15 if position == "GK" else 2.0 if position in {"ST", "CF"} else 1.55 if position in {"LW", "RW", "CAM"} else 0.95 if position in {"CM", "RM", "LM"} else 0.5
+    if group == "passes":
+        return 0.75 if position == "GK" else 1.35 if position in {"CB", "LB", "RB", "LWB", "RWB"} else 1.5 if position in {"CDM", "CM", "CAM"} else 1.0 if position in {"RM", "LM", "LW", "RW"} else 0.72
+    if group == "tackles":
+        return 0.5 if position == "GK" else 1.65 if position in {"CB", "LB", "RB", "LWB", "RWB", "CDM"} else 1.0
+    if group == "key_passes":
+        return 0.1 if position == "GK" else 1.7 if position in {"CAM", "CM", "RM", "LM", "LW", "RW"} else 1.05 if position in {"ST", "CF"} else 0.45
+    return 1.0
+
+
+def _match_lineups(
+    conn: Connection,
+    game_state_id: str,
+    home_club_id: str,
+    away_club_id: str,
+    match_date: date,
+) -> tuple[dict[str, list[dict]], list[str]]:
+    rows = conn.execute(
+        """SELECT p.id,p.club_id,p.name,p.position,p.secondary_positions,p.overall,p.attributes,
+                  p.injury_until,p.injury_type,p.suspension_matches,p.form,p.morale,p.sharpness,p.fatigue,
+                  coalesce(t.starting_xi,ARRAY[]::uuid[]) AS starting_xi,
+                  role.target_position
+           FROM players p
+           LEFT JOIN tactics t ON t.game_state_id=p.game_state_id AND t.club_id=p.club_id
+           LEFT JOIN LATERAL (
+             SELECT item->>'role' AS target_position
+             FROM jsonb_array_elements(coalesce(t.style->'slot_roles','[]'::jsonb)) item
+             WHERE item->>'player_id'=p.id::text
+             LIMIT 1
+           ) role ON true
+           WHERE p.game_state_id=%s AND p.club_id IN (%s,%s)
+           ORDER BY p.club_id,p.overall DESC,p.name""",
+        (game_state_id, home_club_id, away_club_id),
+    ).fetchall()
+    by_club: dict[str, list[dict]] = {str(home_club_id): [], str(away_club_id): []}
+    suspended_ids: list[str] = []
+    for row in rows:
+        player = dict(row)
+        club_id = str(player["club_id"])
+        player["id"] = str(player["id"])
+        player["starting_xi"] = [str(item) for item in (player.get("starting_xi") or [])]
+        if int(player.get("suspension_matches") or 0) > 0:
+            suspended_ids.append(player["id"])
+        by_club.setdefault(club_id, []).append(player)
+
+    selected: dict[str, list[dict]] = {}
+    for club_id, squad in by_club.items():
+        available = []
+        for player in squad:
+            until = player.get("injury_until")
+            if isinstance(until, datetime):
+                until = until.date()
+            if until and until > match_date:
+                continue
+            if int(player.get("suspension_matches") or 0) > 0:
+                continue
+            available.append(player)
+        xi_ids = next((player["starting_xi"] for player in squad if player["starting_xi"]), [])
+        by_id = {player["id"]: player for player in available}
+        starters = [by_id[player_id] for player_id in xi_ids if player_id in by_id][:11]
+        used = {player["id"] for player in starters}
+        starters.extend(player for player in available if player["id"] not in used and len(starters) < 11)
+        for player in starters:
+            condition_delta = round(
+                (float(player.get("form") or 50) - 50) * 0.06
+                + (float(player.get("morale") or 70) - 70) * 0.04
+                + (float(player.get("sharpness") or 85) - 85) * 0.04
+                - float(player.get("fatigue") or 0) * 0.08
+            )
+            role_penalty = position_penalty(
+                str(player.get("position") or "CM"),
+                list(player.get("secondary_positions") or []),
+                str(player.get("target_position") or player.get("position") or "CM"),
+            )
+            player["effective_overall"] = max(
+                1, min(99, int(player["overall"]) + condition_delta + role_penalty)
+            )
+        selected[club_id] = starters
+    return selected, suspended_ids
+
+
+def _record_match_detail(
+    conn: Connection,
+    save: dict,
+    fixture: dict,
+    result: dict,
+    lineups: dict[str, list[dict]],
+    suspended_at_start: list[str],
+    match_date: date,
+    rng: random.Random,
+) -> dict:
+    home_id, away_id = str(fixture["home_club_id"]), str(fixture["away_club_id"])
+    player_records: dict[str, dict] = {}
+    event_rows: list[tuple] = []
+    injury_updates: list[tuple] = []
+    yellow_by_player: dict[str, int] = {}
+    red_by_player: dict[str, int] = {}
+    team_details: dict[str, dict] = {}
+    team_cards: dict[str, dict[str, int]] = {
+        home_id: {"yellow": 0, "red": 0},
+        away_id: {"yellow": 0, "red": 0},
+    }
+    goal_events: list[dict] = []
+
+    for club_id, opponents_id, prefix in ((home_id, away_id, "home"), (away_id, home_id, "away")):
+        starters = lineups.get(club_id, [])
+        shots = int(result[f"{prefix}_shots"])
+        shots_on_target = int(result[f"{prefix}_shots_on_target"])
+        possession = int(result[f"{prefix}_possession"])
+        goals = int(result[f"{prefix}_score"])
+        positions = [str(player.get("position") or "CM") for player in starters]
+        shot_weights = [_position_weight(position, "shots") for position in positions]
+        shot_alloc = _allocate_integer(shots, shot_weights)
+        sot_alloc = _allocate_bounded(
+            shots_on_target, shot_alloc, [value + 0.15 for value in shot_alloc], rng
+        )
+        pass_total = max(260, min(720, int(345 + possession * 2.5 + rng.randint(-38, 48))))
+        pass_alloc = _allocate_integer(
+            pass_total,
+            [_position_weight(position, "passes") * rng.uniform(0.88, 1.12) for position in positions],
+        )
+        tackle_total = rng.randint(9, 23)
+        tackle_alloc = _allocate_integer(
+            tackle_total, [_position_weight(position, "tackles") for position in positions]
+        )
+        interception_total = rng.randint(5, 16)
+        interception_alloc = _allocate_integer(
+            interception_total,
+            [0.3 if position == "GK" else 1.5 if position in {"CB", "LB", "RB", "CDM"} else 0.8 for position in positions],
+        )
+        key_total = rng.randint(4, 13)
+        key_alloc = _allocate_integer(
+            key_total, [_position_weight(position, "key_passes") for position in positions]
+        )
+        records: list[dict] = []
+        for index, player in enumerate(starters):
+            passes = pass_alloc[index] if index < len(pass_alloc) else 0
+            pass_accuracy = rng.uniform(0.74, 0.94)
+            records.append({
+                "game_state_id": str(save["id"]),
+                "fixture_id": str(fixture["id"]),
+                "tournament_id": str(fixture["tournament_id"]) if fixture.get("tournament_id") else None,
+                "club_id": club_id,
+                "player_id": player["id"],
+                "name": player["name"],
+                "position": player["position"],
+                "minutes_played": 90,
+                "rating": 6.05 + (float(player.get("effective_overall") or player["overall"]) - 65) * 0.035 + rng.uniform(-0.34, 0.38),
+                "goals": 0,
+                "assists": 0,
+                "shots": shot_alloc[index] if index < len(shot_alloc) else 0,
+                "shots_on_target": sot_alloc[index] if index < len(sot_alloc) else 0,
+                "passes": passes,
+                "accurate_passes": int(round(passes * pass_accuracy)),
+                "tackles": tackle_alloc[index] if index < len(tackle_alloc) else 0,
+                "interceptions": interception_alloc[index] if index < len(interception_alloc) else 0,
+                "key_passes": key_alloc[index] if index < len(key_alloc) else 0,
+                "yellow_cards": 0,
+                "red_cards": 0,
+                "saves": 0,
+                "clean_sheet": False,
+                "is_mvp": False,
+            })
+        record_by_id = {record["player_id"]: record for record in records}
+        field_players = [player for player in starters if player.get("position") != "GK"] or starters
+        scorer_weights = [_position_weight(str(player.get("position") or "CM"), "shots") for player in field_players]
+        for _ in range(goals):
+            if not field_players:
+                break
+            scorer = rng.choices(field_players, weights=scorer_weights, k=1)[0]
+            scorer_record = record_by_id[scorer["id"]]
+            scorer_record["goals"] += 1
+            scorer_record["rating"] += 0.82
+            assist_player = None
+            if len(field_players) > 1 and rng.random() < 0.76:
+                assist_options = [player for player in field_players if player["id"] != scorer["id"]]
+                assist_player = rng.choice(assist_options)
+                assist_record = record_by_id[assist_player["id"]]
+                assist_record["assists"] += 1
+                assist_record["rating"] += 0.42
+            minute = rng.randint(3, 90)
+            goal_events.append({
+                "club_id": club_id,
+                "player_id": scorer["id"],
+                "assist_player_id": assist_player["id"] if assist_player else None,
+                "minute": minute,
+                "event_type": "goal",
+            })
+            event_rows.append((
+                fixture["id"], minute, "goal", club_id, scorer["id"],
+                assist_player["id"] if assist_player else None,
+                Jsonb({"simulated": True, "assist": assist_player["name"] if assist_player else None}),
+            ))
+
+        yellow_count = rng.choices([0, 1, 2, 3], weights=[0.08, 0.38, 0.40, 0.14], k=1)[0]
+        card_candidates = [player for player in field_players]
+        rng.shuffle(card_candidates)
+        for player in card_candidates[:yellow_count]:
+            record = record_by_id[player["id"]]
+            record["yellow_cards"] += 1
+            record["rating"] -= 0.22
+            team_cards[club_id]["yellow"] += 1
+            yellow_by_player[player["id"]] = yellow_by_player.get(player["id"], 0) + 1
+            minute = rng.randint(12, 88)
+            event_rows.append((
+                fixture["id"], minute, "yellow_card", club_id, player["id"], None,
+                Jsonb({"simulated": True, "reason": rng.choice(["Тактический фол", "Срыв атаки", "Жёсткий подкат", "Спор с арбитром"])}),
+            ))
+
+        if field_players and rng.random() < 0.018:
+            red_player = rng.choice(field_players)
+            record = record_by_id[red_player["id"]]
+            record["red_cards"] += 1
+            record["rating"] -= 1.1
+            team_cards[club_id]["red"] += 1
+            red_by_player[red_player["id"]] = 2 if rng.random() < 0.22 else 1
+            minute = rng.randint(22, 89)
+            event_rows.append((
+                fixture["id"], minute, "red_card", club_id, red_player["id"], None,
+                Jsonb({"simulated": True, "reason": "Удаление"}),
+            ))
+
+        # About two to four time-loss injuries per club across a 30–38 match season.
+        for player in starters:
+            if rng.random() >= 0.006:
+                continue
+            injury = rng.choice(INJURY_CATALOG)
+            days_out = rng.randint(int(injury["min_days"]), int(injury["max_days"]))
+            return_date = match_date + timedelta(days=days_out)
+            minute = rng.randint(8, 86)
+            injury_updates.append((injury["key"], return_date, player["id"]))
+            event_rows.append((
+                fixture["id"], minute, "injury", club_id, player["id"], None,
+                Jsonb({"simulated": True, "injury": injury["key"], "name": injury["name"], "days_out": days_out}),
+            ))
+            record_by_id[player["id"]]["minutes_played"] = minute
+            break
+
+        for player in starters:
+            record = record_by_id[player["id"]]
+            if player.get("position") == "GK":
+                opponent_score = int(result[f"{'away' if prefix == 'home' else 'home'}_score"])
+                record["saves"] = max(0, int(result[f"{'away' if prefix == 'home' else 'home'}_shots_on_target"]) - opponent_score)
+                record["clean_sheet"] = opponent_score == 0
+                if record["clean_sheet"]:
+                    record["rating"] += 0.42
+                record["rating"] += min(0.55, record["saves"] * 0.08)
+            record["rating"] = round(max(4.0, min(9.9, record["rating"])), 1)
+            player_records[player["id"]] = record
+
+        passes = sum(record["passes"] for record in records)
+        accurate = sum(record["accurate_passes"] for record in records)
+        team_details[club_id] = {
+            "goals": goals,
+            "shots": shots,
+            "shots_on_target": shots_on_target,
+            "passes": passes,
+            "accurate_passes": accurate,
+            "pass_accuracy": round(accurate * 100 / passes, 1) if passes else 0,
+            "xg": float(result[f"{prefix}_xg"]),
+            "possession": possession,
+            "yellow_cards": team_cards[club_id]["yellow"],
+            "red_cards": team_cards[club_id]["red"],
+            "offsides": rng.randint(0, 4),
+            "corners": rng.randint(2, 10),
+            "fouls": rng.randint(8, 18),
+        }
+
+    if suspended_at_start:
+        conn.execute(
+            "UPDATE players SET suspension_matches=GREATEST(0,suspension_matches-1),updated_at=now() WHERE id=ANY(%s)",
+            (suspended_at_start,),
+        )
+        if fixture.get("tournament_id"):
             conn.execute(
-                "INSERT INTO match_events (fixture_id,minute,event_type,club_id,player_id,detail) VALUES (%s,%s,'goal',%s,%s,%s)",
-                (fixture["id"], minute, club_id, scorer, Jsonb({"simulated": True})),
+                """UPDATE player_competition_discipline
+                   SET suspension_matches=GREATEST(0,suspension_matches-1),updated_at=now()
+                   WHERE game_state_id=%s AND tournament_id=%s AND season=%s AND player_id=ANY(%s)""",
+                (save["id"], fixture["tournament_id"], fixture["season"], suspended_at_start),
             )
 
+    # Accumulate cards with one batched read, avoiding per-player database round trips.
+    discipline_changes: dict[str, dict[str, int]] = {}
+    disciplined_ids = sorted(set(yellow_by_player) | set(red_by_player))
+    existing_discipline: dict[str, dict] = {}
+    if disciplined_ids and fixture.get("tournament_id"):
+        existing_rows = conn.execute(
+            """SELECT player_id,yellow_cards,red_cards,suspension_matches
+               FROM player_competition_discipline
+               WHERE game_state_id=%s AND tournament_id=%s AND season=%s
+                 AND player_id=ANY(%s)""",
+            (save["id"], fixture["tournament_id"], fixture["season"], disciplined_ids),
+        ).fetchall()
+        existing_discipline = {str(row["player_id"]): dict(row) for row in existing_rows}
+    for player_id in disciplined_ids:
+        current = existing_discipline.get(player_id)
+        old_yellows = int(current["yellow_cards"]) if current else 0
+        old_reds = int(current["red_cards"]) if current else 0
+        old_suspensions = int(current["suspension_matches"]) if current else 0
+        added_yellows = yellow_by_player.get(player_id, 0)
+        added_reds = 1 if player_id in red_by_player else 0
+        added_ban = max(0, (old_yellows + added_yellows) // 5 - old_yellows // 5) + red_by_player.get(player_id, 0)
+        discipline_changes[player_id] = {
+            "yellow_cards": old_yellows + added_yellows,
+            "red_cards": old_reds + added_reds,
+            "suspension_matches": old_suspensions + added_ban,
+            "added_ban": added_ban,
+        }
+    if discipline_changes:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO player_competition_discipline
+                       (game_state_id,tournament_id,season,player_id,yellow_cards,red_cards,suspension_matches)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (game_state_id,tournament_id,season,player_id)
+                   DO UPDATE SET yellow_cards=EXCLUDED.yellow_cards,
+                                 red_cards=EXCLUDED.red_cards,
+                                 suspension_matches=EXCLUDED.suspension_matches,
+                                 updated_at=now()""",
+                [
+                    (save["id"], fixture["tournament_id"], fixture["season"], player_id,
+                     values["yellow_cards"], values["red_cards"], values["suspension_matches"])
+                    for player_id, values in discipline_changes.items()
+                ],
+            )
+        ban_updates = [(values["added_ban"], player_id) for player_id, values in discipline_changes.items() if values["added_ban"]]
+        if ban_updates:
+            with conn.cursor() as cursor:
+                cursor.executemany(
+                    "UPDATE players SET suspension_matches=suspension_matches+%s,updated_at=now() WHERE id=%s",
+                    ban_updates,
+                )
 
-def simulate_matchday(conn: Connection, save: dict, match_date: date) -> tuple[list[dict], list[dict]]:
-    """Simulate every fixture on one date and separately collect the manager's result."""
+    if injury_updates:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """UPDATE players SET injury_type=%s,injury_until=%s,updated_at=now()
+                   WHERE id=%s AND (injury_until IS NULL OR injury_until<=%s)""",
+                [(injury, until, player_id, match_date) for injury, until, player_id in injury_updates],
+            )
+
+    all_records = list(player_records.values())
+    mvp = max(all_records, key=lambda item: item["rating"]) if all_records else None
+    if mvp:
+        mvp["is_mvp"] = True
+    for record in all_records:
+        record.setdefault("is_mvp", False)
+
+    insert_player_stats = [
+        (
+            record["game_state_id"], record["fixture_id"], record["tournament_id"],
+            record["club_id"], record["player_id"], record["minutes_played"], record["rating"],
+            record["goals"], record["assists"], record["shots"], record["shots_on_target"],
+            record["passes"], record["accurate_passes"], record["tackles"], record["interceptions"],
+            record["key_passes"], record["yellow_cards"], record["red_cards"], record["saves"],
+            record["clean_sheet"], record["is_mvp"], False,
+        )
+        for record in all_records
+    ]
+    if insert_player_stats:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO fixture_player_stats (
+                       game_state_id,fixture_id,tournament_id,club_id,player_id,minutes_played,rating,
+                       goals,assists,shots,shots_on_target,passes,accurate_passes,tackles,interceptions,
+                       key_passes,yellow_cards,red_cards,saves,clean_sheet,is_mvp,is_estimate
+                   ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                   ON CONFLICT (fixture_id,player_id) DO UPDATE SET
+                       minutes_played=EXCLUDED.minutes_played,rating=EXCLUDED.rating,
+                       goals=EXCLUDED.goals,assists=EXCLUDED.assists,shots=EXCLUDED.shots,
+                       shots_on_target=EXCLUDED.shots_on_target,passes=EXCLUDED.passes,
+                       accurate_passes=EXCLUDED.accurate_passes,tackles=EXCLUDED.tackles,
+                       interceptions=EXCLUDED.interceptions,key_passes=EXCLUDED.key_passes,
+                       yellow_cards=EXCLUDED.yellow_cards,red_cards=EXCLUDED.red_cards,
+                       saves=EXCLUDED.saves,clean_sheet=EXCLUDED.clean_sheet,is_mvp=EXCLUDED.is_mvp,
+                       is_estimate=false""",
+                insert_player_stats,
+            )
+    if event_rows:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """INSERT INTO match_events
+                       (fixture_id,minute,event_type,club_id,player_id,assist_player_id,detail)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s)""",
+                event_rows,
+            )
+
+    mvp_detail = None
+    if mvp:
+        mvp_detail = {
+            "player_id": mvp["player_id"],
+            "name": mvp["name"],
+            "club_id": mvp["club_id"],
+            "rating": mvp["rating"],
+        }
+    return {
+        "version": 1,
+        "historical_estimate": False,
+        "home": team_details.get(home_id, {}),
+        "away": team_details.get(away_id, {}),
+        "mvp": mvp_detail,
+        "goal_events": [
+            {"minute": item["minute"], "club_id": item["club_id"], "player_id": item["player_id"],
+             "assist_player_id": item["assist_player_id"], "event_type": item["event_type"]}
+            for item in goal_events
+        ],
+    }
+
+
+def simulate_matchday(
+    conn: Connection,
+    save: dict,
+    match_date: date,
+    matchday: int | None = None,
+    tournament_id: str | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """Simulate every fixture in a tournament round, even if it spans Fri/Sat/Sun."""
     conn.execute(
         """UPDATE players SET fatigue=GREATEST(0,fatigue-20),
                   sharpness=LEAST(100,sharpness+4),updated_at=now()
            WHERE game_state_id=%s""",
         (save["id"],),
     )
-    rows = conn.execute(
-        """SELECT f.*,h.name AS home_name,a.name AS away_name,
-                  h.reputation AS home_rep,a.reputation AS away_rep
-           FROM fixtures f
-           JOIN clubs h ON h.id=f.home_club_id
-           JOIN clubs a ON a.id=f.away_club_id
-           WHERE f.game_state_id=%s AND f.status='scheduled'
-             AND f.match_date::date=%s
-           ORDER BY f.id""",
-        (save["id"], match_date),
-    ).fetchall()
+    if matchday is not None and tournament_id:
+        rows = conn.execute(
+            """SELECT f.*,h.name AS home_name,a.name AS away_name,
+                      h.reputation AS home_rep,a.reputation AS away_rep
+               FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
+               WHERE f.game_state_id=%s AND f.status='scheduled'
+                 AND f.matchday=%s AND f.tournament_id=%s
+               ORDER BY f.match_date,f.id""",
+            (save["id"], matchday, tournament_id),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT f.*,h.name AS home_name,a.name AS away_name,
+                      h.reputation AS home_rep,a.reputation AS away_rep
+               FROM fixtures f JOIN clubs h ON h.id=f.home_club_id JOIN clubs a ON a.id=f.away_club_id
+               WHERE f.game_state_id=%s AND f.status='scheduled' AND f.match_date::date=%s
+               ORDER BY f.match_date,f.id""",
+            (save["id"], match_date),
+        ).fetchall()
+
     completed: list[dict] = []
     manager_results: list[dict] = []
     managed_club_id = str(save["managed_club_id"])
+    last_match_date = match_date
     for row in rows:
         fixture = dict(row)
-        averages = conn.execute(
-            """WITH candidates AS (
-                 SELECT p.club_id,
-                        GREATEST(1,LEAST(99,p.overall + ROUND(
-                          (p.form-50)*0.06 + (p.morale-70)*0.04
-                          + (p.sharpness-85)*0.04 - p.fatigue*0.08
-                        )::int
-                        + CASE
-                            WHEN cardinality(coalesce(t.starting_xi,ARRAY[]::uuid[]))=11
-                                 AND p.id=ANY(t.starting_xi)
-                            THEN CASE
-                              WHEN role.target_position IS NULL OR p.position=role.target_position
-                                   OR role.target_position=ANY(p.secondary_positions) THEN 0
-                              WHEN p.position='GK' OR role.target_position='GK' THEN -40
-                              WHEN p.position='RB' THEN CASE role.target_position
-                                WHEN 'LB' THEN -2 WHEN 'RWB' THEN -2 WHEN 'LWB' THEN -5
-                                WHEN 'CB' THEN -3 WHEN 'RM' THEN -5 WHEN 'CDM' THEN -7 ELSE -7 END
-                              WHEN p.position='LB' THEN CASE role.target_position
-                                WHEN 'RB' THEN -2 WHEN 'LWB' THEN -2 WHEN 'RWB' THEN -5
-                                WHEN 'CB' THEN -3 WHEN 'LM' THEN -5 WHEN 'CDM' THEN -7 ELSE -7 END
-                              WHEN p.position='CB' THEN CASE role.target_position
-                                WHEN 'LB' THEN -3 WHEN 'RB' THEN -3 WHEN 'CDM' THEN -3
-                                WHEN 'RWB' THEN -5 WHEN 'LWB' THEN -5 WHEN 'CM' THEN -7 ELSE -7 END
-                              WHEN p.position='CDM' THEN CASE role.target_position
-                                WHEN 'CM' THEN -2 WHEN 'CB' THEN -3 WHEN 'CAM' THEN -5
-                                WHEN 'RM' THEN -7 WHEN 'LM' THEN -7 ELSE -7 END
-                              WHEN p.position='CM' THEN CASE role.target_position
-                                WHEN 'CDM' THEN -2 WHEN 'CAM' THEN -2 WHEN 'RM' THEN -3
-                                WHEN 'LM' THEN -3 WHEN 'CB' THEN -7 WHEN 'ST' THEN -10 ELSE -7 END
-                              WHEN p.position='CAM' THEN CASE role.target_position
-                                WHEN 'CM' THEN -2 WHEN 'CF' THEN -3 WHEN 'ST' THEN -5
-                                WHEN 'RM' THEN -5 WHEN 'LM' THEN -5 ELSE -7 END
-                              WHEN p.position='RM' THEN CASE role.target_position
-                                WHEN 'RW' THEN -2 WHEN 'CM' THEN -3 WHEN 'RB' THEN -5
-                                WHEN 'ST' THEN -7 WHEN 'LM' THEN -7 ELSE -7 END
-                              WHEN p.position='LM' THEN CASE role.target_position
-                                WHEN 'LW' THEN -2 WHEN 'CM' THEN -3 WHEN 'LB' THEN -5
-                                WHEN 'ST' THEN -7 WHEN 'RM' THEN -7 ELSE -7 END
-                              WHEN p.position='RW' THEN CASE role.target_position
-                                WHEN 'RM' THEN -2 WHEN 'ST' THEN -3 WHEN 'CF' THEN -5
-                                WHEN 'LW' THEN -7 WHEN 'RB' THEN -7 ELSE -7 END
-                              WHEN p.position='LW' THEN CASE role.target_position
-                                WHEN 'LM' THEN -2 WHEN 'ST' THEN -3 WHEN 'CF' THEN -5
-                                WHEN 'RW' THEN -7 WHEN 'LB' THEN -7 ELSE -7 END
-                              WHEN p.position='ST' THEN CASE role.target_position
-                                WHEN 'CF' THEN -2 WHEN 'CAM' THEN -5 WHEN 'RW' THEN -7
-                                WHEN 'LW' THEN -7 WHEN 'CM' THEN -10 ELSE -7 END
-                              WHEN p.position='CF' THEN CASE role.target_position
-                                WHEN 'ST' THEN -2 WHEN 'CAM' THEN -3 WHEN 'RW' THEN -5
-                                WHEN 'LW' THEN -5 WHEN 'CM' THEN -7 ELSE -7 END
-                              WHEN p.position='RWB' THEN CASE role.target_position
-                                WHEN 'RB' THEN -2 WHEN 'RM' THEN -3 WHEN 'LB' THEN -5
-                                WHEN 'CB' THEN -5 ELSE -7 END
-                              WHEN p.position='LWB' THEN CASE role.target_position
-                                WHEN 'LB' THEN -2 WHEN 'LM' THEN -3 WHEN 'RB' THEN -5
-                                WHEN 'CB' THEN -5 ELSE -7 END
-                              ELSE -7
-                            END
-                            ELSE 0
-                          END
-                        )) AS effective_overall,
-                        (cardinality(coalesce(t.starting_xi,ARRAY[]::uuid[]))=11) AS has_custom_lineup,
-                        (cardinality(coalesce(t.starting_xi,ARRAY[]::uuid[]))=11 AND p.id=ANY(t.starting_xi)) AS in_custom_lineup,
-                        row_number() OVER (
-                          PARTITION BY p.club_id
-                          ORDER BY p.overall + (p.form-50)*0.06 + (p.morale-70)*0.04
-                                   + (p.sharpness-85)*0.04 - p.fatigue*0.08 DESC
-                        ) AS squad_rank
-                 FROM players p
-                 LEFT JOIN tactics t
-                   ON t.game_state_id=p.game_state_id AND t.club_id=p.club_id
-                 LEFT JOIN LATERAL (
-                   SELECT item->>'role' AS target_position
-                   FROM jsonb_array_elements(coalesce(t.style->'slot_roles','[]'::jsonb)) item
-                   WHERE item->>'player_id'=p.id::text
-                   LIMIT 1
-                 ) role ON true
-                 WHERE p.game_state_id=%s AND p.club_id IN (%s,%s)
-             )
-             SELECT club_id,coalesce(avg(effective_overall),60)::float AS avg_overall
-             FROM candidates
-             WHERE (has_custom_lineup AND in_custom_lineup)
-                OR (NOT has_custom_lineup AND squad_rank<=11)
-             GROUP BY club_id""",
-            (save["id"], fixture["home_club_id"], fixture["away_club_id"]),
-        ).fetchall()
-        rating = {str(item["club_id"]): item["avg_overall"] for item in averages}
-        seed = int(hashlib.sha256(f"{fixture['id']}:{match_date}".encode()).hexdigest()[:8], 16)
+        fixture_date = fixture["match_date"].date() if isinstance(fixture["match_date"], datetime) else fixture["match_date"]
+        last_match_date = max(last_match_date, fixture_date)
+        lineups, suspended_ids = _match_lineups(
+            conn, str(save["id"]), str(fixture["home_club_id"]), str(fixture["away_club_id"]), fixture_date
+        )
+        home_players = lineups.get(str(fixture["home_club_id"]), [])
+        away_players = lineups.get(str(fixture["away_club_id"]), [])
+        home_overall = sum(float(player.get("effective_overall") or player["overall"]) for player in home_players) / len(home_players) if home_players else 60
+        away_overall = sum(float(player.get("effective_overall") or player["overall"]) for player in away_players) / len(away_players) if away_players else 60
+        seed = int(hashlib.sha256(f"{fixture['id']}:{fixture_date}".encode()).hexdigest()[:8], 16)
+        rng = random.Random(seed ^ 0x5F27A11)
         result = simulate_score(
-            fixture["home_rep"], fixture["away_rep"],
-            rating.get(str(fixture["home_club_id"]), 60),
-            rating.get(str(fixture["away_club_id"]), 60),
-            seed,
+            fixture["home_rep"], fixture["away_rep"], home_overall, away_overall, seed
+        )
+        details = _record_match_detail(
+            conn, save, fixture, result, lineups, suspended_ids, fixture_date, rng
         )
         conn.execute(
             """UPDATE fixtures SET status='completed',home_score=%s,away_score=%s,home_xg=%s,away_xg=%s,
                        home_possession=%s,away_possession=%s,home_shots=%s,away_shots=%s,
-                       home_shots_on_target=%s,away_shots_on_target=%s,simulated_at=now()
+                       home_shots_on_target=%s,away_shots_on_target=%s,notes=coalesce(notes,'{}'::jsonb)||%s,
+                       simulated_at=now()
                WHERE id=%s""",
-            (result["home_score"], result["away_score"], result["home_xg"], result["away_xg"],
-             result["home_possession"], result["away_possession"], result["home_shots"], result["away_shots"],
-             result["home_shots_on_target"], result["away_shots_on_target"], fixture["id"]),
+            (
+                result["home_score"], result["away_score"], result["home_xg"], result["away_xg"],
+                result["home_possession"], result["away_possession"], result["home_shots"], result["away_shots"],
+                result["home_shots_on_target"], result["away_shots_on_target"], Jsonb({"match": details}), fixture["id"],
+            ),
         )
         fixture.update(result)
         update_table(conn, fixture)
@@ -1279,38 +2032,49 @@ def simulate_matchday(conn: Connection, save: dict, match_date: date) -> tuple[l
         update_player_condition(conn, str(save["id"]), str(fixture["away_club_id"]), away_condition)
         advance_position_training(conn, str(save["id"]), str(fixture["home_club_id"]))
         advance_position_training(conn, str(save["id"]), str(fixture["away_club_id"]))
-        add_goal_events(conn, fixture, result)
         match_result = {
+            "fixture_id": str(fixture["id"]),
             "home": fixture["home_name"],
             "away": fixture["away_name"],
             "home_score": result["home_score"],
             "away_score": result["away_score"],
-            "match_date": match_date.isoformat(),
+            "match_date": fixture_date.isoformat(),
+            "mvp": details.get("mvp"),
         }
         completed.append(match_result)
         if str(fixture["home_club_id"]) == managed_club_id or str(fixture["away_club_id"]) == managed_club_id:
             manager_results.append(match_result)
-    conn.execute(
-        """UPDATE game_states SET game_date=%s,simulation_cursor=%s,last_simulated_at=now(),
-                  last_autosave_at=now(),updated_at=now() WHERE id=%s""",
-        (match_date, match_date, save["id"]),
-    )
+
+    if rows:
+        conn.execute(
+            """UPDATE game_states SET game_date=%s,simulation_cursor=%s,last_simulated_at=now(),
+                      last_autosave_at=now(),updated_at=now() WHERE id=%s""",
+            (last_match_date, last_match_date, save["id"]),
+        )
     return completed, manager_results
 
 
 @app.post("/api/game/advance")
 def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> dict:
     save = require_save(conn, str(manager["id"]))
-    next_date = conn.execute(
-        "SELECT match_date::date AS match_date FROM fixtures WHERE game_state_id=%s AND status='scheduled' ORDER BY match_date LIMIT 1",
+    next_round = conn.execute(
+        """SELECT tournament_id,matchday,max(match_date::date) AS match_date
+           FROM fixtures
+           WHERE game_state_id=%s AND status='scheduled'
+           GROUP BY tournament_id,matchday
+           ORDER BY min(match_date),matchday
+           LIMIT 1""",
         (save["id"],),
     ).fetchone()
-    if not next_date:
+    if not next_round:
+        calendar_year_season = bool((save.get("game_settings") or {}).get("calendar_year_season"))
         current_year = int(str(save.get("season") or "2026/27")[:4])
         next_year = current_year + 1
-        next_season = f"{next_year}/{(next_year + 1) % 100:02d}"
+        next_season = str(next_year) if calendar_year_season else f"{next_year}/{(next_year + 1) % 100:02d}"
         tournament_id = conn.execute(
-            "SELECT tournament_id FROM club_tournaments WHERE game_state_id=%s AND season=%s LIMIT 1",
+            """SELECT tournament_id FROM club_tournaments
+               WHERE game_state_id=%s AND season=%s
+               ORDER BY tournament_id LIMIT 1""",
             (save["id"], save["season"]),
         ).fetchone()
         if not tournament_id:
@@ -1326,22 +2090,29 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
                ON CONFLICT (game_state_id,tournament_id,club_id,season) DO NOTHING""",
             (next_season, save["id"], save["season"]),
         )
-        season_start = date(next_year, 8, 15)
+        first_day = (
+            date(next_year, 2, 1) if calendar_year_season and (save.get("game_settings") or {}).get("calendar_league_code") == "USA-MLS"
+            else date(next_year, 1, 1) if calendar_year_season
+            else date(next_year, 7, 1)
+        )
         create_schedule(
             conn, str(save["id"]), str(tournament_id["tournament_id"]),
-            [dict(club) for club in clubs], season=next_season, start_date=season_start,
+            [dict(club) for club in clubs], season=next_season, start_date=first_day,
         )
-        first_day = date(next_year, 7, 1)
         conn.execute(
             """UPDATE game_states SET season=%s,game_date=%s,simulation_cursor=%s,
                       last_autosave_at=now(),updated_at=now() WHERE id=%s""",
             (next_season, first_day, first_day, save["id"]),
         )
         return {"ok": True, "new_season": next_season, "matches_simulated": 0, "results": [], "manager_result": None}
-    match_date = next_date["match_date"]
-    completed, manager_results = simulate_matchday(conn, save, match_date)
+
+    match_date = next_round["match_date"]
+    completed, manager_results = simulate_matchday(
+        conn, save, match_date, int(next_round["matchday"]), str(next_round["tournament_id"])
+    )
     return {
         "ok": True,
+        "matchday": int(next_round["matchday"]),
         "matchday_date": match_date.isoformat(),
         "matches_simulated": len(completed),
         "results": manager_results,
@@ -1359,22 +2130,27 @@ def advance_game_to_date(
     current_date = save["game_date"].date() if isinstance(save["game_date"], datetime) else save["game_date"]
     if target_date < current_date:
         raise HTTPException(status_code=409, detail="Нельзя перемотать карьеру назад")
+    calendar_year_season = bool((save.get("game_settings") or {}).get("calendar_year_season"))
     season_start_year = int(str(save.get("season") or "2026/27")[:4])
-    season_end = date(season_start_year + 1, 6, 30)
+    season_end = date(season_start_year, 12, 31) if calendar_year_season else date(season_start_year + 1, 6, 30)
     if target_date > season_end:
         raise HTTPException(status_code=422, detail="Выбери дату внутри текущего игрового сезона")
-    match_dates = conn.execute(
-        """SELECT DISTINCT match_date::date AS match_date
+    rounds = conn.execute(
+        """SELECT tournament_id,matchday,max(match_date::date) AS match_date,
+                  min(match_date::date) AS first_match_date
            FROM fixtures
            WHERE game_state_id=%s AND status='scheduled'
-             AND match_date::date>%s AND match_date::date<=%s
-           ORDER BY match_date""",
-        (save["id"], current_date, target_date),
+           GROUP BY tournament_id,matchday
+           HAVING max(match_date::date)<=%s
+           ORDER BY min(match_date),matchday""",
+        (save["id"], target_date),
     ).fetchall()
     matches_simulated = 0
     manager_results: list[dict] = []
-    for row in match_dates:
-        completed, own_results = simulate_matchday(conn, save, row["match_date"])
+    for row in rounds:
+        completed, own_results = simulate_matchday(
+            conn, save, row["match_date"], int(row["matchday"]), str(row["tournament_id"])
+        )
         matches_simulated += len(completed)
         manager_results.extend(own_results)
     conn.execute(
@@ -1385,11 +2161,182 @@ def advance_game_to_date(
     return {
         "ok": True,
         "game_date": target_date.isoformat(),
-        "matchdays_simulated": len(match_dates),
+        "matchdays_simulated": len(rounds),
         "matches_simulated": matches_simulated,
         "results": manager_results,
         "manager_result": manager_results[-1] if manager_results else None,
     }
+
+@app.get("/api/matches/{fixture_id}")
+def match_details(
+    fixture_id: str,
+    manager: dict = Depends(manager_dep),
+    conn: Connection = Depends(db_dep),
+) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    fixture_row = conn.execute(
+        """SELECT f.*,t.name AS tournament_name,t.logo_url AS tournament_logo,
+                  h.name AS home_name,h.logo_url AS home_logo,
+                  a.name AS away_name,a.logo_url AS away_logo
+           FROM fixtures f
+           LEFT JOIN tournaments t ON t.id=f.tournament_id
+           JOIN clubs h ON h.id=f.home_club_id
+           JOIN clubs a ON a.id=f.away_club_id
+           WHERE f.id=%s AND f.game_state_id=%s""",
+        (fixture_id, save["id"]),
+    ).fetchone()
+    if not fixture_row:
+        raise HTTPException(status_code=404, detail="Матч не найден в текущей карьере")
+    fixture = dict(fixture_row)
+    match_stats = (fixture.get("notes") or {}).get("match")
+    if not isinstance(match_stats, dict):
+        match_stats = None
+
+    player_rows = conn.execute(
+        """SELECT s.player_id,s.club_id,c.name AS club_name,p.name,p.position,
+                  s.minutes_played,s.rating,s.goals,s.assists,s.shots,s.shots_on_target,
+                  s.passes,s.accurate_passes,s.tackles,s.interceptions,s.key_passes,
+                  s.yellow_cards,s.red_cards,s.saves,s.clean_sheet,s.is_mvp,s.is_estimate
+           FROM fixture_player_stats s
+           JOIN players p ON p.id=s.player_id
+           JOIN clubs c ON c.id=s.club_id
+           WHERE s.fixture_id=%s
+           ORDER BY s.rating DESC,s.goals DESC,s.assists DESC,p.name""",
+        (fixture_id,),
+    ).fetchall()
+    event_rows = conn.execute(
+        """SELECT e.minute,e.added_time,e.event_type,e.detail,c.name AS club_name,
+                  p.name AS player_name,a.name AS assist_name
+           FROM match_events e
+           LEFT JOIN clubs c ON c.id=e.club_id
+           LEFT JOIN players p ON p.id=e.player_id
+           LEFT JOIN players a ON a.id=e.assist_player_id
+           WHERE e.fixture_id=%s
+           ORDER BY e.minute,e.added_time,e.id""",
+        (fixture_id,),
+    ).fetchall()
+    return serialise({
+        "fixture": fixture,
+        "stats": match_stats,
+        "players": [dict(row) for row in player_rows],
+        "events": [dict(row) for row in event_rows],
+        "historical_estimate": bool(match_stats and match_stats.get("historical_estimate")),
+        "stats_available": bool(player_rows),
+    })
+
+
+@app.get("/api/tournaments")
+def tournaments(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_dep)) -> list:
+    save = require_save(conn, str(manager["id"]))
+    rows = conn.execute(
+        """SELECT t.id,t.code,t.name,t.country,t.continent,t.tournament_type,t.logo_url,
+                  ct.season,
+                  count(DISTINCT ct.club_id)::int AS teams,
+                  count(DISTINCT f.id)::int AS fixtures,
+                  count(DISTINCT f.id) FILTER (WHERE f.status='completed')::int AS played_fixtures
+           FROM club_tournaments ct
+           JOIN tournaments t ON t.id=ct.tournament_id
+           LEFT JOIN fixtures f
+             ON f.game_state_id=ct.game_state_id AND f.tournament_id=ct.tournament_id AND f.season=ct.season
+           WHERE ct.game_state_id=%s AND ct.season=%s
+           GROUP BY t.id,ct.season
+           ORDER BY t.tier,t.name""",
+        (save["id"], save["season"]),
+    ).fetchall()
+    return serialise([dict(row) for row in rows])
+
+
+@app.get("/api/tournaments/{tournament_id}")
+def tournament_details(
+    tournament_id: str,
+    manager: dict = Depends(manager_dep),
+    conn: Connection = Depends(db_dep),
+) -> dict:
+    save = require_save(conn, str(manager["id"]))
+    tournament = conn.execute(
+        """SELECT t.id,t.code,t.name,t.country,t.continent,t.tournament_type,t.logo_url,
+                  ct.season
+           FROM tournaments t
+           JOIN club_tournaments ct ON ct.tournament_id=t.id
+           WHERE t.id=%s AND ct.game_state_id=%s AND ct.season=%s
+           LIMIT 1""",
+        (tournament_id, save["id"], save["season"]),
+    ).fetchone()
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Турнир не найден в текущем сезоне")
+
+    standings_rows = conn.execute(
+        """SELECT c.id AS club_id,c.name,c.logo_url,ct.played,ct.won,ct.drawn,ct.lost,
+                  ct.goals_for,ct.goals_against,ct.goal_difference,ct.points
+           FROM club_tournaments ct JOIN clubs c ON c.id=ct.club_id
+           WHERE ct.game_state_id=%s AND ct.tournament_id=%s AND ct.season=%s
+           ORDER BY ct.points DESC,coalesce(ct.goal_difference,0) DESC,ct.goals_for DESC,c.name""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchall()
+    player_rows = conn.execute(
+        """SELECT p.id AS player_id,p.name,p.position,c.name AS club_name,c.logo_url AS club_logo,
+                  count(*)::int AS appearances,
+                  round(avg(s.rating)::numeric,2)::float AS average_rating,
+                  sum(s.goals)::int AS goals,sum(s.assists)::int AS assists,
+                  (sum(s.goals)+sum(s.assists))::int AS goal_contributions,
+                  count(*) FILTER (WHERE s.is_mvp)::int AS mvp,
+                  sum(s.yellow_cards)::int AS yellow_cards,sum(s.red_cards)::int AS red_cards,
+                  count(*) FILTER (WHERE s.clean_sheet)::int AS clean_sheets
+           FROM fixture_player_stats s
+           JOIN fixtures f ON f.id=s.fixture_id AND f.status='completed'
+           JOIN players p ON p.id=s.player_id
+           JOIN clubs c ON c.id=s.club_id
+           WHERE s.game_state_id=%s AND s.tournament_id=%s AND f.season=%s
+           GROUP BY p.id,p.name,p.position,c.name,c.logo_url
+           ORDER BY average_rating DESC,goal_contributions DESC,goals DESC,p.name
+           LIMIT 100""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchall()
+    team_rows = conn.execute(
+        """SELECT c.id AS club_id,c.name,c.logo_url,
+                  coalesce(sum(s.goals),0)::int AS goals,
+                  round(avg(s.rating)::numeric,2)::float AS average_rating,
+                  count(*) FILTER (WHERE s.is_mvp)::int AS mvp,
+                  coalesce(sum(s.yellow_cards),0)::int AS yellow_cards,
+                  coalesce(sum(s.red_cards),0)::int AS red_cards,
+                  count(*) FILTER (WHERE s.clean_sheet)::int AS clean_sheets
+           FROM fixture_player_stats s
+           JOIN fixtures f ON f.id=s.fixture_id AND f.status='completed'
+           JOIN clubs c ON c.id=s.club_id
+           WHERE s.game_state_id=%s AND s.tournament_id=%s AND f.season=%s
+           GROUP BY c.id,c.name,c.logo_url
+           ORDER BY goals DESC,average_rating DESC,c.name""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchall()
+    match_rows = conn.execute(
+        """SELECT f.id,f.match_date,f.matchday,f.stage,f.status,f.home_score,f.away_score,
+                  f.home_xg,f.away_xg,h.name AS home_name,h.logo_url AS home_logo,
+                  a.name AS away_name,a.logo_url AS away_logo
+           FROM fixtures f
+           JOIN clubs h ON h.id=f.home_club_id
+           JOIN clubs a ON a.id=f.away_club_id
+           WHERE f.game_state_id=%s AND f.tournament_id=%s AND f.season=%s
+           ORDER BY f.match_date,f.matchday,f.id
+           LIMIT 700""",
+        (save["id"],tournament_id,save["season"]),
+    ).fetchall()
+    totals = conn.execute(
+        """SELECT count(*) FILTER (WHERE status='completed')::int AS played_matches,
+                  count(*) FILTER (WHERE status='scheduled')::int AS scheduled_matches,
+                  count(*)::int AS total_matches,
+                  coalesce(sum(home_score+away_score) FILTER (WHERE status='completed'),0)::int AS goals
+           FROM fixtures
+           WHERE game_state_id=%s AND tournament_id=%s AND season=%s""",
+        (save["id"], tournament_id, save["season"]),
+    ).fetchone()
+    return serialise({
+        "tournament": dict(tournament),
+        "standings": [dict(row) for row in standings_rows],
+        "players": [dict(row) for row in player_rows],
+        "teams": [dict(row) for row in team_rows],
+        "matches": [dict(row) for row in match_rows],
+        "totals": dict(totals),
+    })
 
 
 @app.get("/api/standings")

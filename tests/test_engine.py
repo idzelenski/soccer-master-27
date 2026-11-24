@@ -1,6 +1,14 @@
 from collections import Counter
+from datetime import date
 
-from app.engine import expected_goals, overall_from_market_value, round_robin, simulate_score
+from app.engine import (
+    estimate_transfer_value,
+    expected_goals,
+    league_schedule_dates,
+    overall_from_market_value,
+    round_robin,
+    simulate_score,
+)
 
 
 def test_round_robin_has_every_pair_twice():
@@ -82,3 +90,73 @@ def test_ten_point_starting_xi_gap_is_meaningful_when_reputation_is_equal():
     assert strong_at_home[1] < equal[1] - 0.10
     assert strong_away[0] < equal[0] - 0.10
     assert strong_away[1] >= equal[1] + 0.15
+
+def test_transfer_value_uses_age_league_and_player_traits():
+    traits = {"PAC": 80, "SHO": 75, "PAS": 72, "DRI": 78, "DEF": 55, "PHY": 70}
+    premier = estimate_transfer_value(75, 85, 21, "Premier League", "Royaume-Uni", traits)
+    russia = estimate_transfer_value(75, 85, 21, "Russian Premier League", "Russia", traits)
+    older = estimate_transfer_value(75, 75, 32, "Premier League", "Royaume-Uni", traits)
+    weaker = estimate_transfer_value(
+        70, 70, 21, "Premier League", "Royaume-Uni",
+        {"PAC": 50, "SHO": 50, "PAS": 50, "DRI": 50, "DEF": 50, "PHY": 50},
+    )
+    assert premier > russia
+    assert premier > older
+    assert premier > weaker
+    assert premier >= 10_000
+
+
+def test_russian_premier_league_calendar_has_winter_break():
+    dates = league_schedule_dates("Russian Premier League", "Russia", 2026, 30)
+    assert len(dates) == 30
+    assert max(dates[:15]) <= date(2026, 12, 6)
+    assert min(dates[15:]) >= date(2027, 2, 27)
+    assert max(dates) <= date(2027, 5, 29)
+
+
+def test_premier_league_calendar_spans_august_to_may_with_midweeks():
+    dates = league_schedule_dates("Premier League", "Royaume-Uni", 2026, 38)
+    assert len(dates) == 38
+    assert date(2026, 8, 15) <= min(dates) <= date(2026, 8, 29)
+    assert date(2027, 5, 15) <= max(dates) <= date(2027, 5, 30)
+    assert sum(day.weekday() not in (5, 6) for day in dates) == 5
+
+
+def test_mls_calendar_respects_2026_world_cup_break_and_34_rounds():
+    dates = league_schedule_dates("Major League Soccer", "États-Unis", 2026, 34)
+    assert len(dates) == 34
+    assert min(dates) >= date(2026, 2, 21)
+    assert max(dates) <= date(2026, 11, 7)
+    assert all(not (date(2026, 5, 25) <= day <= date(2026, 7, 16)) for day in dates)
+
+
+def test_brazilian_calendar_finishes_in_december():
+    dates = league_schedule_dates("Campeonato Brasileiro Série A", "Brésil", 2026, 38)
+    assert len(dates) == 38
+    assert min(dates) < date(2026, 3, 1)
+    assert max(dates) <= date(2026, 12, 2)
+    assert max(dates).year == 2026
+
+
+def test_northern_european_calendar_is_spring_to_autumn():
+    norway = league_schedule_dates("Eliteserien", "Norvège", 2026, 30)
+    sweden = league_schedule_dates("Allsvenskan", "Suède", 2026, 30)
+    assert len(norway) == len(sweden) == 30
+    assert min(norway).month <= 4 and max(norway).month >= 10
+    assert min(sweden).month <= 4 and max(sweden).month >= 10
+
+def test_argentine_primera_calendar_fits_32_rounds_in_one_year():
+    dates = league_schedule_dates("Argentine Primera División", "Argentine", 2026, 32)
+    assert len(dates) == 32
+    assert min(dates) >= date(2026, 2, 1)
+    assert max(dates) <= date(2026, 12, 6)
+    assert sum(day.weekday() == 2 for day in dates) == 2
+
+
+def test_2_bundesliga_uses_august_to_may_and_keeps_december_weekend():
+    dates = league_schedule_dates("2. Bundesliga", "Allemagne", 2026, 34)
+    assert len(dates) == 34
+    assert min(dates) >= date(2026, 8, 8)
+    assert max(dates) <= date(2027, 5, 16)
+    assert any(day.month == 12 and day.day == 19 for day in dates)
+
