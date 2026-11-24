@@ -49,7 +49,10 @@ def test_broad_source_positions_get_stable_primary_roles_without_secondary_posit
     assert {"ST", "CF", "LW", "RW"}.issubset(forwards)
     assert SECONDARY_POSITIONS["GK"] == ()
     assert position_penalty("RB", [], "RB") == 0
-    assert position_penalty("RB", [], "RWB") == -2
+    assert position_penalty("RB", [], "RWB") == 0
+    assert position_penalty("RWB", [], "RB") == 0
+    assert position_penalty("LB", [], "LWB") == 0
+    assert position_penalty("LWB", [], "LB") == 0
     assert position_penalty("GK", [], "ST") == -40
 
 
