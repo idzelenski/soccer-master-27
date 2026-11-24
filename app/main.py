@@ -70,7 +70,7 @@ def repair_legacy_schedules(conn: Connection) -> int:
            FROM fixtures f
            JOIN game_states gs ON gs.id=f.game_state_id
            JOIN tournaments t ON t.id=f.tournament_id
-           WHERE gs.status='active'
+           WHERE gs.status='active' AND t.tournament_type='league'
            GROUP BY f.game_state_id,f.tournament_id,f.season,t.name,t.country
            HAVING count(*) FILTER (WHERE f.status='completed')=0
               AND count(*) FILTER (WHERE f.status='scheduled')>0
