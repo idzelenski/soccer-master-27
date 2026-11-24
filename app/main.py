@@ -593,53 +593,54 @@ def best_lineup(player_rows: list[dict], formation: str = "4-3-3") -> tuple[list
         for player_index, player in enumerate(ordered)
     ]
 
-    # Hungarian algorithm for n rows >= m columns, minimizing negative score.
-    u = [0] * (player_count + 1)
-    v = [0] * (slot_count + 1)
-    matched_player = [0] * (slot_count + 1)
-    previous_slot = [0] * (slot_count + 1)
+    # Hungarian algorithm with roles as rows and players as columns.
+    # There are always at least as many players as roles.
+    u = [0] * (slot_count + 1)
+    v = [0] * (player_count + 1)
+    matched_slot = [0] * (player_count + 1)
+    previous_player = [0] * (player_count + 1)
     infinity = float("inf")
-    for player_index in range(1, player_count + 1):
-        matched_player[0] = player_index
-        min_cost = [infinity] * (slot_count + 1)
-        used = [False] * (slot_count + 1)
-        current_slot = 0
+    for slot_index in range(1, slot_count + 1):
+        matched_slot[0] = slot_index
+        min_cost = [infinity] * (player_count + 1)
+        used = [False] * (player_count + 1)
+        current_player = 0
         while True:
-            used[current_slot] = True
-            current_player = matched_player[current_slot]
+            used[current_player] = True
+            current_slot = matched_slot[current_player]
             delta = infinity
-            next_slot = 0
-            for slot_index in range(1, slot_count + 1):
-                if used[slot_index]:
+            next_player = 0
+            for candidate_player in range(1, player_count + 1):
+                if used[candidate_player]:
                     continue
-                cost = -scores[current_player - 1][slot_index - 1]
-                reduced_cost = cost - u[current_player] - v[slot_index]
-                if reduced_cost < min_cost[slot_index]:
-                    min_cost[slot_index] = reduced_cost
-                    previous_slot[slot_index] = current_slot
-                if min_cost[slot_index] < delta:
-                    delta = min_cost[slot_index]
-                    next_slot = slot_index
-            for slot_index in range(slot_count + 1):
-                if used[slot_index]:
-                    u[matched_player[slot_index]] += delta
-                    v[slot_index] -= delta
+                cost = -scores[candidate_player - 1][current_slot - 1]
+                reduced_cost = cost - u[current_slot] - v[candidate_player]
+                if reduced_cost < min_cost[candidate_player]:
+                    min_cost[candidate_player] = reduced_cost
+                    previous_player[candidate_player] = current_player
+                if min_cost[candidate_player] < delta:
+                    delta = min_cost[candidate_player]
+                    next_player = candidate_player
+            for candidate_player in range(player_count + 1):
+                if used[candidate_player]:
+                    u[matched_slot[candidate_player]] += delta
+                    v[candidate_player] -= delta
                 else:
-                    min_cost[slot_index] -= delta
-            current_slot = next_slot
-            if matched_player[current_slot] == 0:
+                    min_cost[candidate_player] -= delta
+            current_player = next_player
+            if matched_slot[current_player] == 0:
                 break
         while True:
-            next_slot = previous_slot[current_slot]
-            matched_player[current_slot] = matched_player[next_slot]
-            current_slot = next_slot
-            if current_slot == 0:
+            next_player = previous_player[current_player]
+            matched_slot[current_player] = matched_slot[next_player]
+            current_player = next_player
+            if current_player == 0:
                 break
 
     selected_by_slot: list[str | None] = [None] * slot_count
-    for slot_index in range(1, slot_count + 1):
-        player_index = matched_player[slot_index]
-        if player_index:
+    for player_index in range(1, player_count + 1):
+        slot_index = matched_slot[player_index]
+        if slot_index:
             selected_by_slot[slot_index - 1] = str(ordered[player_index - 1]["id"])
     if any(player_id is None for player_id in selected_by_slot):
         raise ValueError(f"Не удалось собрать полный состав по схеме {formation}")
