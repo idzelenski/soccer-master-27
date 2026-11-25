@@ -263,7 +263,9 @@ def main() -> None:
               WHERE duplicate_rank=1
             )
             SELECT * EXCLUDE(duplicate_rank,league_rank) FROM ranked
-            ORDER BY level ASC, league_rank ASC, competition, country, name_en
+            -- Interleave competition rankings so the global limit cannot be dominated
+            -- by large leagues: take rank 1 across leagues, then rank 2, etc.
+            ORDER BY league_rank ASC, level ASC, competition, country, name_en
             LIMIT {int(settings.club_target)}
         """)
         club_rows = records(club_cursor)

@@ -515,3 +515,7 @@ SM27 — футбольный менеджер / симулятор карьер
 
 47. EUROPE CATALOG IMPORT WORKFLOW ADJUSTMENT — 2026-11-25
 - GitHub Actions manual catalog-import input description/default updated from legacy 100–1000/750 to 100–2500/2500 to match expanded app settings and balanced Europe selection. CI on prior commit passed; current workflow commit CI pending. Import is not yet run; no DB write made.
+
+
+48. EUROPE LEAGUE BALANCING FIX — 2026-11-25
+- Importer selection ordering adjusted to interleave clubs by rank across competitions before applying global target; this avoids ordering bias where earlier leagues could dominate a 2500-club cap. No import run yet.
