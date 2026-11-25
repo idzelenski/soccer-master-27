@@ -511,3 +511,7 @@ SM27 — футбольный менеджер / симулятор карьер
 - Database audit: current pool 756 clubs total, 544 tagged UEFA across 57 competition codes, with many leagues incomplete. Global club selection cap and global ranking in scripts/import_catalog.py cause teams from smaller competitions to be crowded out. The country-continent resolver also incorrectly defaults unrecognized ISO codes to UEFA (observed Thailand TH tagged UEFA).
 - Planned importer change: target capacity raised to 2500 (config maximum 3000); importer now selects UEFA countries only using an explicit ISO allow-list and prioritizes balanced selection per competition instead of one global popularity ranking. Unknown continent classification defaults to UNKNOWN instead of UEFA. This is code-level change only; import has not yet been executed against Neon.
 - Data expansion remains phased and subject to validation. No destructive DB operations, paid resources, or deployment are planned before tests and import-size/quota checks.
+
+
+47. EUROPE CATALOG IMPORT WORKFLOW ADJUSTMENT — 2026-11-25
+- GitHub Actions manual catalog-import input description/default updated from legacy 100–1000/750 to 100–2500/2500 to match expanded app settings and balanced Europe selection. CI on prior commit passed; current workflow commit CI pending. Import is not yet run; no DB write made.

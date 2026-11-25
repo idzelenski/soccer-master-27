@@ -5,9 +5,9 @@ on:
   workflow_dispatch:
     inputs:
       club_target:
-        description: "Maximum clubs to import (100–1000)"
+        description: "Maximum clubs to import (100–2500)"
         required: true
-        default: "750"
+        default: "2500"
 
 permissions:
   contents: read
