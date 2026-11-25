@@ -12,7 +12,7 @@ load_dotenv()
 class Settings:
     database_url: str = os.getenv("DATABASE_URL", "")
     cookie_secure: bool = os.getenv("COOKIE_SECURE", "true").lower() == "true"
-    club_target: int = max(100, min(1000, int(os.getenv("SM27_CLUB_TARGET", "750"))))
+    club_target: int = max(100, min(3000, int(os.getenv("SM27_CLUB_TARGET", "2500"))))
     session_days: int = 14
 
 

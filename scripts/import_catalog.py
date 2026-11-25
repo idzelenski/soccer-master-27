@@ -130,7 +130,7 @@ def continent_for_iso(country_iso: str | None) -> str:
         return "CONMEBOL"
     if code in oceania:
         return "OFC"
-    return "UEFA"
+    return "UNKNOWN"
 
 
 def normalise_name(value: str | None) -> str:
@@ -238,20 +238,32 @@ def main() -> None:
               LEFT JOIN read_parquet({competition_path}) co ON co.code = cs.competition
               WHERE lower(coalesce(c.category,'')) NOT LIKE '%women%'
                 AND lower(coalesce(c.category,'')) NOT LIKE '%youth%'
-            ), ranked AS (
+            ), deduplicated AS (
               SELECT *, row_number() OVER (
                 PARTITION BY wikidata_qid
                 ORDER BY CASE WHEN players > 0 THEN 0 ELSE 1 END,
                          level ASC, players DESC, coalesce(wikipedia_count,0) DESC
-              ) AS rn
+              ) AS duplicate_rank
               FROM current_entries
               WHERE level BETWEEN 1 AND 4
+                AND upper(coalesce(country_iso,'')) IN (
+                  'AD','AL','AM','AT','AZ','BA','BE','BG','BY','CH','CY','CZ','DE','DK',
+                  'EE','ES','FI','FR','GB','GE','GR','HR','HU','IE','IS','IL','IT','KZ',
+                  'LI','LT','LU','LV','MC','MD','ME','MK','MT','NL','NO','PL','PT','RO',
+                  'RS','RU','SE','SI','SK','SM','TR','UA','XK'
+                )
+            ), ranked AS (
+              SELECT *, row_number() OVER (
+                PARTITION BY competition
+                ORDER BY CASE WHEN players > 0 THEN 0 ELSE 1 END,
+                         level ASC, players DESC, coalesce(wikipedia_count,0) DESC,
+                         country, name_en
+              ) AS league_rank
+              FROM deduplicated
+              WHERE duplicate_rank=1
             )
-            SELECT * EXCLUDE(rn) FROM ranked
-            WHERE rn=1
-            ORDER BY CASE WHEN players > 0 THEN 0 ELSE 1 END,
-                     level ASC, players DESC, coalesce(wikipedia_count,0) DESC,
-                     country, name_en
+            SELECT * EXCLUDE(duplicate_rank,league_rank) FROM ranked
+            ORDER BY level ASC, league_rank ASC, competition, country, name_en
             LIMIT {int(settings.club_target)}
         """)
         club_rows = records(club_cursor)
