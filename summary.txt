@@ -519,3 +519,8 @@ SM27 — футбольный менеджер / симулятор карьер
 
 48. EUROPE LEAGUE BALANCING FIX — 2026-11-25
 - Importer selection ordering adjusted to interleave clubs by rank across competitions before applying global target; this avoids ordering bias where earlier leagues could dominate a 2500-club cap. No import run yet.
+
+
+## Flag CDN fix (2026-11-26)
+- Normalize England, Scotland, Wales, and Northern Ireland to the `gb` flag image code supported by FlagCDN, rather than unsupported regional filename codes.
+- This fixes missing UK player flags at the client rendering layer; nationality records themselves are not rewritten.

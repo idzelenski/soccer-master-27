@@ -7,7 +7,7 @@ const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map
 function flagAssetUrl(code) {
   let value = String(code || '').trim().toLowerCase();
   const aliases = {
-    eng:'gb-eng', sco:'gb-sct', wal:'gb-wls', nir:'gb-nir',
+    eng:'gb', sco:'gb', wal:'gb', nir:'gb',
     bul:'bg', bgr:'bg', kos:'xk', xk:'xk',
     esp:'es', fra:'fr', deu:'de', ger:'de', bra:'br', por:'pt', prt:'pt',
     rus:'ru', ukr:'ua', ita:'it', ned:'nl', nld:'nl', bel:'be', arg:'ar',
@@ -33,8 +33,8 @@ function flagAssetUrl(code) {
     'brazil':'br','italie':'it','italy':'it','portugal':'pt','portugal':'pt',
     'pays-bas':'nl','netherlands':'nl','holland':'nl','maroc':'ma','morocco':'ma',
     'sénégal':'sn','senegal':'sn','algérie':'dz','algeria':'dz',
-    'angleterre':'gb-eng','england':'gb-eng','écosse':'gb-sct','scotland':'gb-sct',
-    'pays de galles':'gb-wls','wales':'gb-wls','irlande':'ie','ireland':'ie',
+    'angleterre':'gb','england':'gb','écosse':'gb','scotland':'gb',
+    'pays de galles':'gb','wales':'gb','irlande':'ie','ireland':'ie',
     'kosovo':'xk','russie':'ru','russia':'ru','ukraine':'ua','côte d’ivoire':'ci',
     "côte d'ivoire":'ci','ivory coast':'ci','république démocratique du congo':'cd',
     'democratic republic of the congo':'cd','rd congo':'cd','congo dr':'cd',
@@ -43,7 +43,7 @@ function flagAssetUrl(code) {
     'benin':'bj','burkina faso':'bf','burundi':'bi','comores':'km','republique du congo':'cg',
     'costa rica':'cr','finlande':'fi','gabon':'ga','guinee-bissau':'gw','haiti':'ht',
     'indonesie':'id','mauritanie':'mr','nigeria':'ng','niger':'ne','paraguay':'py',
-    'drapeau de l angleterre':'gb-eng','drapeau de la belgique':'be','drapeau de la cote d ivoire':'ci',
+    'drapeau de l angleterre':'gb','drapeau de la belgique':'be','drapeau de la cote d ivoire':'ci',
     'drapeau de la france':'fr','drapeau de la mauritanie':'mr','drapeau de la norvege':'no',
     'drapeau de la republique populaire de chine':'cn','drapeau de la suisse':'ch',
     'drapeau de la republique du congo':'cg','drapeau de la republique democratique du congo':'cd',
