@@ -524,3 +524,12 @@ SM27 — футбольный менеджер / симулятор карьер
 ## Flag CDN fix (2026-11-26)
 - Normalize England, Scotland, Wales, and Northern Ireland to the `gb` flag image code supported by FlagCDN, rather than unsupported regional filename codes.
 - This fixes missing UK player flags at the client rendering layer; nationality records themselves are not rewritten.
+
+
+8. ИСПРАВЛЕНИЯ 26.11.2026
+- Исправлена обработка региональных британских кодов флагов в браузере: они приводятся к ISO-2 (GB), чтобы изображения не скрывались из-за неподдерживаемого имени файла.
+- Добавлен запасной источник изображения флага при ошибке загрузки FlagCDN.
+- В словарь фронтенда добавлены названия Argentina/Argentina и корректная обработка Northern Ireland.
+- В Neon в существующих карьерных строках игроков с NULL nationality восстановлены национальности из связанного каталога FC27 для 13 совпадений; флаги далее нормализуются фронтендом. Каталог-источник не изменялся.
+- Перезапуск карьеры удаляет карьерные game_states текущего менеджера; новый save формируется заново из каталогов world_player_catalog и fc27_player_catalog. Эти каталоги не сбрасывались/не изменялись.
+- Ограничение: у фиктивных академических игроков без национальности флаг не может быть определён достоверно.
