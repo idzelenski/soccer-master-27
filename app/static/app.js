@@ -22,7 +22,7 @@ function flagAssetUrl(code) {
     bol:'bo', per:'pe', ven:'ve', bra:'br', qat:'qa', uae:'ae', isr:'il',
     alb:'al', mkd:'mk', mne:'me', bih:'ba', geo:'ge', arm:'am', aze:'az',
     kaz:'kz', uzb:'uz', idn:'id', tha:'th', chn:'cn', ind:'in', irl:'ie',
-    ire:'ie', nir:'gb-nir'
+    ire:'ie', nir:'gb'
   };
   const names = {
     'almanya':'de','belcika':'be','italya':'it','avusturya':'at','hollanda':'nl',
@@ -53,13 +53,13 @@ function flagAssetUrl(code) {
   value = value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[’']/g, ' ').replace(/\\s+/g, ' ').trim();
   const stripped = value.replace(/^drapeau (?:de |du |des )?/, '').replace(/^(?:la |le |les |l )/, '').trim();
   const normalized = aliases[value] || aliases[stripped] || names[value] || names[stripped] || value;
-  const safe = /^[a-z]{2}$|^gb-(?:eng|sct|wls|nir)$/.test(normalized) ? normalized : '';
+  const safe = /^[a-z]{2}$/.test(normalized) ? normalized : '';
   return safe ? 'https://flagcdn.com/w80/' + safe + '.png' : '';
 }
 function flagImage(code) {
   const src = flagAssetUrl(code);
   return src
-    ? '<img class="national-flag" src="' + src + '" alt="Флаг ' + esc(String(code).toUpperCase()) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">'
+    ? '<img class="national-flag" src="' + src + '" alt="Флаг ' + esc(String(code).toUpperCase()) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">'
     : '';
 }
 const TRAINING_POSITIONS = {
@@ -149,7 +149,7 @@ async function preloadCareerTabs() {
 function flagIcon(code, label = 'Флаг страны') {
   const src = flagAssetUrl(code || label);
   return src
-    ? '<img class="player-flag" src="' + src + '" alt="' + esc(label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">'
+    ? '<img class="player-flag" src="' + src + '" alt="' + esc(label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">'
     : '';
 }
 function renderToneCrystals(value) {
@@ -1139,7 +1139,7 @@ function setupCalendarInteractions() {
 
 function tournamentMark(name, logo) {
   const safe = typeof logo === 'string' && /^https:\/\//i.test(logo) ? logo : '';
-  return `<span class="tournament-mark"><span>${esc(initials(name))}</span>${safe ? `<img src="${esc(safe)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.hidden=true">` : ''}</span>`;
+  return `<span class="tournament-mark"><span>${esc(initials(name))}</span>${safe ? `<img src="${esc(safe)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">` : ''}</span>`;
 }
 function matchStatRow(label, homeValue, awayValue, suffix = '') {
   const left = Number(homeValue || 0), right = Number(awayValue || 0);
