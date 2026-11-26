@@ -29,7 +29,7 @@ function flagAssetUrl(code) {
     'guney kore':'kr','fildisi sahili':'ci','nijerya':'ng','romanya':'ro','sirbistan':'rs',
     'turkiye':'tr','cekya':'cz','portekiz':'pt','bosna-hersek':'ba',
     'france':'fr','francia':'fr','francia':'fr','espagne':'es','españa':'es',
-    'spain':'es','germany':'de','allemagne':'de','brésil':'br','brasil':'br',
+    'spain':'es','argentina':'ar','argentin':'ar','germany':'de','allemagne':'de','brésil':'br','brasil':'br',
     'brazil':'br','italie':'it','italy':'it','portugal':'pt','portugal':'pt',
     'pays-bas':'nl','netherlands':'nl','holland':'nl','maroc':'ma','morocco':'ma',
     'sénégal':'sn','senegal':'sn','algérie':'dz','algeria':'dz',
