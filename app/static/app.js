@@ -371,7 +371,7 @@ function shell(content, title = 'Обзор') {
       <div class="sidebar-bottom"><div class="club-mini">${crest(club,state.save?.logo_url)}<span><b>${esc(club)}</b><small>${esc(state.save?.league || 'Сезон 2026/27')}</small></span></div></div>
     </aside>
     <main class="main-area">
-      <header class="topbar"><div class="breadcrumb">Карьера <span style="color:#456253"> / </span> <b>${esc(title)}</b></div><div class="top-actions"><div class="season-pill">СЕЗОН 2026 / 27</div><div class="manager-chip"><div class="avatar">${esc(initials(name))}</div><span><b>${esc(name)}</b><small>Главный тренер</small></span></div></div></header>
+      <header class="topbar"><div class="breadcrumb">Карьера <span style="color:#456253"> / </span> <b>${esc(title)}</b></div><div class="top-actions"><div class="season-pill">СЕЗОН 2026 / 27</div><div class="manager-chip"><button type="button" class="avatar profile-menu-toggle" id="profile-menu-toggle" aria-label="Меню профиля" aria-expanded="false">${esc(initials(name))}</button><span class="manager-info"><b>${esc(name)}</b><small>Главный тренер</small></span><div class="profile-menu" id="profile-menu" hidden><button type="button" id="profile-restart-career"><span>↻</span>Новая карьера</button><button type="button" id="profile-logout"><span>↪</span>Выйти</button></div></div></div></header>
       ${content}
     </main>
   </div>`;
@@ -387,6 +387,21 @@ function shell(content, title = 'Обзор') {
   }));
   document.getElementById('logout').addEventListener('click', logout);
   document.getElementById('restart-career').addEventListener('click', restartCareer);
+  const profileToggle = document.getElementById('profile-menu-toggle');
+  const profileMenu = document.getElementById('profile-menu');
+  profileToggle?.addEventListener('click', () => {
+    const isOpen = !profileMenu.hidden;
+    profileMenu.hidden = isOpen;
+    profileToggle.setAttribute('aria-expanded', String(!isOpen));
+  });
+  document.getElementById('profile-restart-career')?.addEventListener('click', restartCareer);
+  document.getElementById('profile-logout')?.addEventListener('click', logout);
+  document.addEventListener('click', (event) => {
+    if (profileMenu && !profileMenu.hidden && !event.target.closest('.manager-chip')) {
+      profileMenu.hidden = true;
+      profileToggle?.setAttribute('aria-expanded', 'false');
+    }
+  }, { once: true });
 }
 async function restartCareer() {
   if (!window.confirm('Начать новую карьеру? Все текущие сохранения и связанные игровые данные будут удалены. Новая карьера начнётся с исходных данных SM27.')) return;
