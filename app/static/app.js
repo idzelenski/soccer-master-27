@@ -7,7 +7,7 @@ const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map
 function flagAssetUrl(code) {
   let value = String(code || '').trim().toLowerCase();
   const aliases = {
-    eng:'gb', sco:'gb', wal:'gb', nir:'gb',
+    eng:'gb', sco:'gb', wal:'gb', nir:'gb', 'gb-eng':'gb', 'gb-sct':'gb', 'gb-wls':'gb', 'gb-nir':'gb',
     bul:'bg', bgr:'bg', kos:'xk', xk:'xk',
     esp:'es', fra:'fr', deu:'de', ger:'de', bra:'br', por:'pt', prt:'pt',
     rus:'ru', ukr:'ua', ita:'it', ned:'nl', nld:'nl', bel:'be', arg:'ar',
@@ -50,7 +50,7 @@ function flagAssetUrl(code) {
     'drapeau du cameroun':'cm','drapeau du chili':'cl','drapeau du ghana':'gh',
     'drapeau du maroc':'ma','drapeau du senegal':'sn'
   };
-  value = value.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '').replace(/[’']/g, ' ').replace(/\\s+/g, ' ').trim();
+  value = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’']/g, ' ').replace(/\s+/g, ' ').trim();
   const stripped = value.replace(/^drapeau (?:de |du |des )?/, '').replace(/^(?:la |le |les |l )/, '').trim();
   const normalized = aliases[value] || aliases[stripped] || names[value] || names[stripped] || value;
   const safe = /^[a-z]{2}$/.test(normalized) ? normalized : '';
@@ -59,7 +59,7 @@ function flagAssetUrl(code) {
 function flagImage(code) {
   const src = flagAssetUrl(code);
   if (!src) return '';
-  return `<img class="national-flag" src="${src}" alt="Флаг ${esc(String(code).toUpperCase())}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+  return `<img class="national-flag" src="${src}" alt="Флаг ${esc(String(code).toUpperCase())}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=this.src.replace('flagcdn.com/w80','flagcdn.com/24x18')">`;
 }
 const TRAINING_POSITIONS = {
   GK:[], RB:['LB','RWB'], LB:['RB','LWB'], CB:['CDM'], RWB:['RB','RM'], LWB:['LB','LM'],
@@ -148,7 +148,7 @@ async function preloadCareerTabs() {
 function flagIcon(code, label = 'Флаг страны') {
   const src = flagAssetUrl(code || label);
   if (!src) return '';
-  return `<img class="player-flag" src="${src}" alt="${esc(label)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
+  return `<img class="player-flag" src="${src}" alt="${esc(label)}" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="this.onerror=null;this.src=this.src.replace('flagcdn.com/w80','flagcdn.com/24x18')">`;
 }
 function renderToneCrystals(value) {
   const score = Math.max(0, Math.min(100, Number(value ?? 85)));
