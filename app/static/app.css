@@ -1062,31 +1062,26 @@ button:disabled {
   font-size: 12px;
 }
 
-/* Mobile account actions: float above the bottom navigation. */
+
+/* Profile menu actions, shown from the top-right avatar on mobile. */
+.manager-chip { position: relative; }
+.profile-menu-toggle { border: 0; cursor: pointer; padding: 0; }
+.manager-info { display: block; }
+.profile-menu {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 50;
+  min-width: 165px; padding: 6px; border: 1px solid var(--line-strong);
+  border-radius: 12px; background: #10251a; box-shadow: 0 12px 35px rgba(0,0,0,.4);
+}
+.profile-menu[hidden] { display: none !important; }
+.profile-menu button {
+  display: flex; width: 100%; align-items: center; gap: 9px;
+  padding: 11px 10px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--text); font-size: 12px; font-weight: 700; text-align: left;
+}
+.profile-menu button:hover { background: rgba(255,255,255,.06); }
+.profile-menu button span { width: 18px; text-align: center; color: var(--green-bright); }
 @media (max-width: 760px) {
-  .sidebar .account-nav {
-    position: fixed;
-    left: 10px;
-    right: 10px;
-    bottom: calc(76px + env(safe-area-inset-bottom));
-    z-index: 20;
-    display: flex;
-    justify-content: flex-end;
-    gap: 8px;
-    height: auto;
-    pointer-events: none;
-  }
-  .sidebar .account-nav .nav-item {
-    pointer-events: auto;
-    flex: 0 0 auto;
-    flex-direction: row;
-    gap: 6px;
-    padding: 9px 12px;
-    min-height: 38px;
-    font-size: 11px;
-    border: 1px solid rgba(187,227,205,.14);
-    background: rgba(8,24,16,.96);
-    box-shadow: 0 5px 20px rgba(0,0,0,.28);
-  }
-  .sidebar .account-nav .nav-ico { font-size: 14px; }
+  .sidebar .account-nav { display: none !important; }
+  .manager-chip { border: 0 !important; padding: 0 !important; }
+  .manager-info { display: none !important; }
 }
