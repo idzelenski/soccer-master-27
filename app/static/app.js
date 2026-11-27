@@ -396,12 +396,12 @@ function shell(content, title = 'Обзор') {
   });
   document.getElementById('profile-restart-career')?.addEventListener('click', restartCareer);
   document.getElementById('profile-logout')?.addEventListener('click', logout);
-  document.addEventListener('click', (event) => {
+  document.onclick = (event) => {
     if (profileMenu && !profileMenu.hidden && !event.target.closest('.manager-chip')) {
       profileMenu.hidden = true;
       profileToggle?.setAttribute('aria-expanded', 'false');
     }
-  }, { once: true });
+  };
 }
 async function restartCareer() {
   if (!window.confirm('Начать новую карьеру? Все текущие сохранения и связанные игровые данные будут удалены. Новая карьера начнётся с исходных данных SM27.')) return;
