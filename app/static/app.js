@@ -364,7 +364,7 @@ function shell(content, title = 'Обзор') {
       <div class="sidebar-brand"><div class="brand-icon">SM</div><div><strong>SOCCER MASTER 27</strong><small>FOOTBALL MANAGER</small></div></div>
       <div class="nav-label">МЕНЕДЖМЕНТ</div>
       <nav class="nav-list">${navItems().map(([id,icon,label])=>`<button class="nav-item ${state.tab===id?'active':''}" data-nav="${id}"><span class="nav-ico">${icon}</span>${label}</button>`).join('')}</nav>
-      <div class="nav-label">АККАУНТ</div><nav class="nav-list">
+      <div class="nav-label">АККАУНТ</div><nav class="nav-list account-nav">
         <button class="nav-item" id="restart-career"><span class="nav-ico">↻</span>Новая карьера</button>
         <button class="nav-item" id="logout"><span class="nav-ico">↪</span>Выйти</button>
       </nav>
