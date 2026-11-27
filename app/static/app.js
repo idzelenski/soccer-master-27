@@ -371,7 +371,7 @@ function shell(content, title = 'Обзор') {
       <div class="sidebar-bottom"><div class="club-mini">${crest(club,state.save?.logo_url)}<span><b>${esc(club)}</b><small>${esc(state.save?.league || 'Сезон 2026/27')}</small></span></div></div>
     </aside>
     <main class="main-area">
-      <header class="topbar"><div class="breadcrumb">Карьера <span style="color:#456253"> / </span> <b>${esc(title)}</b></div><div class="top-actions"><div class="season-pill">СЕЗОН 2026 / 27</div><div class="manager-chip"><button type="button" class="avatar profile-menu-toggle" id="profile-menu-toggle" aria-label="Меню профиля" aria-expanded="false">${esc(initials(name))}</button><span class="manager-info"><b>${esc(name)}</b><small>Главный тренер</small></span><div class="profile-menu" id="profile-menu" hidden><button type="button" id="profile-restart-career"><span>↻</span>Новая карьера</button><button type="button" id="profile-logout"><span>↪</span>Выйти</button></div></div></div></header>
+      <header class="topbar"><div class="breadcrumb">Карьера <span style="color:#456253"> / </span> <b>${esc(title)}</b></div><div class="top-actions"><div class="season-pill">СЕЗОН 2026 / 27</div><div class="manager-chip"><button type="button" class="avatar profile-menu-toggle" id="profile-menu-toggle" aria-label="Меню профиля" aria-expanded="false">${esc(initials(name))}</button><span class="manager-info"><b>${esc(name)}</b><small>Главный тренер</small></span><div class="profile-menu" id="profile-menu" hidden><button type="button" id="profile-hard-refresh"><span>⟳</span>Жёсткое обновление</button><button type="button" id="profile-restart-career"><span>↻</span>Новая карьера</button><button type="button" id="profile-logout"><span>↪</span>Выйти</button></div></div></div></header>
       ${content}
     </main>
   </div>`;
@@ -394,7 +394,7 @@ function shell(content, title = 'Обзор') {
     profileMenu.hidden = isOpen;
     profileToggle.setAttribute('aria-expanded', String(!isOpen));
   });
-  document.getElementById('profile-restart-career')?.addEventListener('click', restartCareer);
+  document.getElementById('profile-hard-refresh')?.addEventListener('click', () => { window.location.href = window.location.pathname + '?sm27-refresh=' + Date.now(); });\n  document.getElementById('profile-restart-career')?.addEventListener('click', restartCareer);
   document.getElementById('profile-logout')?.addEventListener('click', logout);
   document.onclick = (event) => {
     if (profileMenu && !profileMenu.hidden && !event.target.closest('.manager-chip')) {
