@@ -10,7 +10,19 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/app.css">
-  <script defer src="/static/app.js?v=9895bdce"></script>
+  <script>
+    (function(){
+      function showBootError(message){
+        var root=document.getElementById('app');
+        if(!root)return;
+        root.innerHTML='<div style="min-height:100vh;background:#07130f;color:#fff;padding:24px;font:16px system-ui;display:flex;align-items:center;justify-content:center"><div style="max-width:600px"><h2>SM27: ошибка запуска</h2><p>Не удалось запустить игру.</p><pre style="white-space:pre-wrap;color:#ffb4a8">'+String(message).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})+'</pre><button onclick="location.reload()" style="padding:12px 20px">Перезагрузить</button></div></div>';
+      }
+      window.addEventListener('error',function(e){showBootError(e.message+' ('+e.filename+':'+e.lineno+')');});
+      window.addEventListener('unhandledrejection',function(e){showBootError(e.reason&&e.reason.stack||e.reason||'Unhandled promise rejection');});
+      window.__sm27BootError=showBootError;
+    })();
+  </script>
+  <script defer src="/static/app.js?v=sm27-debug-20261127"></script>
 </head>
 <body>
   <div id="app" class="app-shell">
