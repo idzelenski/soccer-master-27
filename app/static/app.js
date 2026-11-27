@@ -58,9 +58,8 @@ function flagAssetUrl(code) {
 }
 function flagImage(code) {
   const src = flagAssetUrl(code);
-  return src
-    ? '<img class="national-flag" src="' + src + '" alt="Флаг ' + esc(String(code).toUpperCase()) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">'
-    : '';
+  if (!src) return '';
+  return `<img class="national-flag" src="${src}" alt="Флаг ${esc(String(code).toUpperCase())}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
 }
 const TRAINING_POSITIONS = {
   GK:[], RB:['LB','RWB'], LB:['RB','LWB'], CB:['CDM'], RWB:['RB','RM'], LWB:['LB','LM'],
@@ -148,9 +147,8 @@ async function preloadCareerTabs() {
 }
 function flagIcon(code, label = 'Флаг страны') {
   const src = flagAssetUrl(code || label);
-  return src
-    ? '<img class="player-flag" src="' + src + '" alt="' + esc(label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">'
-    : '';
+  if (!src) return '';
+  return `<img class="player-flag" src="${src}" alt="${esc(label)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
 }
 function renderToneCrystals(value) {
   const score = Math.max(0, Math.min(100, Number(value ?? 85)));
