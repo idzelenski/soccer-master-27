@@ -59,7 +59,7 @@ function flagAssetUrl(code) {
 function flagImage(code) {
   const src = flagAssetUrl(code);
   return src
-    ? '<img class="national-flag" src="' + src + '" alt="Флаг ' + esc(String(code).toUpperCase()) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">'
+    ? '<img class="national-flag" src="' + src + '" alt="Флаг ' + esc(String(code).toUpperCase()) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback=1;this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">'
     : '';
 }
 const TRAINING_POSITIONS = {
@@ -149,7 +149,7 @@ async function preloadCareerTabs() {
 function flagIcon(code, label = 'Флаг страны') {
   const src = flagAssetUrl(code || label);
   return src
-    ? '<img class="player-flag" src="' + src + '" alt="' + esc(label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">'
+    ? '<img class="player-flag" src="' + src + '" alt="' + esc(label) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback=1;this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">'
     : '';
 }
 function renderToneCrystals(value) {
@@ -1139,7 +1139,7 @@ function setupCalendarInteractions() {
 
 function tournamentMark(name, logo) {
   const safe = typeof logo === 'string' && /^https:\/\//i.test(logo) ? logo : '';
-  return `<span class="tournament-mark"><span>${esc(initials(name))}</span>${safe ? `<img src="${esc(safe)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback='1';this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">` : ''}</span>`;
+  return `<span class="tournament-mark"><span>${esc(initials(name))}</span>${safe ? `<img src="${esc(safe)}" alt="" loading="lazy" decoding="async" referrerpolicy="no-referrer" onerror="if(!this.dataset.fallback){this.dataset.fallback=1;this.src='https://flagsapi.com/'+this.src.split('/').pop().replace('.png','')+'/flat/24.png'}else{this.hidden=true}">` : ''}</span>`;
 }
 function matchStatRow(label, homeValue, awayValue, suffix = '') {
   const left = Number(homeValue || 0), right = Number(awayValue || 0);
