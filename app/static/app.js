@@ -7,7 +7,7 @@ const initials = (value) => String(value || 'SM').split(/[\s-]+/).slice(0,2).map
 function flagAssetUrl(code) {
   let value = String(code || '').trim().toLowerCase();
   const aliases = {
-    eng:'gb', sco:'gb', wal:'gb', nir:'gb', 'gb-eng':'gb', 'gb-sct':'gb', 'gb-wls':'gb', 'gb-nir':'gb',
+    eng:'gb-eng', sco:'gb-sct', wal:'gb-wls', nir:'gb-nir', 'gb-eng':'gb-eng', 'gb-sct':'gb-sct', 'gb-wls':'gb-wls', 'gb-nir':'gb-nir',
     bul:'bg', bgr:'bg', kos:'xk', xk:'xk',
     esp:'es', fra:'fr', deu:'de', ger:'de', bra:'br', por:'pt', prt:'pt',
     rus:'ru', ukr:'ua', ita:'it', ned:'nl', nld:'nl', bel:'be', arg:'ar',
@@ -33,8 +33,8 @@ function flagAssetUrl(code) {
     'brazil':'br','italie':'it','italy':'it','portugal':'pt','portugal':'pt',
     'pays-bas':'nl','netherlands':'nl','holland':'nl','maroc':'ma','morocco':'ma',
     'sénégal':'sn','senegal':'sn','algérie':'dz','algeria':'dz',
-    'angleterre':'gb','england':'gb','écosse':'gb','scotland':'gb',
-    'pays de galles':'gb','wales':'gb','irlande':'ie','ireland':'ie',
+    'angleterre':'gb-eng','england':'gb-eng','écosse':'gb-sct','scotland':'gb-sct',
+    'pays de galles':'gb-wls','wales':'gb-wls','irlande':'ie','ireland':'ie','northern ireland':'gb-nir','irlande du nord':'gb-nir',
     'kosovo':'xk','russie':'ru','russia':'ru','ukraine':'ua','côte d’ivoire':'ci',
     "côte d'ivoire":'ci','ivory coast':'ci','république démocratique du congo':'cd',
     'democratic republic of the congo':'cd','rd congo':'cd','congo dr':'cd',
@@ -53,7 +53,7 @@ function flagAssetUrl(code) {
   value = value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[’']/g, ' ').replace(/\s+/g, ' ').trim();
   const stripped = value.replace(/^drapeau (?:de |du |des )?/, '').replace(/^(?:la |le |les |l )/, '').trim();
   const normalized = aliases[value] || aliases[stripped] || names[value] || names[stripped] || value;
-  const safe = /^[a-z]{2}$/.test(normalized) ? normalized : '';
+  const safe = /^(?:[a-z]{2}|gb-(?:eng|sct|wls|nir))$/.test(normalized) ? normalized : '';
   return safe ? 'https://flagcdn.com/w80/' + safe + '.png' : '';
 }
 function flagImage(code) {
