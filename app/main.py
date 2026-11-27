@@ -1315,6 +1315,13 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
 
             raw = dict(player["raw_data"] or {})
             raw.update({
+                "sm27_baseline": {
+                    "overall": overall,
+                    "potential": potential,
+                    "market_value": market_value,
+                    "attributes": attributes,
+                    "captured_at_creation": True,
+                },
                 "market_value_source": market_value_source,
                 "market_value_as_of": _json_safe_date(market_value_as_of),
                 "market_value_model": "league-age-ovr-potential-attributes-v1" if market_value_source == "SM27 estimate" else None,
