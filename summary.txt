@@ -562,3 +562,8 @@ SM27 — футбольный менеджер / симулятор карьер
 ## 53. FULL BASELINE RESTORE FOR ACTIVE CAREER — 2026-11-27
 - Applied baseline restore for all 540 players in game_state `5218949c-ea18-4de6-a215-b0887fe7eb9e` using `original_data.sm27_baseline`: overall, potential, attributes, and market value reset to stored original snapshot values.
 - Audit found 18 blank flags in this save, largely Levante roster; flag assignment needs nationality verification before assigning inferred flags to names without catalog nationality.
+
+
+## 54. HARD REFRESH BUTTON — 2026-11-27
+- Added `Жёсткое обновление` in the mobile profile/avatar dropdown alongside restart career and logout. Handler navigates to current path with unique `sm27-refresh` timestamp query to bypass cached page assets.
+- Commit: `88cdc4e5c77f64a9981c37c22da7205d0875e956`. Deployment pending.
