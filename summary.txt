@@ -557,3 +557,8 @@ SM27 — футбольный менеджер / симулятор карьер
 - Neon career data repair applied to both existing `Fede Valverde` rows: 87 OVR, 90 potential, CM, Uruguay flag, FC27 id 239053, attributes `{DEF:81, DRI:81, PAC:90, PAS:83, PHY:85, SHO:84}`. Market value updated to a conservative SM27 estimate (€120m); snapshot repaired.
 - Nationality/flag backfill applied by matching existing linked FC27 ids to FC27 catalog records where nationality or flag was blank. Verification query returned no additional linked records with blank nationality flags; Valverde verified in both saves.
 - Frontend commit `2422b0fde8df0f186626c301f612d1c72cd0f2cb`. Database updates are complete. Deployment and UI verification pending.
+
+
+## 53. FULL BASELINE RESTORE FOR ACTIVE CAREER — 2026-11-27
+- Applied baseline restore for all 540 players in game_state `5218949c-ea18-4de6-a215-b0887fe7eb9e` using `original_data.sm27_baseline`: overall, potential, attributes, and market value reset to stored original snapshot values.
+- Audit found 18 blank flags in this save, largely Levante roster; flag assignment needs nationality verification before assigning inferred flags to names without catalog nationality.
