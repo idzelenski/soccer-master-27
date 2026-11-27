@@ -627,6 +627,13 @@ def ensure_demo_roster(
                 Jsonb({
                     "generated": True,
                     "note": "Fictional game placeholder, not a real player",
+                    "sm27_baseline": {
+                        "overall": overall,
+                        "potential": potential,
+                        "market_value": market_value,
+                        "attributes": attributes,
+                        "captured_at_creation": True,
+                    },
                     "market_value_source": "SM27 estimate",
                     "market_value_model": "league-age-ovr-potential-attributes-v1",
                 }),
