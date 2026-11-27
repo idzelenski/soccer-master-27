@@ -544,3 +544,8 @@ SM27 — футбольный менеджер / симулятор карьер
 ## 50. MOBILE ACCOUNT ACTIONS FIX — 2026-11-27
 - On phones, the career action buttons (New career and Logout) were inside the sidebar account navigation, which was hidden at the mobile breakpoint. Added a dedicated `account-nav` class and mobile positioning so these two controls display as compact floating buttons just above the fixed bottom navigation.
 - Desktop layout and navigation were left unchanged. Code change awaiting deployment and device verification.
+
+
+## 51. PROFILE MENU BUTTONS — 2026-11-27
+- User requested that the mobile top-right profile/avatar square open the account actions. Added a menu anchored to the avatar containing New career and Logout. Sidebar account navigation is hidden on mobile instead of being displayed as floating buttons. Desktop sidebar actions remain.
+- Code changes committed; deployment and device verification pending.
