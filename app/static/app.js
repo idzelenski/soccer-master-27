@@ -394,7 +394,8 @@ function shell(content, title = 'Обзор') {
     profileMenu.hidden = isOpen;
     profileToggle.setAttribute('aria-expanded', String(!isOpen));
   });
-  document.getElementById('profile-hard-refresh')?.addEventListener('click', () => { window.location.href = window.location.pathname + '?sm27-refresh=' + Date.now(); });\n  document.getElementById('profile-restart-career')?.addEventListener('click', restartCareer);
+  document.getElementById('profile-hard-refresh')?.addEventListener('click', () => { window.location.href = window.location.pathname + '?sm27-refresh=' + Date.now(); });
+  document.getElementById('profile-restart-career')?.addEventListener('click', restartCareer);
   document.getElementById('profile-logout')?.addEventListener('click', logout);
   document.onclick = (event) => {
     if (profileMenu && !profileMenu.hidden && !event.target.closest('.manager-chip')) {
