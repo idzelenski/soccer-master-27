@@ -572,3 +572,8 @@ SM27 — футбольный менеджер / симулятор карьер
 ## 55. STARTUP SYNTAX ERROR — 2026-11-27
 - Fixed malformed literal `\\n` inserted into app.js on line 397 between hard-refresh click handler and restart handler; converted to real newline.
 - Commit: `8a0ed3ac252c5dbca97c1e423eaad7ce61d2afff`.
+
+
+## 56. VALVERDE RESTORE IN NEW ACTIVE REAL MADRID CAREER + UK NATION FLAGS — 2026-11-27
+- Repaired Fede Valverde in active save `e9d7fdc9-ca04-4215-9ad5-abc37b957ff8`: 87 OVR, 90 POT, CM, EA FC 27 attributes, €120m estimate and baseline snapshot (previous fresh save held corrupted 68/70 baseline).
+- Frontend flag URLs now accept subdivision identifiers and distinct aliases for England (`gb-eng`), Scotland (`gb-sct`), Wales (`gb-wls`), Northern Ireland (`gb-nir`); Ireland remains Republic of Ireland `ie`. Commit `0cf2746e2ad98658ce9124efd51b66047d7f25f2`.
