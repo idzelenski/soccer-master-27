@@ -533,3 +533,9 @@ SM27 — футбольный менеджер / симулятор карьер
 - В Neon в существующих карьерных строках игроков с NULL nationality восстановлены национальности из связанного каталога FC27 для 13 совпадений; флаги далее нормализуются фронтендом. Каталог-источник не изменялся.
 - Перезапуск карьеры удаляет карьерные game_states текущего менеджера; новый save формируется заново из каталогов world_player_catalog и fc27_player_catalog. Эти каталоги не сбрасывались/не изменялись.
 - Ограничение: у фиктивных академических игроков без национальности флаг не может быть определён достоверно.
+
+
+## 49. BASELINE PLAYER SNAPSHOTS / NATIONALITY AUDIT (2026-11-27)
+- Neon audit: zero non-generated career player rows with blank nationality; 576 blank-nationality records are fictional academy placeholders, not real players.
+- New career creation now stores an immutable `sm27_baseline` snapshot in each player's original_data containing OVR, potential, market value and attributes, including generated academy placeholders. This is diagnostic/recovery baseline data; career reset still deletes the manager's save and recreates players from the source catalog. No source catalog rows were changed by career progression.
+- Deployment and runtime verification pending.
