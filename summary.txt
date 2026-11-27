@@ -567,3 +567,8 @@ SM27 — футбольный менеджер / симулятор карьер
 ## 54. HARD REFRESH BUTTON — 2026-11-27
 - Added `Жёсткое обновление` in the mobile profile/avatar dropdown alongside restart career and logout. Handler navigates to current path with unique `sm27-refresh` timestamp query to bypass cached page assets.
 - Commit: `88cdc4e5c77f64a9981c37c22da7205d0875e956`. Deployment pending.
+
+
+## 55. STARTUP SYNTAX ERROR — 2026-11-27
+- Fixed malformed literal `\\n` inserted into app.js on line 397 between hard-refresh click handler and restart handler; converted to real newline.
+- Commit: `8a0ed3ac252c5dbca97c1e423eaad7ce61d2afff`.
