@@ -596,4 +596,4 @@ SM27 — футбольный менеджер / симулятор карьер
 - A short tap continues to select a day without advancing the game. Pointer cancellation clears the gesture; a post-scrub click is suppressed to prevent a duplicate selection.
 - Added a mobile-only hint and touch-action rules that allow the calendar to own the full drag gesture. Updated asset version keys in index.html to prevent phones from reusing cached JavaScript/CSS.
 - Added CI source-level tests for hold-drag-release and retained short-tap behavior.
-- GitHub Actions run 46134746950 passed (pytest, Python compileall, Node syntax check). Render deploy status to be recorded after publishing.
+- GitHub Actions run 46134746950 passed (pytest, Python compileall, Node syntax check); run 46134858352 passed again for the final cache-busting commit. Render deploy dep-dc5amqou01pc7382d8og is LIVE on commit 15b70c41fb5ecc85b9d98ab88804afd99360611b. Runtime logs confirm application startup complete, Uvicorn bound to 0.0.0.0:10000, and GET / returned 200 OK.
