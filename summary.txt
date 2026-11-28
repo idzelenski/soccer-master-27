@@ -605,3 +605,11 @@ SM27 — футбольный менеджер / симулятор карьер
 - Migration also repairs only active-save Valverde rows matching the known bad 68/70 seed; progressed saves are not reset. No career is deleted.
 - Added regression tests for the alias and baseline-only career source path. Deployment and live DB verification pending.
 
+
+
+## 60. MANUAL PLAYER BASELINE EDITING — 2026-11-28
+- Documented direct manual editing through Neon SQL Editor using `sm27_player_baseline_catalog`.
+- Find the exact player by name and club, then edit `baseline_overall`, `baseline_potential`, `baseline_position`, `baseline_attributes`, and optionally baseline market value/wage/contract fields by stable `source_id`.
+- Set `baseline_captured_at=COALESCE(baseline_captured_at,now())` and `baseline_model_version='manual-v1'` so future catalogue imports do not replace the manually frozen baseline row.
+- Baseline catalog changes apply to newly created careers. They do not automatically change a player in an existing career; that requires a separate targeted update to the intended `players` row and game_state_id.
+- Example edits in conversation use hypothetical values only; no extra player rating edits were applied to production by this documentation update.
