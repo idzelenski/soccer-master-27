@@ -33,7 +33,11 @@ from app.engine import (
     INJURY_CATALOG,
     estimate_transfer_value,
     league_schedule_dates,
+    morale_overall_modifier,
     overall_from_market_value,
+    player_match_fitness_modifier,
+    calculate_season_development,
+    develop_attributes_for_season,
     potential_from_overall,
     round_robin,
     simulate_score,
@@ -349,17 +353,8 @@ def backfill_player_nationality_flags(conn: Connection) -> int:
 
 
 def player_condition_modifier(player: dict) -> int:
-    """Temporary overall/attribute modifier; zero values must remain real zeroes."""
-    def value(field: str, default: float) -> float:
-        raw = player.get(field)
-        return float(default if raw is None else raw)
-
-    return round(
-        (value("form", 50) - 50) * 0.08
-        + (value("morale", 70) - 70) * 0.06
-        + (value("sharpness", 85) - 85) * 0.10
-        - value("fatigue", 0) * 0.10
-    )
+    """Only morale changes the displayed Dynamic OVR; fitness is match-only."""
+    return morale_overall_modifier(player.get("morale"))
 
 
 def player_available_for_match(player: dict, match_date: date) -> bool:
@@ -433,6 +428,22 @@ def estimated_market_value(
 ) -> int:
     """SM27 transfer-value estimate calibrated by competition, age, OVR and role traits."""
     return estimate_transfer_value(overall, potential, age, league, country, attributes)
+
+
+def player_baseline_snapshot(
+    overall: int,
+    potential: int,
+    market_value: int,
+    attributes: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Immutable career-start values used to verify/reset player data."""
+    return {
+        "overall": int(overall),
+        "potential": int(potential),
+        "market_value": int(market_value),
+        "attributes": dict(attributes or {}),
+        "captured_at_creation": True,
+    }
 
 
 INJURY_BY_KEY = {item["key"]: item for item in INJURY_CATALOG}
@@ -886,10 +897,9 @@ def refresh_ai_lineups() -> int:
         for save in saves:
             rows = conn.execute(
                 """SELECT c.id AS club_id,p.id,p.position,p.secondary_positions,p.overall,
-                          GREATEST(1,LEAST(99,p.overall + ROUND(
-                            (p.form-50)*0.06 + (p.morale-70)*0.04
-                            + (p.sharpness-85)*0.04 - p.fatigue*0.08
-                          )::int)) AS dynamic_overall,
+                          GREATEST(40,LEAST(100,p.overall + GREATEST(-4,LEAST(2,
+                            ROUND((coalesce(p.morale,70)-70)*0.06)::int
+                          )))) AS dynamic_overall,
                           t.formation,t.mentality,t.style
                    FROM clubs c
                    JOIN players p ON p.game_state_id=c.game_state_id AND p.club_id=c.id
@@ -1322,13 +1332,9 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
 
             raw = dict(player["raw_data"] or {})
             raw.update({
-                "sm27_baseline": {
-                    "overall": overall,
-                    "potential": potential,
-                    "market_value": market_value,
-                    "attributes": attributes,
-                    "captured_at_creation": True,
-                },
+                "sm27_baseline": player_baseline_snapshot(
+                    overall, potential, market_value, attributes
+                ),
                 "market_value_source": market_value_source,
                 "market_value_as_of": _json_safe_date(market_value_as_of),
                 "market_value_model": "league-age-ovr-potential-attributes-v1" if market_value_source == "SM27 estimate" else None,
@@ -1370,7 +1376,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     for team in team_records:
         existing = player_count_by_club.get(team["id"], 0)
         for index, position in enumerate(positions[existing:], start=existing + 1):
-            source_id = f"generated:{team['id']}:{index}"
+            source_id = f"generated:{team['source_id']}:{index}"
             age = 18 + (index % 12)
             overall = max(40, min(82, team["reputation"] - 8 + (index % 7)))
             potential = min(92, overall + 4 + (index % 7))
@@ -1387,6 +1393,9 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 Jsonb({
                     "generated": True,
                     "note": "Fictional game placeholder, not a real player",
+                    "sm27_baseline": player_baseline_snapshot(
+                        overall, potential, value, attributes
+                    ),
                     "market_value_source": "SM27 estimate",
                     "market_value_model": "league-age-ovr-potential-attributes-v1",
                 }),
@@ -1511,9 +1520,9 @@ def squad(manager: dict = Depends(manager_dep), conn: Connection = Depends(db_de
     rows = conn.execute(
         """SELECT p.id,p.name,p.nationality,p.birth_date,p.age,p.position,p.secondary_positions,
                   p.nationality_flag,
-                  p.overall,GREATEST(1,LEAST(99,p.overall + ROUND(
-                    (p.form-50)*0.08 + (p.morale-70)*0.06 + (p.sharpness-85)*0.10 - p.fatigue*0.10
-                  )::int)) AS dynamic_overall,
+                  p.overall,GREATEST(40,LEAST(100,p.overall + GREATEST(-4,LEAST(2,
+                    ROUND((coalesce(p.morale,70)-70)*0.06)::int
+                  )))) AS dynamic_overall,
                   p.potential,p.market_value,p.market_value_source,p.weekly_wage,p.contract_end,
                   p.fatigue,p.form,p.morale,p.sharpness,p.position_training_target,
                   p.position_training_progress,p.fc27_player_id,p.injury_type,p.injury_until,
@@ -1605,9 +1614,9 @@ def get_tactics(manager: dict = Depends(manager_dep), conn: Connection = Depends
         return serialise(dict(tactic))
     squad = conn.execute(
         """SELECT id,position,secondary_positions,
-                  GREATEST(1,LEAST(99,overall + ROUND(
-                    (form-50)*0.08 + (morale-70)*0.06 + (sharpness-85)*0.10 - fatigue*0.10
-                  )::int)) AS overall
+                  GREATEST(40,LEAST(100,overall + GREATEST(-4,LEAST(2,
+                    ROUND((coalesce(morale,70)-70)*0.06)::int
+                  )))) AS overall
            FROM players WHERE game_state_id=%s AND club_id=%s ORDER BY overall DESC""",
         (save["id"], save["managed_club_id"]),
     ).fetchall()
@@ -1727,8 +1736,8 @@ def update_player_condition(
              sharpness=CASE
                WHEN coalesce(participation.minutes_played,0)>=60 THEN LEAST(100,p.sharpness+1)
                WHEN coalesce(participation.minutes_played,0)>=30 THEN p.sharpness
-               WHEN coalesce(participation.minutes_played,0)>0 THEN GREATEST(0,p.sharpness-1)
-               ELSE GREATEST(0,p.sharpness-2) END,
+               WHEN coalesce(participation.minutes_played,0)>0 THEN p.sharpness
+               ELSE GREATEST(0,p.sharpness-1) END,
              form=CASE
                WHEN coalesce(participation.minutes_played,0)>=60 THEN GREATEST(0,LEAST(100,p.form+%s))
                WHEN coalesce(participation.minutes_played,0)>=30 THEN GREATEST(0,LEAST(100,p.form+%s))
@@ -1777,6 +1786,142 @@ def advance_position_training(conn: Connection, game_state_id: str, club_id: str
            WHERE game_state_id=%s AND club_id=%s AND position_training_target IS NOT NULL""",
         (game_state_id,club_id),
     )
+
+
+def update_player_season_development(
+    conn: Connection, game_state_id: str, season: str
+) -> dict[str, int]:
+    """Apply one bounded season of permanent player growth/decline and update market values."""
+    rows = conn.execute(
+        """WITH season_stats AS (
+               SELECT s.player_id,
+                      coalesce(sum(s.minutes_played),0)::int AS minutes_played,
+                      avg(s.rating)::float AS average_rating
+               FROM fixture_player_stats s
+               JOIN fixtures f ON f.id=s.fixture_id AND f.game_state_id=s.game_state_id
+               WHERE s.game_state_id=%s AND f.season=%s AND f.status='completed'
+               GROUP BY s.player_id
+           ),
+           team_matches AS (
+               SELECT club_id,count(*)::int AS team_matches
+               FROM (
+                   SELECT f.home_club_id AS club_id
+                   FROM fixtures f
+                   WHERE f.game_state_id=%s AND f.season=%s AND f.status='completed'
+                   UNION ALL
+                   SELECT f.away_club_id AS club_id
+                   FROM fixtures f
+                   WHERE f.game_state_id=%s AND f.season=%s AND f.status='completed'
+               ) played_clubs
+               GROUP BY club_id
+           )
+           SELECT p.id,p.overall,p.potential,p.age,p.position,p.attributes,
+                  p.market_value,p.market_value_source,p.growth_progress,
+                  p.form,p.morale,p.original_data,
+                  c.league,c.country,
+                  coalesce(ss.minutes_played,0)::int AS minutes_played,
+                  ss.average_rating,
+                  coalesce(tm.team_matches,0)::int AS team_matches
+           FROM players p
+           JOIN clubs c ON c.id=p.club_id AND c.game_state_id=p.game_state_id
+           LEFT JOIN season_stats ss ON ss.player_id=p.id
+           LEFT JOIN team_matches tm ON tm.club_id=p.club_id
+           WHERE p.game_state_id=%s
+           ORDER BY p.id""",
+        (game_state_id, season, game_state_id, season, game_state_id, season, game_state_id),
+    ).fetchall()
+
+    updates = []
+    total_overall_change = 0
+    for row in rows:
+        player = dict(row)
+        if int(player.get("team_matches") or 0) <= 0:
+            continue
+        original_data = dict(player.get("original_data") or {})
+        if original_data.get("sm27_last_progressed_season") == season:
+            continue
+
+        overall = max(40, min(100, int(player.get("overall") or 40)))
+        potential = int(player.get("potential") or overall)
+        age = max(16, min(45, int(player.get("age") or 24)))
+        attributes = dict(player.get("attributes") or {})
+        delta, remainder = calculate_season_development(
+            overall=overall,
+            potential=potential,
+            age=age,
+            minutes_played=int(player.get("minutes_played") or 0),
+            team_matches=int(player.get("team_matches") or 0),
+            average_rating=player.get("average_rating"),
+            form=player.get("form", 50),
+            morale=player.get("morale", 70),
+            growth_progress=player.get("growth_progress", 0),
+        )
+        new_overall = max(40, min(100, overall + delta))
+        actual_delta = new_overall - overall
+        if actual_delta != delta:
+            remainder = 0.0
+        new_age = min(45, age + 1)
+        new_attributes = develop_attributes_for_season(
+            str(player.get("position") or "CM"), attributes, actual_delta, season
+        )
+
+        old_model_value = estimated_market_value(
+            overall, potential, age, player.get("league") or "",
+            player.get("country") or "", attributes,
+        )
+        new_model_value = estimated_market_value(
+            new_overall, potential, new_age, player.get("league") or "",
+            player.get("country") or "", new_attributes,
+        )
+        current_value = max(0, int(player.get("market_value") or 0))
+        if current_value:
+            scaled_value = current_value * new_model_value / max(1, old_model_value)
+            new_market_value = max(10_000, min(200_000_000, int(round(scaled_value / 10_000) * 10_000)))
+        else:
+            new_market_value = new_model_value
+
+        baseline_source = str(
+            original_data.get("market_value_source")
+            or player.get("market_value_source")
+            or "SM27 estimate"
+        )
+        if baseline_source in {"Transfermarkt", "SofaScore"}:
+            new_market_value_source = f"{baseline_source} + SM27 seasonal adjustment"
+        else:
+            new_market_value_source = "SM27 seasonal estimate"
+
+        original_data.setdefault(
+            "sm27_baseline",
+            player_baseline_snapshot(overall, potential, current_value, attributes),
+        )
+        original_data.setdefault("market_value_source", baseline_source)
+        original_data["sm27_last_progressed_season"] = season
+        original_data["sm27_last_season_development"] = {
+            "season": season,
+            "overall_delta": actual_delta,
+            "minutes_played": int(player.get("minutes_played") or 0),
+            "average_rating": (
+                round(float(player["average_rating"]), 2)
+                if player.get("average_rating") is not None else None
+            ),
+        }
+        updates.append((
+            new_age, new_overall, Jsonb(new_attributes), new_market_value,
+            new_market_value_source, remainder, Jsonb(original_data),
+            player["id"], game_state_id,
+        ))
+        total_overall_change += actual_delta
+
+    if updates:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """UPDATE players
+                   SET age=%s,overall=%s,attributes=%s,market_value=%s,
+                       market_value_source=%s,growth_progress=%s,original_data=%s,updated_at=now()
+                   WHERE id=%s AND game_state_id=%s""",
+                updates,
+            )
+    return {"players": len(updates), "overall_change": total_overall_change}
 
 
 def _allocate_integer(total: int, weights: list[float]) -> list[int]:
@@ -1874,13 +2019,14 @@ def _match_lineups(
         starters.extend(player for player in available if player["id"] not in used and len(starters) < 11)
         for player in starters:
             condition_delta = player_condition_modifier(player)
+            fitness_delta = player_match_fitness_modifier(player)
             role_penalty = position_penalty(
                 str(player.get("position") or "CM"),
                 list(player.get("secondary_positions") or []),
                 str(player.get("target_position") or player.get("position") or "CM"),
             )
             player["effective_overall"] = max(
-                1, min(99, int(player["overall"]) + condition_delta + role_penalty)
+                40, min(100, int(player["overall"]) + condition_delta + fitness_delta + role_penalty)
             )
         selected[club_id] = starters
     return selected, suspended_ids
@@ -2413,6 +2559,9 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
         ).fetchone()
         if not tournament_id:
             raise HTTPException(status_code=409, detail="Не удалось определить турнир для следующего сезона")
+        progression = update_player_season_development(
+            conn, str(save["id"]), str(save["season"])
+        )
         clubs = conn.execute(
             "SELECT id,name,reputation FROM clubs WHERE game_state_id=%s ORDER BY name",
             (save["id"],),
@@ -2438,7 +2587,15 @@ def advance_game(manager: dict = Depends(manager_dep), conn: Connection = Depend
                       last_autosave_at=now(),updated_at=now() WHERE id=%s""",
             (next_season, first_day, first_day, save["id"]),
         )
-        return {"ok": True, "new_season": next_season, "matches_simulated": 0, "results": [], "manager_result": None}
+        return {
+            "ok": True,
+            "new_season": next_season,
+            "matches_simulated": 0,
+            "players_developed": progression["players"],
+            "overall_change": progression["overall_change"],
+            "results": [],
+            "manager_result": None,
+        }
 
     match_date = next_round["match_date"]
     completed, manager_results = simulate_matchday(

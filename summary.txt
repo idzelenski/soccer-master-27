@@ -577,3 +577,14 @@ SM27 — футбольный менеджер / симулятор карьер
 ## 56. VALVERDE RESTORE IN NEW ACTIVE REAL MADRID CAREER + UK NATION FLAGS — 2026-11-27
 - Repaired Fede Valverde in active save `e9d7fdc9-ca04-4215-9ad5-abc37b957ff8`: 87 OVR, 90 POT, CM, EA FC 27 attributes, €120m estimate and baseline snapshot (previous fresh save held corrupted 68/70 baseline).
 - Frontend flag URLs now accept subdivision identifiers and distinct aliases for England (`gb-eng`), Scotland (`gb-sct`), Wales (`gb-wls`), Northern Ireland (`gb-nir`); Ireland remains Republic of Ireland `ie`. Commit `0cf2746e2ad98658ce9124efd51b66047d7f25f2`.
+
+
+## 57. PLAYER DEVELOPMENT, DYNAMIC OVR AND CAREER RESET SAFETY — 2026-11-28
+- Fixed the Dynamic OVR source: temporary OVR now responds only to morale, smoothly capped at -4/+2. Sharpness (Тонус) and fatigue no longer subtract from displayed OVR or the player's attribute panel; they apply only a small match-performance penalty (maximum -3).
+- Slowed sharpness loss: an unused player loses 1 point per fixture instead of 2; partial appearances no longer reduce sharpness. Regular 60+ minute appearances still restore 1 point.
+- Added one-time player development at season transition using age, potential gap, minutes played, average match rating, form and morale. Permanent OVR change is clamped to -8/+8 per season and 40–100; fractional progress carries between seasons. Relevant position attributes and market value are recalculated with the change and the player's age.
+- Added an idempotency marker per player/season so a repeated transition cannot apply the same season's development twice. Source catalogs are read-only to progression.
+- Strengthened career reset baseline protection: every real and generated player receives an immutable sm27_baseline snapshot of OVR, potential, attributes and market value. Academy placeholder IDs now derive from stable club source IDs, so their generated attributes remain repeatable after a reset.
+- Reset still deletes only career-scoped game_states (cascading its career data); a fresh save is rebuilt by reading world_player_catalog and fc27_player_catalog. No source-catalog rows or existing career saves were manually reset during this code change.
+- Production audit before deployment: latest active save contained 540/540 baseline snapshots; current OVR, potential and attributes matched those snapshots for all 540 players. One historical market-value mismatch was found for Rafa (stored baseline €0 vs current €11.01m), caused by a prior manual repair; a new career recreates that player from the catalog/value-estimation path rather than relying on this legacy snapshot.
+- Validation and deployment status to be recorded after CI and Render verification.

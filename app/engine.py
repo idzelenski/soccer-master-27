@@ -10,6 +10,184 @@ def clamp(value: float, low: float, high: float) -> float:
     return max(low, min(high, value))
 
 
+def morale_overall_modifier(morale: float | int | None) -> int:
+    """Slow dynamic-OVR adjustment from morale only; match fitness is separate."""
+    try:
+        value = 70.0 if morale is None else float(morale)
+    except (TypeError, ValueError):
+        value = 70.0
+    return int(round(clamp((clamp(value, 0, 100) - 70) * 0.06, -4, 2)))
+
+
+def player_match_fitness_modifier(player: dict[str, Any]) -> int:
+    """A small match-only penalty; sharpness/fatigue never reduce a player's base OVR."""
+    try:
+        sharpness = 85.0 if player.get("sharpness") is None else float(player["sharpness"])
+    except (TypeError, ValueError):
+        sharpness = 85.0
+    try:
+        fatigue = 0.0 if player.get("fatigue") is None else float(player["fatigue"])
+    except (TypeError, ValueError):
+        fatigue = 0.0
+    penalty = (clamp(sharpness, 0, 100) - 85) * 0.02 - clamp(fatigue, 0, 100) * 0.015
+    return int(round(clamp(penalty, -3, 0)))
+
+
+def calculate_season_development(
+    *,
+    overall: int,
+    potential: int,
+    age: int,
+    minutes_played: int,
+    team_matches: int,
+    average_rating: float | None,
+    form: int | float = 50,
+    morale: int | float = 70,
+    growth_progress: int | float = 0,
+) -> tuple[int, float]:
+    """Return bounded permanent OVR change and the fractional progress carried forward."""
+    current = int(clamp(float(overall), 40, 100))
+    years = max(16, min(45, int(age or 24)))
+    matches = max(0, int(team_matches or 0))
+    minutes = max(0, int(minutes_played or 0))
+    minutes_ratio = clamp(minutes / max(90, matches * 90), 0, 1) if matches else 0.0
+
+    if years <= 18:
+        age_factor = 2.2
+    elif years <= 21:
+        age_factor = 1.7
+    elif years <= 23:
+        age_factor = 1.1
+    elif years <= 26:
+        age_factor = 0.4
+    elif years <= 29:
+        age_factor = -0.2
+    elif years <= 31:
+        age_factor = -0.8
+    elif years <= 33:
+        age_factor = -1.4
+    else:
+        age_factor = -2.0
+
+    if minutes_ratio >= 0.75:
+        playing_factor = 1.6
+    elif minutes_ratio >= 0.55:
+        playing_factor = 1.2
+    elif minutes_ratio >= 0.35:
+        playing_factor = 0.7
+    elif minutes_ratio >= 0.15:
+        playing_factor = 0.1
+    else:
+        playing_factor = -1.2
+
+    if average_rating is None:
+        performance_factor = 0.0 if minutes_ratio >= 0.15 else -0.3
+    else:
+        rating = float(average_rating)
+        if rating >= 7.5:
+            performance_factor = 1.4
+        elif rating >= 7.2:
+            performance_factor = 1.0
+        elif rating >= 6.9:
+            performance_factor = 0.6
+        elif rating >= 6.6:
+            performance_factor = 0.2
+        elif rating >= 6.3:
+            performance_factor = -0.2
+        elif rating >= 6.0:
+            performance_factor = -0.6
+        else:
+            performance_factor = -1.0
+
+    potential_gap = int(potential or current) - current
+    if years <= 23:
+        potential_factor = min(1.0, max(-0.4, potential_gap * 0.06))
+    elif years <= 26:
+        potential_factor = min(0.4, max(-0.2, potential_gap * 0.03))
+    else:
+        potential_factor = 0.0
+
+    try:
+        form_value = 50.0 if form is None else float(form)
+    except (TypeError, ValueError):
+        form_value = 50.0
+    try:
+        morale_value = 70.0 if morale is None else float(morale)
+    except (TypeError, ValueError):
+        morale_value = 70.0
+    try:
+        stored_progress = 0.0 if growth_progress is None else float(growth_progress)
+    except (TypeError, ValueError):
+        stored_progress = 0.0
+
+    form_factor = clamp((clamp(form_value, 0, 100) - 50) * 0.012, -0.6, 0.6)
+    morale_factor = clamp((clamp(morale_value, 0, 100) - 70) * 0.008, -0.56, 0.24)
+    accumulated = clamp(
+        age_factor + playing_factor + performance_factor + potential_factor
+        + form_factor + morale_factor + stored_progress, -8, 8
+    )
+    delta = math.trunc(accumulated)
+    remainder = round(accumulated - delta, 3)
+    bounded_delta = int(clamp(current + delta, 40, 100)) - current
+    if bounded_delta != delta:
+        remainder = 0.0
+    return bounded_delta, remainder
+
+
+def develop_attributes_for_season(
+    position: str,
+    attributes: dict[str, Any] | None,
+    overall_delta: int,
+    season: str,
+) -> dict[str, int]:
+    """Move role-relevant attributes with permanent OVR development."""
+    updated: dict[str, int] = {}
+    for key, value in (attributes or {}).items():
+        try:
+            updated[str(key).upper()] = int(clamp(float(value), 1, 99))
+        except (TypeError, ValueError):
+            continue
+    if not overall_delta or not updated:
+        return updated
+
+    priorities = {
+        "GK": ("REF", "DIV", "POS", "HAN", "SPE", "KIC"),
+        "CB": ("DEF", "PHY", "PAC", "PAS", "DRI", "SHO"),
+        "RB": ("PAC", "DEF", "PHY", "DRI", "PAS", "SHO"),
+        "LB": ("PAC", "DEF", "PHY", "DRI", "PAS", "SHO"),
+        "RWB": ("PAC", "DEF", "DRI", "PHY", "PAS", "SHO"),
+        "LWB": ("PAC", "DEF", "DRI", "PHY", "PAS", "SHO"),
+        "CDM": ("DEF", "PAS", "PHY", "PAC", "DRI", "SHO"),
+        "CM": ("PAS", "DRI", "PHY", "DEF", "PAC", "SHO"),
+        "CAM": ("PAS", "DRI", "SHO", "PAC", "PHY", "DEF"),
+        "RM": ("PAC", "DRI", "PAS", "SHO", "PHY", "DEF"),
+        "LM": ("PAC", "DRI", "PAS", "SHO", "PHY", "DEF"),
+        "RW": ("PAC", "DRI", "SHO", "PAS", "PHY", "DEF"),
+        "LW": ("PAC", "DRI", "SHO", "PAS", "PHY", "DEF"),
+        "ST": ("SHO", "PAC", "PHY", "DRI", "PAS", "DEF"),
+        "CF": ("SHO", "DRI", "PAS", "PAC", "PHY", "DEF"),
+    }
+    available = [key for key in priorities.get((position or "CM").upper(), priorities["CM"]) if key in updated]
+    if not available:
+        available = sorted(updated)
+    try:
+        year = int(str(season)[:4])
+    except (TypeError, ValueError):
+        year = 0
+    cursor = year % len(available)
+    direction = 1 if overall_delta > 0 else -1
+    for _ in range(abs(int(overall_delta))):
+        for offset in range(len(available)):
+            index = (cursor + offset) % len(available)
+            key = available[index]
+            value = updated[key]
+            if (direction > 0 and value < 99) or (direction < 0 and value > 1):
+                updated[key] = value + direction
+                cursor = (index + 1) % len(available)
+                break
+    return updated
+
+
 def poisson(lam: float, rng: random.Random) -> int:
     """Knuth's Poisson sampler; lambdas are deliberately kept small for football scores."""
     lam = clamp(lam, 0.05, 5.0)
@@ -117,7 +295,7 @@ def overall_from_market_value(
         score += age_component + rng.randint(-1, 1)
     else:
         score = 42 + reputation * 0.29 + age_component + rng.randint(-3, 3)
-    return int(round(clamp(score, 35, 90)))
+    return int(round(clamp(score, 40, 90)))
 
 
 def potential_from_overall(overall: int, age: int | None, seed: int) -> int:
@@ -135,8 +313,8 @@ def estimate_transfer_value(
     attributes: dict[str, Any] | None = None,
 ) -> int:
     """Estimate a player's market value in euros from age, league, OVR and role traits."""
-    ovr = clamp(float(overall), 35, 99)
-    pot = clamp(float(potential), ovr, 99)
+    ovr = clamp(float(overall), 40, 100)
+    pot = clamp(float(potential), ovr, 100)
     years = max(16, min(43, int(age or 24)))
     league_key = (league or "").casefold()
     country_key = (country or "").casefold()

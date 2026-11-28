@@ -3,9 +3,16 @@ from datetime import date, datetime, timezone
 from app.main import player_available_for_match, player_condition_modifier
 
 
-def test_zero_condition_values_are_not_replaced_with_neutral_defaults():
-    player = {"form": 0, "morale": 0, "sharpness": 0, "fatigue": 100}
-    assert player_condition_modifier(player) == -27
+def test_tone_and_fatigue_do_not_reduce_dynamic_overall():
+    player = {"form": 0, "morale": 70, "sharpness": 0, "fatigue": 100}
+    assert player_condition_modifier(player) == 0
+
+
+def test_bad_morale_is_the_only_temporary_overall_penalty_and_is_capped():
+    assert player_condition_modifier({"morale": 50, "sharpness": 0, "fatigue": 100}) == -1
+    assert player_condition_modifier({"morale": 30}) == -2
+    assert player_condition_modifier({"morale": 0}) == -4
+    assert player_condition_modifier({"morale": 100}) == 2
 
 
 def test_missing_condition_values_are_neutral():
