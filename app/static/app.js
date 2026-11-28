@@ -1044,6 +1044,7 @@ function renderFixtures(rows) {
     '<div class="calendar-layout panel"><section class="calendar-main">' +
     '<div class="calendar-month-nav"><button class="btn-quiet" id="calendar-prev">‹</button><h2>' + monthLabel +
     '</h2><button class="btn-quiet" id="calendar-next">›</button></div>' +
+    '<p class="calendar-scrub-hint">Зажми дату на полсекунды и веди пальцем по календарю, чтобы перемотать дни</p>' +
     '<div class="calendar-weekdays">' + weekdays + '</div><div class="calendar-grid">' + cells.join("") +
     '</div><div class="calendar-legend"><span class="calendar-score win">Победа</span>' +
     '<span class="calendar-score draw">Ничья</span><span class="calendar-score loss">Поражение</span></div></section>' +
@@ -1136,11 +1137,23 @@ function setupCalendarInteractions() {
     state.tabCache.fixtures = state.fixtures;
     await renderCurrent();
   };
-  let pressTimer = null, longPressTriggered = false;
+  let activeCalendarPress = null;
+  let suppressCalendarClickUntil = 0;
+  const clearCalendarScrub = press => {
+    if (!press) return;
+    clearTimeout(press.timer);
+    document.removeEventListener("pointermove", press.moveHandler);
+    document.removeEventListener("pointerup", press.endHandler);
+    document.removeEventListener("pointercancel", press.cancelHandler);
+    if (activeCalendarPress === press) activeCalendarPress = null;
+    document.body.classList.remove("calendar-scrubbing");
+    document.querySelectorAll(".calendar-day.scrub-target").forEach(cell => {
+      cell.classList.remove("scrub-target");
+    });
+  };
   document.querySelectorAll("[data-calendar-date]").forEach(button => {
     button.addEventListener("click", event => {
-      if (longPressTriggered) {
-        longPressTriggered = false;
+      if (Date.now() < suppressCalendarClickUntil) {
         event.preventDefault();
         return;
       }
@@ -1152,18 +1165,59 @@ function setupCalendarInteractions() {
       advanceCalendarToDate(button.dataset.calendarDate);
     });
     button.addEventListener("pointerdown", event => {
-      if (event.pointerType !== "touch") return;
-      longPressTriggered = false;
-      clearTimeout(pressTimer);
-      pressTimer = setTimeout(() => {
-        longPressTriggered = true;
-        advanceCalendarToDate(button.dataset.calendarDate);
-      },550);
+      if (event.pointerType !== "touch" || !event.isPrimary) return;
+      if (activeCalendarPress) clearCalendarScrub(activeCalendarPress);
+
+      const press = {
+        pointerId: event.pointerId,
+        originDate: button.dataset.calendarDate,
+        targetDate: button.dataset.calendarDate,
+        scrubbing: false,
+        timer: null,
+        moveHandler: null,
+        endHandler: null,
+        cancelHandler: null,
+      };
+      activeCalendarPress = press;
+
+      const selectScrubTarget = targetDate => {
+        if (!targetDate || targetDate === press.targetDate) return;
+        press.targetDate = targetDate;
+        document.querySelectorAll("[data-calendar-date]").forEach(cell => {
+          cell.classList.toggle("scrub-target", cell.dataset.calendarDate === targetDate);
+        });
+      };
+      press.moveHandler = moveEvent => {
+        if (moveEvent.pointerId !== press.pointerId || !press.scrubbing) return;
+        const pointed = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY);
+        const cell = pointed?.closest?.("[data-calendar-date]");
+        if (cell) selectScrubTarget(cell.dataset.calendarDate);
+      };
+      press.endHandler = endEvent => {
+        if (endEvent.pointerId !== press.pointerId) return;
+        const shouldAdvance = press.scrubbing;
+        const targetDate = press.targetDate;
+        clearCalendarScrub(press);
+        if (shouldAdvance) {
+          suppressCalendarClickUntil = Date.now() + 900;
+          endEvent.preventDefault();
+          advanceCalendarToDate(targetDate);
+        }
+      };
+      press.cancelHandler = cancelEvent => {
+        if (cancelEvent.pointerId === press.pointerId) clearCalendarScrub(press);
+      };
+
+      document.addEventListener("pointermove", press.moveHandler);
+      document.addEventListener("pointerup", press.endHandler);
+      document.addEventListener("pointercancel", press.cancelHandler);
+      press.timer = setTimeout(() => {
+        if (activeCalendarPress !== press) return;
+        press.scrubbing = true;
+        document.body.classList.add("calendar-scrubbing");
+        button.classList.add("scrub-target");
+      }, 480);
     });
-    const cancelPress = () => clearTimeout(pressTimer);
-    button.addEventListener("pointerup",cancelPress);
-    button.addEventListener("pointercancel",cancelPress);
-    button.addEventListener("pointerleave",cancelPress);
   });
 }
 

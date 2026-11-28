@@ -594,3 +594,11 @@ SM27 — футбольный менеджер / симулятор карьер
 - Added touch long-press (550 ms) on a calendar day cell to advance the game date on mobile. Reuses the existing advance-to-date flow, including per-match simulation, errors, toasts, refresh/invalidation; ordinary tap still selects the day.
 - Desktop right-click/context-menu remains supported. Pointer release/cancel/leave clears the long-press timer. Added touch-specific user-select/touch-action styles to prevent accidental text selection while retaining scroll gesture behavior.
 - Deployment and verification status pending.
+
+
+## 58. MOBILE CALENDAR LONG-PRESS SCRUB — 2026-11-28
+- On touch devices, holding a calendar date for 480 ms starts a date-scrub gesture. The user can drag across day cells; the last hovered date is preview-highlighted and applied on release by the existing calendar date-advance flow.
+- A short tap still only selects a day. Click-after-long-press is suppressed to avoid double selection/advancement. Pointer cancellation safely clears the gesture without advancing.
+- Added a mobile-only instruction hint and touch-action handling so the browser does not steal the drag gesture from the calendar grid.
+- Added CI source-level coverage for the hold-drag-release path and the unchanged short-tap behavior.
+- Validation and deployment status to be recorded after checks.
