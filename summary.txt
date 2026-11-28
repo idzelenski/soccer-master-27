@@ -590,15 +590,10 @@ SM27 — футбольный менеджер / симулятор карьер
 - Validation/deploy: GitHub Actions passed (run 46132376393); Render deploy dep-dc5a8i0u01pc7380spfg is LIVE on code commit dd1c07474f803026e80972eb0a08e8b4e993fc06; Render logs confirm application startup complete. Neon audit after deployment still reports 540 players, 540 baseline rows, 0 OVR/potential/attribute mismatches. No save reset or player/catalog data mutation was performed.
 
 
-## 58. MOBILE CALENDAR LONG-PRESS ADVANCE — 2026-11-28
-- Added touch long-press (550 ms) on a calendar day cell to advance the game date on mobile. Reuses the existing advance-to-date flow, including per-match simulation, errors, toasts, refresh/invalidation; ordinary tap still selects the day.
-- Desktop right-click/context-menu remains supported. Pointer release/cancel/leave clears the long-press timer. Added touch-specific user-select/touch-action styles to prevent accidental text selection while retaining scroll gesture behavior.
-- Deployment and verification status pending.
-
 
 ## 58. MOBILE CALENDAR LONG-PRESS SCRUB — 2026-11-28
-- On touch devices, holding a calendar date for 480 ms starts a date-scrub gesture. The user can drag across day cells; the last hovered date is preview-highlighted and applied on release by the existing calendar date-advance flow.
-- A short tap still only selects a day. Click-after-long-press is suppressed to avoid double selection/advancement. Pointer cancellation safely clears the gesture without advancing.
-- Added a mobile-only instruction hint and touch-action handling so the browser does not steal the drag gesture from the calendar grid.
-- Added CI source-level coverage for the hold-drag-release path and the unchanged short-tap behavior.
-- Validation and deployment status to be recorded after checks.
+- Replaced the one-shot long-press with a mobile date-scrub gesture: hold a calendar cell for 480 ms, drag across other day cells, then release to advance to the last selected date using the existing date simulation flow.
+- A short tap continues to select a day without advancing the game. Pointer cancellation clears the gesture; a post-scrub click is suppressed to prevent a duplicate selection.
+- Added a mobile-only hint and touch-action rules that allow the calendar to own the full drag gesture. Updated asset version keys in index.html to prevent phones from reusing cached JavaScript/CSS.
+- Added CI source-level tests for hold-drag-release and retained short-tap behavior.
+- GitHub Actions run 46134746950 passed (pytest, Python compileall, Node syntax check). Render deploy status to be recorded after publishing.
