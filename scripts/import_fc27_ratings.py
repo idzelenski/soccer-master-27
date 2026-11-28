@@ -23,6 +23,7 @@ from psycopg.types.json import Jsonb
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.researched_profiles import get_researched_profile
+from app.player_baselines import backfill_player_baseline_catalog
 
 ENDPOINT = "https://drop-api.ea.com/rating/ea-sports-fc"
 PAGE_SIZE = 100
@@ -490,115 +491,6 @@ def sync_player_baseline_catalog(conn: psycopg.Connection) -> int:
     return cursor.rowcount
 
 
-def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]]) -> tuple[int,int]:
-    index=match_candidates(records)
-    update_world_player_matches(conn,index)
-    rows=conn.execute("""
-        SELECT p.id,p.external_id,wp.position AS source_position,p.name,p.nationality,p.age,p.position,
-               p.market_value,p.market_value_source,p.potential,p.original_data,p.attributes,
-               p.profile_source,p.source_url,p.fc27_player_id,c.reputation,c.name AS club_name
-        FROM players p
-        JOIN clubs c ON c.id=p.club_id
-        LEFT JOIN world_player_catalog wp ON wp.source_id=p.external_id
-        WHERE p.original_data->>'generated' IS DISTINCT FROM 'true'
-    """).fetchall()
-    updates=[]
-    matched=fallback=0
-    for row in rows:
-        match=choose_match(row["name"],row["nationality"],row["club_name"],row["position"],index)
-        age=int(row["age"] or 24)
-        reputation=int(row["reputation"] or 50)
-        if match:
-            matched+=1
-            overall=int(match["overall"])
-            position=match["position"]
-            attributes=dict(match["attributes"] or {}) or fallback_attributes(overall,position)
-            fc_id=match["ea_player_id"]
-            profile_source=f"EA SPORTS FC 27 official ratings database · {FC27_SNAPSHOT.strftime('%d.%m.%Y')}"
-            potential=max(overall,int(row["potential"] or overall))
-            market_source=row["market_value_source"] or "not_available"
-            market_value=int(row["market_value"] or 0) if market_source=="SofaScore" else 0
-            if market_source!="SofaScore":
-                market_source="not_available"
-            source_url=row["source_url"]
-            original=dict(row["original_data"] or {})
-            original.pop("research",None)
-            rating_source="EA SPORTS FC 27 official ratings"
-        else:
-            fallback+=1
-            researched=get_researched_profile(row["name"],row["club_name"])
-            market_source=row["market_value_source"] or "not_available"
-            market_value=int(row["market_value"] or 0) if market_source=="SofaScore" else 0
-            if market_source!="SofaScore":
-                market_source="not_available"
-            if researched:
-                if researched.get("market_value") is not None:
-                    market_value=int(researched["market_value"])
-                    market_source="SofaScore"
-                overall=int(researched["overall"])
-                position=researched["position"]
-                attributes=dict(researched["attributes"])
-                potential=max(overall,int(researched["potential"]))
-                profile_source=researched["profile_source"]
-                source_url=researched["source_url"]
-                rating_source="FotMob 2026/27 researched estimate"
-            else:
-                if market_value>0:
-                    score=60+15*math.log10(max(market_value,25_000)/1_000_000)
-                    age_adjust=5 if age<=21 else 3 if age<=24 else 0 if age<=29 else -min(12,(age-29)*0.75)
-                    overall=max(35,min(90,round(score+age_adjust)))
-                else:
-                    overall=max(35,min(84,round(42+reputation*0.29+(3 if age<=24 else 0))))
-                source_position = row.get("source_position")
-                if source_position in {"DF", "MF", "FW"}:
-                    position = estimated_primary_position(
-                        source_position, str(row.get("external_id") or row["id"])
-                    )
-                elif row["position"] in POSITION_CODES:
-                    position = row["position"]
-                else:
-                    position = estimated_primary_position(
-                        source_position or row["position"], str(row.get("external_id") or row["id"])
-                    )
-                attributes=fallback_attributes(overall,position)
-                potential=max(overall,int(row["potential"] or overall))
-                profile_source="SM27 model estimate · no EA FC 27 player match"
-                source_url=row["source_url"]
-                rating_source="SM27 model estimate"
-            fc_id=None
-            original=dict(row["original_data"] or {})
-            if researched:
-                original["research"]=researched["research"]
-                original["position_source"]="FotMob researched player profile"
-            else:
-                original.pop("research",None)
-                original["position_source"] = (
-                    "SM27 deterministic estimate from OpenFootballBase broad role"
-                    if row.get("source_position") in {"DF", "MF", "FW"}
-                    else "Existing SM27 primary-position estimate"
-                )
-        wage=estimated_weekly_wage(overall,age,reputation,row["name"])
-        if not match and researched:
-            original["market_value_as_of"]=researched.get("market_value_as_of")
-        original.update({
-            "rating_source":rating_source,
-            "rating_snapshot":FC27_SNAPSHOT.isoformat() if match else None,
-            "wage_source":"Capology 2026/27 estimated gross weekly wage" if any(normalise_name(row["name"]).startswith(alias) for alias in WAGE_OVERRIDES) else "SM27 wage model",
-        })
-        updates.append((
-            fc_id,position,overall,potential,market_value,market_source,wage,
-            Jsonb(attributes),Jsonb(original),profile_source,source_url,row["id"],
-        ))
-    with conn.cursor() as cursor:
-        cursor.executemany("""
-            UPDATE players SET fc27_player_id=%s,position=%s,overall=%s,potential=%s,
-                market_value=%s,market_value_source=%s,weekly_wage=%s,attributes=%s,
-                original_data=%s,profile_source=%s,source_url=%s,updated_at=now()
-            WHERE id=%s
-        """,updates)
-    print(f"Updated career player rows: {matched} FC 27 matches, {fallback} SM27 estimates")
-    return matched,fallback
-
 def main(database_url: str | None = None) -> None:
     database_url = database_url or os.environ.get("DATABASE_URL")
     if not database_url:
@@ -607,10 +499,14 @@ def main(database_url: str | None = None) -> None:
     with psycopg.connect(database_url,connect_timeout=20,row_factory=dict_row) as conn:
         ensure_schema(conn)
         import_catalog(conn,records)
-        matched,fallback=update_career_players(conn,records)
-        sync_player_baseline_catalog(conn)
+        matched=update_world_player_matches(conn,match_candidates(records))
+        synced=sync_player_baseline_catalog(conn)
+        initialized=backfill_player_baseline_catalog(conn)
         conn.commit()
-    print(f"FC 27 import complete. matched={matched}, estimated={fallback}, total_catalog={len(records)}")
+    print(
+        f"FC 27 import complete. matched={matched}, source_synced={synced}, "
+        f"baselines_initialized={initialized}, total_catalog={len(records)}"
+    )
 
 
 if __name__ == "__main__":

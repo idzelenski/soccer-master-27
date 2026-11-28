@@ -44,6 +44,7 @@ from app.engine import (
 )
 from app.schemas import CreateSaveIn, LoginIn, PositionTrainingIn, RegisterIn, TacticIn
 from app.researched_profiles import get_researched_profile
+from app.player_baselines import backfill_player_baseline_catalog
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
 LOGGER = logging.getLogger("sm27")
@@ -180,6 +181,10 @@ async def lifespan(_: FastAPI):
                            attempted_at=now(),finished_at=NULL,error_message=NULL"""
                 )
                 start_fc27_import = True
+            if not start_fc27_import:
+                initialized = backfill_player_baseline_catalog(conn)
+                if initialized:
+                    LOGGER.info("Initialized %s missing immutable player baseline profiles", initialized)
         if start_fc27_import:
             LOGGER.info("FC 27 rating catalog is empty; starting one-time import in the app process")
             asyncio.create_task(asyncio.to_thread(_run_fc27_rating_import))

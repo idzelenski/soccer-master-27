@@ -613,3 +613,11 @@ SM27 — футбольный менеджер / симулятор карьер
 - Set `baseline_captured_at=COALESCE(baseline_captured_at,now())` and `baseline_model_version='manual-v1'` so future catalogue imports do not replace the manually frozen baseline row.
 - Baseline catalog changes apply to newly created careers. They do not automatically change a player in an existing career; that requires a separate targeted update to the intended `players` row and game_state_id.
 - Example edits in conversation use hypothetical values only; no extra player rating edits were applied to production by this documentation update.
+
+
+## 61. FULL PLAYER BASELINE CATALOG BACKFILL — 2026-11-28
+- Аудит production Neon выявил ошибку предыдущей реализации: в `sm27_player_baseline_catalog` было 16,615 записей, но только одна имела заполненные `baseline_*` поля (Valverde). Импортёр EA содержал функцию `update_career_players()`, которая при повторном импорте могла менять рейтинги, характеристики, потенциал и стоимость игроков во всех сохранениях; это удалено из рабочего пути.
+- Новый общий модуль `app/player_baselines.py` заполняет стартовый профиль для всего каталога детерминированно по тем же формулам, что использует создание карьеры. EA OVR/attributes используются только для надёжно сопоставленных 9,689 игроков; у остальных — SM27 модельные оценки. EA API не содержит потенциала (NULL у всех 17,849 EA-записей), поэтому потенциал хранится как отдельная оценка SM27, не как официальный EA рейтинг.
+- Стоимость: существующее рыночное значение из OpenFootballBase/Transfermarkt, исследованная SofaScore оценка для явно описанных профилей, иначе модель SM27. Зарплата, возраст, позиция, атрибуты, срок контракта, источники и версия модели фиксируются в baseline-таблице.
+- Бэкфилл выполняется для записей без `baseline_captured_at`; ранее зафиксированные и вручную изменённые baseline-строки (включая Valverde) не перезаписываются. Созданные карьеры и прогресс игроков не обновляются бэкфиллом. Повторный запуск безопасен.
+- Добавлены unit-тесты EA-сопоставления, детерминированных оценок без EA-совпадения, исследованного профиля и запрета импортёру изменять текущие карьеры. CI и production deployment требуют фактической проверки перед отметкой о завершении.
