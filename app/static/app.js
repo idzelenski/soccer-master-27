@@ -1072,82 +1072,98 @@ function setupCalendarInteractions() {
     state.calendarMonth = new Date(state.calendarMonth.getFullYear(), state.calendarMonth.getMonth()+1, 1);
     renderCurrent();
   });
+  const advanceCalendarToDate = async targetDate => {
+    const initialDate = String(state.save?.game_date || "2026-07-01").slice(0,10);
+    if (targetDate < initialDate) {
+      toast("Нельзя перемотать карьеру назад. Выбери текущую или будущую дату.",true);
+      return;
+    }
+    const start = new Date(initialDate + "T12:00:00");
+    const end = new Date(targetDate + "T12:00:00");
+    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
+    state.calendarMonth = new Date(start.getFullYear(),start.getMonth(),1);
+    state.selectedCalendarDate = initialDate;
+    await renderCurrent();
+    const matchDates = new Set((state.fixtures || [])
+      .map(row => String(row.match_date || "").slice(0,10))
+      .filter(day => day > initialDate && day <= targetDate));
+    let advancedDate = initialDate;
+    let cursor = new Date(start);
+    while (cursor <= end) {
+      const key = cursor.getFullYear() + "-" + String(cursor.getMonth()+1).padStart(2,"0") + "-" + String(cursor.getDate()).padStart(2,"0");
+      const monthKey = cursor.getFullYear() + "-" + cursor.getMonth();
+      if (state.calendarMonth.getFullYear() + "-" + state.calendarMonth.getMonth() !== monthKey) {
+        state.calendarMonth = new Date(cursor.getFullYear(),cursor.getMonth(),1);
+        await renderCurrent();
+      }
+      state.selectedCalendarDate = key;
+      document.querySelectorAll("[data-calendar-date]").forEach(cell => cell.classList.toggle("selected",cell.dataset.calendarDate===key));
+      await new Promise(resolve => setTimeout(resolve,28));
+      if (matchDates.has(key) && key > advancedDate) {
+        try {
+          const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(key), {method:'POST',body:'{}'});
+          if (state.save) state.save.game_date = result.game_date;
+          advancedDate = result.game_date;
+          applyCalendarResults(result.results || []);
+          const ownMatch = result.manager_result || (result.results || []).slice(-1)[0];
+          if (ownMatch) toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
+          await renderCurrent();
+        } catch (err) {
+          toast(err.message,true);
+          await renderCurrent();
+          return;
+        }
+      }
+      cursor.setDate(cursor.getDate()+1);
+    }
+    if (targetDate > advancedDate) {
+      try {
+        const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(targetDate), {method:'POST',body:'{}'});
+        if (state.save) state.save.game_date = result.game_date;
+        applyCalendarResults(result.results || []);
+        if (result.manager_result) {
+          const ownMatch = result.manager_result;
+          toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
+        } else {
+          toast('Дата обновлена: ' + dateLabel(targetDate) + '. Твой клуб в этот день не играл.');
+        }
+      } catch (err) {
+        toast(err.message,true);
+      }
+    }
+    state.selectedCalendarDate = targetDate;
+    invalidateCareerTabs();
+    state.tabCache.fixtures = state.fixtures;
+    await renderCurrent();
+  };
+  let pressTimer = null, longPressTriggered = false;
   document.querySelectorAll("[data-calendar-date]").forEach(button => {
-    button.addEventListener("click", () => {
+    button.addEventListener("click", event => {
+      if (longPressTriggered) {
+        longPressTriggered = false;
+        event.preventDefault();
+        return;
+      }
       state.selectedCalendarDate = button.dataset.calendarDate;
       renderCurrent();
     });
-    button.addEventListener("contextmenu", async event => {
+    button.addEventListener("contextmenu", event => {
       event.preventDefault();
-      const targetDate = button.dataset.calendarDate;
-      const initialDate = String(state.save?.game_date || "2026-07-01").slice(0,10);
-      if (targetDate < initialDate) {
-        toast("Нельзя перемотать карьеру назад. Выбери текущую или будущую дату.",true);
-        return;
-      }
-      const start = new Date(initialDate + "T12:00:00");
-      const end = new Date(targetDate + "T12:00:00");
-      if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return;
-      state.calendarMonth = new Date(start.getFullYear(),start.getMonth(),1);
-      state.selectedCalendarDate = initialDate;
-      await renderCurrent();
-      const matchDates = new Set((state.fixtures || [])
-        .map(row => String(row.match_date || "").slice(0,10))
-        .filter(day => day > initialDate && day <= targetDate));
-      let advancedDate = initialDate;
-      let cursor = new Date(start);
-      while (cursor <= end) {
-        const key = cursor.getFullYear() + "-" + String(cursor.getMonth()+1).padStart(2,"0") + "-" + String(cursor.getDate()).padStart(2,"0");
-        const monthKey = cursor.getFullYear() + "-" + cursor.getMonth();
-        if (state.calendarMonth.getFullYear() + "-" + state.calendarMonth.getMonth() !== monthKey) {
-          state.calendarMonth = new Date(cursor.getFullYear(),cursor.getMonth(),1);
-          await renderCurrent();
-        }
-        state.selectedCalendarDate = key;
-        document.querySelectorAll("[data-calendar-date]").forEach(cell => cell.classList.toggle("selected",cell.dataset.calendarDate===key));
-        await new Promise(resolve => setTimeout(resolve,28));
-        // Reveal the user's match as soon as its calendar day is reached.
-        // Only match dates are sent to the server, not every calendar day.
-        if (matchDates.has(key) && key > advancedDate) {
-          try {
-            const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(key), {method:'POST',body:'{}'});
-            if (state.save) state.save.game_date = result.game_date;
-            advancedDate = result.game_date;
-            applyCalendarResults(result.results || []);
-            const ownMatch = result.manager_result || (result.results || []).slice(-1)[0];
-            if (ownMatch) toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
-            await renderCurrent();
-          } catch (err) {
-            toast(err.message,true);
-            await renderCurrent();
-            return;
-          }
-        }
-        cursor.setDate(cursor.getDate()+1);
-      }
-      if (targetDate > advancedDate) {
-        try {
-          const result = await api('/api/game/advance-to-date?target_date=' + encodeURIComponent(targetDate), {method:'POST',body:'{}'});
-          if (state.save) state.save.game_date = result.game_date;
-          applyCalendarResults(result.results || []);
-          if (result.manager_result) {
-            const ownMatch = result.manager_result;
-            toast(ownMatch.home + ' ' + ownMatch.home_score + ':' + ownMatch.away_score + ' ' + ownMatch.away);
-          } else {
-            toast('Дата обновлена: ' + dateLabel(targetDate) + '. Твой клуб в этот день не играл.');
-          }
-        } catch (err) {
-          toast(err.message,true);
-        }
-      }
-      state.selectedCalendarDate = targetDate;
-      invalidateCareerTabs();
-      state.tabCache.fixtures = state.fixtures;
-      await renderCurrent();
+      advanceCalendarToDate(button.dataset.calendarDate);
     });
-  });
-  document.querySelectorAll("[data-fixture-id]").forEach(button => {
-    button.addEventListener("click", () => showMatchDetails(button.dataset.fixtureId));
+    button.addEventListener("pointerdown", event => {
+      if (event.pointerType !== "touch") return;
+      longPressTriggered = false;
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(() => {
+        longPressTriggered = true;
+        advanceCalendarToDate(button.dataset.calendarDate);
+      },550);
+    });
+    const cancelPress = () => clearTimeout(pressTimer);
+    button.addEventListener("pointerup",cancelPress);
+    button.addEventListener("pointercancel",cancelPress);
+    button.addEventListener("pointerleave",cancelPress);
   });
 }
 

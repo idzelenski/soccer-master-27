@@ -940,6 +940,12 @@ button:disabled {
   background: rgba(65,217,139,.13);
 }
 
+/* Mobile calendar: allow long-press navigation without triggering browser selection. */
+.calendar-day { -webkit-user-select:none; user-select:none; }
+@media (hover:none) and (pointer:coarse) {
+  .calendar-day { touch-action:pan-x pan-y; }
+}
+
 
 /* Tactical player labels: country flag + role on the first line, surname below. */
 .pitch-player {

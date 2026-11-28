@@ -588,3 +588,9 @@ SM27 — футбольный менеджер / симулятор карьер
 - Reset still deletes only career-scoped game_states (cascading its career data); a fresh save is rebuilt by reading world_player_catalog and fc27_player_catalog. No source-catalog rows or existing career saves were manually reset during this code change.
 - Production audit: latest active save has 540/540 baseline snapshots; current OVR, potential and attributes match those snapshots for all 540 players. The sole market-value difference is Rafa: source catalog value is 0/not supplied, while the career uses the model estimate €11.01m. Recalculation from OVR 80, age 22, La Liga and his attributes reproduces exactly €11.01m; new career creation snapshots that calculated value.
 - Validation/deploy: GitHub Actions passed (run 46132376393); Render deploy dep-dc5a8i0u01pc7380spfg is LIVE on code commit dd1c07474f803026e80972eb0a08e8b4e993fc06; Render logs confirm application startup complete. Neon audit after deployment still reports 540 players, 540 baseline rows, 0 OVR/potential/attribute mismatches. No save reset or player/catalog data mutation was performed.
+
+
+## 58. MOBILE CALENDAR LONG-PRESS ADVANCE — 2026-11-28
+- Added touch long-press (550 ms) on a calendar day cell to advance the game date on mobile. Reuses the existing advance-to-date flow, including per-match simulation, errors, toasts, refresh/invalidation; ordinary tap still selects the day.
+- Desktop right-click/context-menu remains supported. Pointer release/cancel/leave clears the long-press timer. Added touch-specific user-select/touch-action styles to prevent accidental text selection while retaining scroll gesture behavior.
+- Deployment and verification status pending.
