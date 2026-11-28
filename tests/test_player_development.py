@@ -90,8 +90,10 @@ def test_career_reset_recreates_players_from_catalogs_without_mutating_sources()
     assert "DELETE FROM game_states WHERE manager_id=%s RETURNING id" in reset
     assert "world_player_catalog" not in reset
     assert "fc27_player_catalog" not in reset
-    assert "FROM world_player_catalog wp" in creation
-    assert "LEFT JOIN fc27_player_catalog fc" in creation
+    assert "FROM sm27_player_baseline_catalog b" in creation
+    assert "FROM world_player_catalog wp" not in creation
+    assert "LEFT JOIN fc27_player_catalog fc" not in creation
+    assert "baseline_overall=coalesce(baseline_overall,%s)" in creation
     assert '"sm27_baseline": player_baseline_snapshot(' in creation
     assert "team['source_id']" in creation
     assert "UPDATE players" in progression
