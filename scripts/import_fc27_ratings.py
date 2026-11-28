@@ -300,6 +300,9 @@ def match_candidates(records: list[dict[str, Any]]) -> dict[str, list[dict[str, 
             normalise_name(first_name + " " + last_name),
             normalise_name(first_name + " " + first_surname),
         }
+        # The world roster uses "Fede Valverde"; EA's official record is "Federico Valverde".
+        if normalise_name(first_name + " " + first_surname) == "federicovalverde":
+            keys.add("fedevalverde")
         # EA sometimes stores a common display name, e.g. "Benjamin White",
         # while the club roster uses the accepted short form "Ben White".
         if normalise_name(first_name + " " + first_surname) == "benjaminwhite":
@@ -453,6 +456,40 @@ def estimated_weekly_wage(overall: int, age: int, reputation: int, name: str) ->
     return int(max(250,min(1_500_000,round(base*age_factor*club_factor/100)*100)))
 
 
+def sync_player_baseline_catalog(conn: psycopg.Connection) -> int:
+    """Copy new/uncaptured source snapshots without overwriting captured career baselines."""
+    cursor = conn.execute("""
+        INSERT INTO sm27_player_baseline_catalog (
+            source_id,club_source_id,name,date_of_birth,nationality,source_position,
+            market_value_eur,market_value_as_of,source_name,source_url,raw_data,
+            fc27_player_id,fc27_position,fc27_overall,fc27_potential,fc27_attributes
+        )
+        SELECT wp.source_id,wp.club_source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
+               wp.market_value_eur,wp.market_value_as_of,wp.source_name,wp.source_url,wp.raw_data,
+               wp.fc27_player_id,fc.position,fc.overall,fc.potential,coalesce(fc.attributes,'{}'::jsonb)
+        FROM world_player_catalog wp
+        LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=wp.fc27_player_id
+        ON CONFLICT (source_id) DO UPDATE SET
+            club_source_id=EXCLUDED.club_source_id,
+            name=EXCLUDED.name,
+            date_of_birth=EXCLUDED.date_of_birth,
+            nationality=EXCLUDED.nationality,
+            source_position=EXCLUDED.source_position,
+            market_value_eur=EXCLUDED.market_value_eur,
+            market_value_as_of=EXCLUDED.market_value_as_of,
+            source_name=EXCLUDED.source_name,
+            source_url=EXCLUDED.source_url,
+            raw_data=EXCLUDED.raw_data,
+            fc27_player_id=EXCLUDED.fc27_player_id,
+            fc27_position=EXCLUDED.fc27_position,
+            fc27_overall=EXCLUDED.fc27_overall,
+            fc27_potential=EXCLUDED.fc27_potential,
+            fc27_attributes=EXCLUDED.fc27_attributes
+        WHERE sm27_player_baseline_catalog.baseline_captured_at IS NULL
+    """)
+    return cursor.rowcount
+
+
 def update_career_players(conn: psycopg.Connection, records: list[dict[str, Any]]) -> tuple[int,int]:
     index=match_candidates(records)
     update_world_player_matches(conn,index)
@@ -571,6 +608,7 @@ def main(database_url: str | None = None) -> None:
         ensure_schema(conn)
         import_catalog(conn,records)
         matched,fallback=update_career_players(conn,records)
+        sync_player_baseline_catalog(conn)
         conn.commit()
     print(f"FC 27 import complete. matched={matched}, estimated={fallback}, total_catalog={len(records)}")
 

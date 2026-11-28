@@ -597,3 +597,11 @@ SM27 — футбольный менеджер / симулятор карьер
 - Added a mobile-only hint and touch-action rules that allow the calendar to own the full drag gesture. Updated asset version keys in index.html to prevent phones from reusing cached JavaScript/CSS.
 - Added CI source-level tests for hold-drag-release and retained short-tap behavior.
 - GitHub Actions run 46134746950 passed (pytest, Python compileall, Node syntax check); run 46134858352 passed again for the final cache-busting commit. Render deploy dep-dc5amqou01pc7382d8og is LIVE on commit 15b70c41fb5ecc85b9d98ab88804afd99360611b. Runtime logs confirm application startup complete, Uvicorn bound to 0.0.0.0:10000, and GET / returned 200 OK.
+
+## 59. IMMUTABLE PLAYER BASELINE CATALOG — 2026-11-28
+- Added `sm27_player_baseline_catalog` in Neon. It snapshots every `world_player_catalog` player plus the linked EA FC 27 rating/attributes into a separate source table; the first career that uses a player also captures the derived starting OVR, potential, position, attributes, market value, wage and contract. Captured baseline fields are filled only when NULL and are never overwritten by career progression or later source refreshes.
+- New careers now read the baseline catalog rather than live mutable source tables. Every career row is seeded from the frozen baseline; generated academy placeholders retain deterministic source IDs and attributes.
+- Fixed the missing name alias `Fede Valverde` → `Federico Valverde` / EA FC 27 ID 239053. Canonical baseline is 87 OVR, 90 POT, CM, attributes DEF81/DRI81/PAC90/PAS83/PHY85/SHO84, and €120m SM27 market-value estimate.
+- Migration also repairs only active-save Valverde rows matching the known bad 68/70 seed; progressed saves are not reset. No career is deleted.
+- Added regression tests for the alias and baseline-only career source path. Deployment and live DB verification pending.
+

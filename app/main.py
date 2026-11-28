@@ -1234,14 +1234,18 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     # One catalogue query replaces a separate player SELECT per club.
     source_ids = [str(team["source_id"]) for team in team_records]
     player_rows = conn.execute(
-        """SELECT wp.club_source_id,wp.source_id,wp.name,wp.date_of_birth,wp.nationality,wp.position,
-                  wp.market_value_eur,wp.market_value_as_of,wp.source_url,wp.raw_data,
-                  wp.fc27_player_id,fc.position AS fc27_position,fc.overall AS fc27_overall,
-                  fc.potential AS fc27_potential,fc.attributes AS fc27_attributes
-           FROM world_player_catalog wp
-           LEFT JOIN fc27_player_catalog fc ON fc.ea_player_id=wp.fc27_player_id
-           WHERE wp.club_source_id=ANY(%s)
-           ORDER BY wp.club_source_id,wp.market_value_eur DESC,wp.name""",
+        """SELECT b.club_source_id,b.source_id,b.name,b.date_of_birth,b.nationality,
+                  b.source_position AS position,b.market_value_eur,b.market_value_as_of,
+                  b.source_url,b.raw_data,b.fc27_player_id,b.fc27_position,
+                  b.fc27_overall,b.fc27_potential,b.fc27_attributes,
+                  b.baseline_age,b.baseline_position,b.baseline_overall,b.baseline_potential,
+                  b.baseline_market_value,b.baseline_market_value_as_of,
+                  b.baseline_market_value_source,b.baseline_weekly_wage,b.baseline_contract_end,
+                  b.baseline_attributes,b.baseline_profile_source,b.baseline_source_name,
+                  b.baseline_source_url,b.baseline_research,b.baseline_wage_source
+           FROM sm27_player_baseline_catalog b
+           WHERE b.club_source_id=ANY(%s)
+           ORDER BY b.club_source_id,b.market_value_eur DESC,b.name""",
         (source_ids,),
     ).fetchall()
     players_by_source: dict[str, list[dict]] = {}
@@ -1263,6 +1267,7 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
     player_inserts: list[tuple] = []
     teams_by_source = {str(team["source_id"]): team for team in team_records}
 
+    baseline_updates: list[tuple] = []
     for source_id, players_for_club in players_by_source.items():
         team = teams_by_source[source_id]
         for player in players_for_club:
@@ -1275,60 +1280,132 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
             player_name = "Fabián Ruiz" if external_id == "Q18637930" and team["name"] == "Paris Saint-Germain" else player["name"]
             fc27_id = player.get("fc27_player_id")
             researched = get_researched_profile(player_name, team["name"]) if not fc27_id else None
-            position = researched["position"] if researched else normalise_player_position(
-                player.get("fc27_position") or player["position"], external_id
-            )
+            research_data = player.get("baseline_research") or (researched["research"] if researched else None)
             source_market_value = int(player.get("market_value_eur") or 0)
-            if player.get("fc27_overall") is not None:
-                overall = int(player["fc27_overall"])
-            elif researched:
-                overall = int(researched["overall"])
-            else:
-                overall = overall_from_market_value(
-                    source_market_value, age, int(team["reputation"]),
-                    int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
+            cached_baseline = player.get("baseline_overall") is not None
+
+            if cached_baseline:
+                age = int(player.get("baseline_age") or age)
+                position = player.get("baseline_position") or normalise_player_position(
+                    player.get("fc27_position") or player["position"], external_id
                 )
-            if player.get("fc27_potential") is not None:
-                potential = int(player["fc27_potential"])
-            elif researched:
-                potential = int(researched["potential"])
-            else:
-                potential = max(
-                    overall,
-                    potential_from_overall(
+                overall = int(player["baseline_overall"])
+                potential = int(
+                    player["baseline_potential"]
+                    if player.get("baseline_potential") is not None
+                    else player.get("fc27_potential")
+                    if player.get("fc27_potential") is not None
+                    else max(overall, potential_from_overall(
                         overall, age, int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
-                    ),
+                    ))
+                )
+                attributes = dict(player.get("baseline_attributes") or player.get("fc27_attributes") or {})
+                if not attributes:
+                    attributes = player_attributes(overall, position, external_id)
+                market_value = int(
+                    player["baseline_market_value"]
+                    if player.get("baseline_market_value") is not None
+                    else estimated_market_value(
+                        overall, potential, age, team.get("league") or league_name,
+                        team.get("country") or selected.get("country"), attributes,
+                    )
+                )
+                market_value_source = player.get("baseline_market_value_source") or (
+                    "Transfermarkt" if source_market_value > 0 else "SM27 estimate"
+                )
+                market_value_as_of = player.get("baseline_market_value_as_of") or player.get("market_value_as_of")
+                profile_source = player.get("baseline_profile_source") or (
+                    "EA SPORTS FC 27 official ratings database" if fc27_id
+                    else researched["profile_source"] if researched
+                    else "SM27 estimate — player not matched in FC 27 ratings database"
+                )
+                source_name = player.get("baseline_source_name") or (
+                    "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase"
+                )
+                source_url = player.get("baseline_source_url") or (
+                    researched["source_url"] if researched else player.get("source_url")
+                )
+                weekly_wage = int(
+                    player["baseline_weekly_wage"]
+                    if player.get("baseline_weekly_wage") is not None
+                    else estimated_weekly_wage(overall, age, int(team["reputation"]), player_name)
+                )
+                contract_end = player.get("baseline_contract_end") or estimated_contract_end(age, external_id)
+                wage_source = player.get("baseline_wage_source") or (
+                    "Capology 2026/27 estimate"
+                    if normalise_player_name(player["name"]).startswith(("cristianoronaldo", "inigomartinez"))
+                    else "SM27 career wage model"
+                )
+            else:
+                position = researched["position"] if researched else normalise_player_position(
+                    player.get("fc27_position") or player["position"], external_id
+                )
+                if player.get("fc27_overall") is not None:
+                    overall = int(player["fc27_overall"])
+                elif researched:
+                    overall = int(researched["overall"])
+                else:
+                    overall = overall_from_market_value(
+                        source_market_value, age, int(team["reputation"]),
+                        int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
+                    )
+                if player.get("fc27_potential") is not None:
+                    potential = int(player["fc27_potential"])
+                elif researched:
+                    potential = int(researched["potential"])
+                else:
+                    potential = max(
+                        overall,
+                        potential_from_overall(
+                            overall, age, int(hashlib.sha1(external_id.encode()).hexdigest()[:8], 16)
+                        ),
+                    )
+                attributes = dict(player["fc27_attributes"] or {}) if fc27_id else {}
+                if researched:
+                    attributes = dict(researched["attributes"])
+                if not attributes:
+                    attributes = player_attributes(overall, position, external_id)
+                if fc27_id:
+                    profile_source = "EA SPORTS FC 27 official ratings database"
+                elif researched:
+                    profile_source = researched["profile_source"]
+                else:
+                    profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
+
+                researched_value = int(researched["market_value"]) if researched and researched.get("market_value") else 0
+                if researched_value > 0:
+                    market_value = researched_value
+                    market_value_source = "SofaScore"
+                    market_value_as_of = researched.get("market_value_as_of")
+                elif source_market_value > 0:
+                    market_value = source_market_value
+                    market_value_source = "Transfermarkt"
+                    market_value_as_of = player.get("market_value_as_of")
+                else:
+                    market_value = estimated_market_value(
+                        overall, potential, age, team.get("league") or league_name,
+                        team.get("country") or selected.get("country"), attributes,
+                    )
+                    market_value_source = "SM27 estimate"
+                    market_value_as_of = None
+
+                source_name = "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase"
+                source_url = researched["source_url"] if researched else player.get("source_url")
+                weekly_wage = estimated_weekly_wage(overall, age, int(team["reputation"]), player_name)
+                contract_end = estimated_contract_end(age, external_id)
+                wage_source = (
+                    "Capology 2026/27 estimate"
+                    if normalise_player_name(player["name"]).startswith(("cristianoronaldo", "inigomartinez"))
+                    else "SM27 career wage model"
                 )
 
-            attributes = dict(player["fc27_attributes"] or {}) if fc27_id else {}
-            if researched:
-                attributes = dict(researched["attributes"])
-            if not attributes:
-                attributes = player_attributes(overall, position, external_id)
-
-            if fc27_id:
-                profile_source = "EA SPORTS FC 27 official ratings database"
-            elif researched:
-                profile_source = researched["profile_source"]
-            else:
-                profile_source = "SM27 estimate — player not matched in FC 27 ratings database"
-
-            researched_value = int(researched["market_value"]) if researched and researched.get("market_value") else 0
-            if researched_value > 0:
-                market_value = researched_value
-                market_value_source = "SofaScore"
-                market_value_as_of = researched.get("market_value_as_of")
-            elif source_market_value > 0:
-                market_value = source_market_value
-                market_value_source = "Transfermarkt"
-                market_value_as_of = player.get("market_value_as_of")
-            else:
-                market_value = estimated_market_value(
-                    overall, potential, age, team.get("league") or league_name,
-                    team.get("country") or selected.get("country"), attributes,
-                )
-                market_value_source = "SM27 estimate"
-                market_value_as_of = None
+            baseline_updates.append((
+                age, position, overall, potential, market_value, market_value_as_of,
+                market_value_source, weekly_wage, contract_end, Jsonb(attributes),
+                profile_source, source_name, source_url,
+                Jsonb(research_data) if research_data else None, wage_source,
+                "sm27-player-baseline-v1", external_id,
+            ))
 
             raw = dict(player["raw_data"] or {})
             raw.update({
@@ -1338,25 +1415,44 @@ def create_save(body: CreateSaveIn, manager: dict = Depends(manager_dep), conn: 
                 "market_value_source": market_value_source,
                 "market_value_as_of": _json_safe_date(market_value_as_of),
                 "market_value_model": "league-age-ovr-potential-attributes-v1" if market_value_source == "SM27 estimate" else None,
-                "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 researched estimate" if researched else "SM27 estimate",
+                "game_rating_type": "EA SPORTS FC 27" if fc27_id else "SM27 researched estimate" if research_data else "SM27 estimate",
                 "contract_source": "SM27 estimate",
-                "wage_source": "Capology 2026/27 estimate" if normalise_player_name(player["name"]).startswith(("cristianoronaldo", "inigomartinez")) else "SM27 career wage model",
-                "research": researched["research"] if researched else None,
+                "wage_source": wage_source,
+                "research": research_data,
                 "generated": False,
             })
-            contract_end = estimated_contract_end(age, external_id)
-            weekly_wage = estimated_weekly_wage(
-                overall, age, int(team["reputation"]), player_name
-            )
             player_inserts.append((
                 game_state_id, team["id"], external_id, player_name, player["nationality"],
                 dob, age, position, overall, potential, market_value, weekly_wage, contract_end,
-                Jsonb(attributes), Jsonb(raw),
-                "EA FC 27" if fc27_id else "FotMob research / OpenFootballBase" if researched else "OpenFootballBase",
-                researched["source_url"] if researched else player["source_url"], market_value_as_of,
+                Jsonb(attributes), Jsonb(raw), source_name, source_url, market_value_as_of,
                 flag_for_nationality(player["nationality"]), profile_source, fc27_id,
                 market_value_source,
             ))
+
+    if baseline_updates:
+        with conn.cursor() as cursor:
+            cursor.executemany(
+                """UPDATE sm27_player_baseline_catalog SET
+                       baseline_age=coalesce(baseline_age,%s),
+                       baseline_position=coalesce(baseline_position,%s),
+                       baseline_overall=coalesce(baseline_overall,%s),
+                       baseline_potential=coalesce(baseline_potential,%s),
+                       baseline_market_value=coalesce(baseline_market_value,%s),
+                       baseline_market_value_as_of=coalesce(baseline_market_value_as_of,%s),
+                       baseline_market_value_source=coalesce(baseline_market_value_source,%s),
+                       baseline_weekly_wage=coalesce(baseline_weekly_wage,%s),
+                       baseline_contract_end=coalesce(baseline_contract_end,%s),
+                       baseline_attributes=coalesce(baseline_attributes,%s),
+                       baseline_profile_source=coalesce(baseline_profile_source,%s),
+                       baseline_source_name=coalesce(baseline_source_name,%s),
+                       baseline_source_url=coalesce(baseline_source_url,%s),
+                       baseline_research=coalesce(baseline_research,%s),
+                       baseline_wage_source=coalesce(baseline_wage_source,%s),
+                       baseline_model_version=coalesce(baseline_model_version,%s),
+                       baseline_captured_at=coalesce(baseline_captured_at,now())
+                   WHERE source_id=%s""",
+                baseline_updates,
+            )
     if player_inserts:
         with conn.cursor() as cursor:
             cursor.executemany(player_insert_sql, player_inserts)
